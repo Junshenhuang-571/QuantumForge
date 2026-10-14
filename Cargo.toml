@@ -1,0 +1,20 @@
+[package]
+name = "quantumforge"
+version = "0.1.0"
+edition = "2024"
+
+[workspace]
+members = ["."]
+resolver = "2"
+
+[features]
+default = []
+llvm = []
+cuda = []
+
+[[bench]]
+name = "cuda_batch"
+path = "benches/cuda_batch.rs"
+harness = false
+required-features = ["cuda"]
+
