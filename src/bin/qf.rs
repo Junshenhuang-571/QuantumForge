@@ -59,6 +59,12 @@ QuantumForge REPL — one session, live state. Type 'help' for this, 'quit' to e
                          bare = fit cos(x+0.7) demo (Adam)
                          qnn {x0,y0, x1,y1, ...} = fit your (x,y) pairs
                          config: target=K (demo) lr=E steps=N opt=adam|gd
+  qtm                  Quantum Turing Machine: reversible transition unitary
+                         U_delta on a superposition of configurations, measured
+  mbqc                 Measurement-Based QC: 3-qubit cluster state + adaptive
+                         measurement pattern with by-product corrections
+  anneal [T]           Adiabatic QC: interpolate H0=-(X0+X1) -> H1=Z0Z1 over
+                         time T (default 20), report final vs exact ground energy
   eval EXPR            numeric eval of a scalar expression, e.g. 2 + 3*Pi
   simplify EXPR        canonicalize a scalar expression
   diff EXPR            symbolic derivative d/dx of EXPR
@@ -156,6 +162,9 @@ impl Session {
             "shots" => self.cmd_shots(rest, false),
             "shots-noise" => self.cmd_shots(rest, true),
             "qnn" => self.cmd_qnn(rest),
+            "qtm" => self.cmd_qtm(rest),
+            "mbqc" => self.cmd_mbqc(rest),
+            "anneal" => self.cmd_anneal(rest),
             "eval" => self.cmd_eval(rest),
             "simplify" => self.cmd_simplify(rest),
             "diff" => self.cmd_diff(rest),
@@ -859,6 +868,153 @@ impl Session {
             }
         }
         println!("{sum}");
+    }
+
+    /// `qtm` — Quantum Turing Machine demo. Builds a reversible "toggle" QTM
+    /// (2 states that flip each step, head stays, tape unchanged), prepares the
+    /// uniform superposition over internal states, runs one quantum step (the
+    /// unitary transition U_δ acting coherently), and measures the state register.
+    fn cmd_qtm(&self, _rest: &str) {
+        use quantumforge::qtm::{Configuration, Direction, QuantumTuringMachine, Transition};
+        let transitions = vec![
+            vec![
+                Some(Transition { next_state: 1, write: 0, direction: Direction::Stay }),
+                Some(Transition { next_state: 1, write: 1, direction: Direction::Stay }),
+            ],
+            vec![
+                Some(Transition { next_state: 0, write: 0, direction: Direction::Stay }),
+                Some(Transition { next_state: 0, write: 1, direction: Direction::Stay }),
+            ],
+        ];
+        let m = match QuantumTuringMachine::new(2, 2, 4, 4, transitions, 0) {
+            Ok(m) => m,
+            Err(e) => return eprintln!("qtm error: {e}"),
+        };
+        let tape = [0u8, 1, 0, 0];
+        let head = 2;
+        println!(
+            "qtm: reversible toggle machine, {} qubits, tape {:?} head {head}",
+            m.qubits(),
+            tape
+        );
+        let start = Configuration { tape: tape.to_vec(), head, state: 0 };
+        let classical = m.run_classical(&start, 1);
+        println!("  classical step: state {} -> {}", start.state, classical.state);
+        let sup = match m.prepare_superposition(&tape, head) {
+            Ok(s) => s,
+            Err(e) => return eprintln!("qtm error: {e}"),
+        };
+        let before = sup.norm_sqr();
+        let stepped = match m.step_quantum(&sup) {
+            Ok(s) => s,
+            Err(e) => return eprintln!("qtm error: {e}"),
+        };
+        println!("  unitary step preserved norm: {} -> {}", before, stepped.norm_sqr());
+        match m.run_quantum_measured(&sup, 1, 7) {
+            Ok((state, _)) => println!("  measured internal state after 1 step = {state}"),
+            Err(e) => eprintln!("  measurement error: {e}"),
+        }
+    }
+
+    /// `mbqc` — Measurement-Based Quantum Computing demo. Prepares a 3-qubit
+    /// linear cluster state, runs a measurement pattern with by-product
+    /// corrections, and reports the corrected angles and outputs.
+    fn cmd_mbqc(&self, _rest: &str) {
+        use quantumforge::mbqc::{ClusterState, MeasurementBasis, MeasurementPattern, MeasurementStep};
+        let cluster = ClusterState::path(3);
+        println!(
+            "mbqc: 3-qubit linear cluster state, {} edges {:?}",
+            cluster.edges.len(),
+            cluster.edges
+        );
+        let mut pattern = MeasurementPattern::new();
+        pattern.push(MeasurementStep {
+            qubit: 1,
+            basis: MeasurementBasis::Equatorial(0.6),
+            depends_on_x: vec![],
+            depends_on_z: vec![],
+            output: false,
+        });
+        pattern.push(MeasurementStep {
+            qubit: 2,
+            basis: MeasurementBasis::Z,
+            depends_on_x: vec![],
+            depends_on_z: vec![],
+            output: false,
+        });
+        pattern.push(MeasurementStep {
+            qubit: 0,
+            basis: MeasurementBasis::Equatorial(0.0),
+            depends_on_x: vec![1],
+            depends_on_z: vec![2],
+            output: true,
+        });
+        match pattern.run(&cluster, 7) {
+            Ok(run) => {
+                println!("  raw outcomes: {:?}", run.outcomes);
+                println!(
+                    "  corrected angles: {:.4}, {:.4}, {:.4}",
+                    run.angles[0], run.angles[1], run.angles[2]
+                );
+                println!("  output bit = {}", run.outputs[0]);
+            }
+            Err(e) => eprintln!("mbqc error: {e}"),
+        }
+    }
+
+    /// `anneal` — Adiabatic Quantum Computing demo. Interpolates from a
+    /// transverse-field driver H0 = -(X0+X1) to the problem H1 = Z0 Z1 over a
+    /// fixed schedule and reports the final energy vs the exact ground energy.
+    fn cmd_anneal(&self, rest: &str) {
+        use quantumforge::aqc::{run_adiabatic, uniform_superposition, AdiabaticSchedule};
+        let total_time: f64 = rest.trim().parse().unwrap_or(20.0);
+        let total_time = if total_time > 0.0 { total_time } else { 20.0 };
+
+        let x = [0.0, 1.0, 1.0, 0.0];
+        let i = [1.0, 0.0, 0.0, 1.0];
+        let z = [1.0, 0.0, 0.0, -1.0];
+        let kron = |a: &[f64; 4], b: &[f64; 4]| -> Vec<f64> {
+            let mut out = vec![0.0; 16];
+            for r in 0..2 {
+                for c in 0..2 {
+                    for k in 0..2 {
+                        for l in 0..2 {
+                            out[(r * 2 + k) * 4 + (c * 2 + l)] = a[r * 2 + c] * b[k * 2 + l];
+                        }
+                    }
+                }
+            }
+            out
+        };
+        let xi = kron(&x, &i);
+        let ix = kron(&i, &x);
+        let h0: Vec<f64> = (0..16).map(|k| -(xi[k] + ix[k])).collect();
+        let zz = kron(&z, &z);
+
+        let schedule = match AdiabaticSchedule::from_dense(2, h0, zz) {
+            Ok(s) => s,
+            Err(e) => return eprintln!("anneal error: {e}"),
+        };
+        let initial = match uniform_superposition(2) {
+            Ok(s) => s,
+            Err(e) => return eprintln!("anneal error: {e}"),
+        };
+        println!("anneal: H0=-(X0+X1) -> H1=Z0Z1, total_time={total_time}");
+        match run_adiabatic(&schedule, &initial, total_time, 1e-6, 50000) {
+            Ok(r) => {
+                println!("  initial ground energy = {:.6}", r.initial_energy);
+                println!("  final energy under H1 = {:.6}", r.final_energy);
+                println!("  exact ground energy    = {:.6}", r.exact_ground_energy);
+                let gap = (r.final_energy - r.exact_ground_energy).abs();
+                let verdict = if gap < 5e-3 {
+                    "✓ adiabatic (tracked ground state)"
+                } else {
+                    "(leaked — try longer total_time)"
+                };
+                println!("  |final - exact| = {gap:.2e}  {verdict}");
+            }
+            Err(e) => eprintln!("  anneal error: {e}"),
+        }
     }
 }
 

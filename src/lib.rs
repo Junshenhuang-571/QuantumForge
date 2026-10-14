@@ -4,13 +4,16 @@
 //! native execution paths. Backends preserve the behavior of the Rust reference.
 
 pub mod analytic;
+pub mod aqc;
 #[cfg(feature = "cuda")]
 pub mod cuda;
 #[cfg(feature = "llvm")]
 pub mod llvm_backend;
+pub mod mbqc;
 pub mod numeric_ir;
 pub mod parser;
 pub mod quantum;
+pub mod qtm;
 
 use std::collections::BTreeMap;
 use std::error::Error;

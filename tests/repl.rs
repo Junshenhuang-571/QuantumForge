@@ -355,3 +355,29 @@ fn seeded_shots_are_reproducible() {
     };
     assert_eq!(counts(&a), counts(&b), "seeded shots not reproducible");
 }
+
+#[test]
+fn qtm_command_runs_reversible_step() {
+    let out = run_qf(&["qtm", "quit"]);
+    assert!(out.contains("reversible toggle machine"), "qtm header:\n{out}");
+    assert!(out.contains("classical step: state 0 -> 1"), "classical toggle:\n{out}");
+    assert!(out.contains("measured internal state after 1 step = 1"), "measured:\n{out}");
+}
+
+#[test]
+fn mbqc_command_runs_measurement_pattern() {
+    let out = run_qf(&["mbqc", "quit"]);
+    assert!(out.contains("3-qubit linear cluster state"), "cluster header:\n{out}");
+    assert!(out.contains("2 edges"), "edge count:\n{out}");
+    assert!(out.contains("corrected angles:"), "by-product angles:\n{out}");
+    assert!(out.contains("output bit ="), "output bit:\n{out}");
+}
+
+#[test]
+fn anneal_command_reaches_ground_state() {
+    let out = run_qf(&["anneal 20", "quit"]);
+    assert!(out.contains("H0=-(X0+X1) -> H1=Z0Z1"), "schedule header:\n{out}");
+    assert!(out.contains("exact ground energy    = -1.000000"), "exact energy:\n{out}");
+    assert!(out.contains("✓ adiabatic"), "adiabatic verdict:\n{out}");
+}
+
