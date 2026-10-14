@@ -442,9 +442,10 @@ fn seeded_shots_are_reproducible() {
 #[test]
 fn qtm_command_runs_reversible_step() {
     let out = run_qf(&["qtm", "quit"]);
+    assert!(out.contains("counter machine"), "qtm header:\n{out}");
     assert!(
-        out.contains("reversible toggle machine"),
-        "qtm header:\n{out}"
+        out.contains("reversibility gap 0"),
+        "counter is a bijection:\n{out}"
     );
     assert!(
         out.contains("classical step: state 0 -> 1"),
@@ -453,6 +454,25 @@ fn qtm_command_runs_reversible_step() {
     assert!(
         out.contains("measured internal state after 1 step = 1"),
         "measured:\n{out}"
+    );
+}
+
+#[test]
+fn qtm_erase_machine_uses_ancilla() {
+    // The `erase` machine is non-injective on the plain register; the command
+    // must reject it there and then build a valid bijection via ancilla.
+    let out = run_qf(&["qtm machine=erase cells=4", "quit"]);
+    assert!(
+        out.contains("reversibility gap 64"),
+        "erase has a gap:\n{out}"
+    );
+    assert!(
+        out.contains("step_quantum rejected the plain register"),
+        "plain register rejected:\n{out}"
+    );
+    assert!(
+        out.contains("permutation is a bijection"),
+        "ancilla fixes it:\n{out}"
     );
 }
 

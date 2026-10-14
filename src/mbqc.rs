@@ -203,6 +203,151 @@ fn measure_x(state: &mut StateVector, q: usize, rng: &mut SmallRng) -> Result<u8
     state.measure(q, rng).map_err(|e| e.to_string())
 }
 
+/// Parse a single angle token: a decimal number, or a rational multiple of π
+/// written as `pi`, `2pi`, `pi/2`, `-pi/4`, `3pi/2`, etc. Returns radians.
+fn parse_angle(tok: &str) -> Result<f64, String> {
+    let t = tok.trim();
+    if let Ok(v) = t.parse::<f64>() {
+        return Ok(v);
+    }
+    // Optional leading sign, then split around the literal `pi`.
+    let (sign, rest) = match t.strip_prefix('-') {
+        Some(r) => (-1.0, r.trim()),
+        None => (1.0, t),
+    };
+    let (num_s, den_s) = match rest.split_once("pi") {
+        Some((n, d)) => {
+            // d is like "/2" (or empty). num is like "2" (or empty for bare pi).
+            let den = d.trim_start_matches('/').trim();
+            (n.trim(), if den.is_empty() { "1" } else { den })
+        }
+        None => return Err(format!("bad angle '{tok}'")),
+    };
+    let num: f64 = if num_s.is_empty() {
+        1.0
+    } else {
+        num_s.parse().map_err(|_| format!("bad angle '{tok}'"))?
+    };
+    let den: f64 = den_s.parse().map_err(|_| format!("bad angle '{tok}'"))?;
+    if den == 0.0 {
+        return Err(format!("bad angle '{tok}': zero denominator"));
+    }
+    Ok(sign * num * std::f64::consts::PI / den)
+}
+
+/// Parse a comma-separated list of `usize`, allowing the literal `none`/`-`
+/// for an empty entry. Used for dependency lists.
+fn parse_deps(tok: &str) -> Result<Vec<usize>, String> {
+    let t = tok.trim();
+    if t.is_empty() || t == "none" || t == "-" {
+        return Ok(Vec::new());
+    }
+    t.split(',')
+        .map(|x| {
+            x.trim()
+                .parse::<usize>()
+                .map_err(|_| format!("bad dependency '{x}'"))
+        })
+        .collect()
+}
+
+/// Build a [`MeasurementPattern`] from a compact spec, validating against the
+/// cluster's qubit count. Spec keys (all comma-separated, one entry per step,
+/// in measurement order):
+///
+/// - `angles=0.5,0,pi/2`  — nominal equatorial angles (or `z` for Z-basis)
+/// - `basis=eq,eq,z`      — `eq`/`z` per step (alternative to `z` in angles)
+/// - `deps=none,0,1`      — X-by-product dependencies (phase-shift sources)
+/// - `depsz=none,none,0`  — Z-by-product dependencies (plane-mirror sources)
+/// - `outputs=0,0,1`      — 1 marks an output step
+///
+/// Example: `angles=0.5,0,pi basis=eq,eq,z deps=none,0,1 depsz=none,none,0 outputs=0,0,1`
+pub fn parse_pattern(spec: &str, qubits: usize) -> Result<MeasurementPattern, String> {
+    let mut angles: Vec<String> = Vec::new();
+    let mut basis: Vec<String> = Vec::new();
+    let mut deps: Vec<Vec<usize>> = Vec::new();
+    let mut depsz: Vec<Vec<usize>> = Vec::new();
+    let mut outputs: Vec<bool> = Vec::new();
+
+    for word in spec.split_whitespace() {
+        let (k, v) = word
+            .split_once('=')
+            .ok_or_else(|| format!("bad pattern token '{word}' (want key=value)"))?;
+        match k {
+            "angles" => angles = v.split(',').map(|s| s.trim().to_owned()).collect(),
+            "basis" => basis = v.split(',').map(|s| s.trim().to_owned()).collect(),
+            "deps" => deps = v.split(',').map(parse_deps).collect::<Result<_, _>>()?,
+            "depsz" => depsz = v.split(',').map(parse_deps).collect::<Result<_, _>>()?,
+            "outputs" => {
+                outputs = v
+                    .split(',')
+                    .map(|s| match s.trim() {
+                        "1" | "true" => Ok(true),
+                        "0" | "false" | "" => Ok(false),
+                        other => Err(format!("bad output flag '{other}'")),
+                    })
+                    .collect::<Result<_, _>>()?
+            }
+            other => return Err(format!("unknown pattern key '{other}'")),
+        }
+    }
+
+    let n = angles.len().max(basis.len()).max(deps.len());
+    if n == 0 {
+        return Err("empty pattern (need angles= and/or basis=)".to_owned());
+    }
+    let mut pattern = MeasurementPattern::new();
+    for i in 0..n {
+        // Basis: explicit basis= wins; else `z` in angles= means Z-basis.
+        let b = if i < basis.len() && !basis[i].is_empty() {
+            match basis[i].as_str() {
+                "eq" | "equatorial" => MeasurementBasis::Equatorial(
+                    angles
+                        .get(i)
+                        .map(|a| parse_angle(a))
+                        .transpose()?
+                        .unwrap_or(0.0),
+                ),
+                "z" | "Z" => MeasurementBasis::Z,
+                other => return Err(format!("bad basis '{other}' (want eq|z)")),
+            }
+        } else {
+            let a = angles.get(i).ok_or("missing angle for step")?;
+            if a == "z" || a == "Z" {
+                MeasurementBasis::Z
+            } else {
+                MeasurementBasis::Equatorial(parse_angle(a)?)
+            }
+        };
+        let qubit = i; // default: measure vertices in order
+        if qubit >= qubits {
+            return Err(format!(
+                "step {i} measures qubit {qubit} but cluster has {qubits}"
+            ));
+        }
+        pattern.push(MeasurementStep {
+            qubit,
+            basis: b,
+            depends_on_x: deps.get(i).cloned().unwrap_or_default(),
+            depends_on_z: depsz.get(i).cloned().unwrap_or_default(),
+            output: outputs.get(i).copied().unwrap_or(i == n - 1),
+        });
+        // Validate dependency indices are in range.
+        for &d in pattern.steps[i]
+            .depends_on_x
+            .iter()
+            .chain(&pattern.steps[i].depends_on_z)
+        {
+            if d >= qubits {
+                return Err(format!(
+                    "step {i} depends on qubit {d} but cluster has {qubits}"
+                ));
+            }
+        }
+    }
+    Ok(pattern)
+}
+
 /// Convenience: a linear pattern that teleports/rotates a single logical qubit
 /// through a 3-qubit linear cluster — the canonical MBQC demo. Measures qubit
 /// 1 (input) at angle `alpha`, qubit 2 in `Z`, and reads out qubit 3 corrected

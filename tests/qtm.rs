@@ -140,3 +140,197 @@ fn non_reversible_table_is_rejected() {
         "non-reversible table should be rejected"
     );
 }
+
+/// A "move right, flip state" scanner: successor of `(s, h, tape)` is
+/// `(1-s, (h+1) mod cells, tape)`. Reversible now that head moves wrap.
+fn scan_machine() -> QuantumTuringMachine {
+    let transitions = vec![
+        vec![
+            Some(Transition {
+                next_state: 1,
+                write: 0,
+                direction: Direction::Right,
+            }),
+            Some(Transition {
+                next_state: 1,
+                write: 1,
+                direction: Direction::Right,
+            }),
+        ],
+        vec![
+            Some(Transition {
+                next_state: 0,
+                write: 0,
+                direction: Direction::Right,
+            }),
+            Some(Transition {
+                next_state: 0,
+                write: 1,
+                direction: Direction::Right,
+            }),
+        ],
+    ];
+    QuantumTuringMachine::new(2, 2, 4, 4, transitions, 0).expect("valid machine")
+}
+
+#[test]
+fn head_moves_wrap_and_scan_is_reversible() {
+    let m = scan_machine();
+    // Right from the last cell wraps to cell 0 (previously this halted).
+    let start = Configuration {
+        tape: vec![0, 0, 0, 0],
+        head: 3,
+        state: 0,
+    };
+    let next = m.step_classical(&start).expect("has successor");
+    assert_eq!(next.head, 0, "Right off the end wraps to cell 0");
+    assert_eq!(next.state, 1, "state flips");
+    // A total, injective table with wrapping heads is a bijection -> gap 0.
+    assert_eq!(
+        m.reversibility_gap(),
+        0,
+        "scan machine should be a bijection"
+    );
+    // And it runs as a quantum unitary.
+    let sup = m
+        .prepare_superposition(&[0, 0, 0, 0], 3)
+        .expect("superposition");
+    let before = sup.norm_sqr();
+    let after = m.step_quantum(&sup).expect("quantum step");
+    assert!((before - after.norm_sqr()).abs() < 1e-12, "norm preserved");
+}
+
+#[test]
+fn is_buildable_rejects_oversized_state_register() {
+    // 8 states need 3 register bits, but head_cells=2 gives only 2, so the
+    // state register cannot encode them injectively. `new` accepts the shape
+    // (8 is a power of two); `is_buildable` is what rejects it.
+    let transitions = vec![vec![None, None]; 8];
+    let m = QuantumTuringMachine::new(8, 2, 4, 2, transitions, 0).expect("8 states ok to build");
+    // 8 states need 3 bits but head_cells=2 gives 2 -> is_buildable fails.
+    assert!(
+        m.is_buildable().is_err(),
+        "8 states in 2 bits should be rejected"
+    );
+}
+
+/// Binary counter machine, reversible by construction: 2 states {carry, done}
+/// that ALWAYS transition (no fixed points), head moves right and wraps, tape
+/// unchanged, state flips each step. A clean bijection (involution on state +
+/// shift on head) — shows a total injective table needs no ancilla.
+fn counter_machine() -> QuantumTuringMachine {
+    let transitions = vec![
+        // state 0 (carry): move right, flip to done.
+        vec![
+            Some(Transition {
+                next_state: 1,
+                write: 0,
+                direction: Direction::Right,
+            }),
+            Some(Transition {
+                next_state: 1,
+                write: 1,
+                direction: Direction::Right,
+            }),
+        ],
+        // state 1 (done): move right, flip back to carry.
+        vec![
+            Some(Transition {
+                next_state: 0,
+                write: 0,
+                direction: Direction::Right,
+            }),
+            Some(Transition {
+                next_state: 0,
+                write: 1,
+                direction: Direction::Right,
+            }),
+        ],
+    ];
+    QuantumTuringMachine::new(2, 2, 4, 4, transitions, 0).expect("valid machine")
+}
+
+/// A machine whose tape write ERASES information (reads 0 or 1, always writes
+/// 0) — not injective on the plain register, so it needs ancilla.
+fn erasing_machine() -> QuantumTuringMachine {
+    let transitions = vec![
+        // state 0: read anything, write 0, move right, flip state.
+        vec![
+            Some(Transition {
+                next_state: 1,
+                write: 0,
+                direction: Direction::Right,
+            }),
+            Some(Transition {
+                next_state: 1,
+                write: 0,
+                direction: Direction::Right,
+            }),
+        ],
+        // state 1: read anything, write 0, move right, flip back.
+        vec![
+            Some(Transition {
+                next_state: 0,
+                write: 0,
+                direction: Direction::Right,
+            }),
+            Some(Transition {
+                next_state: 0,
+                write: 0,
+                direction: Direction::Right,
+            }),
+        ],
+    ];
+    QuantumTuringMachine::new(2, 2, 4, 4, transitions, 0).expect("valid machine")
+}
+
+#[test]
+fn total_injective_machine_needs_no_ancilla() {
+    let m = counter_machine();
+    assert_eq!(
+        m.reversibility_gap(),
+        0,
+        "total injective table is a bijection"
+    );
+    let sup = m
+        .prepare_superposition(&[1, 0, 1, 0], 0)
+        .expect("superposition");
+    let after = m.step_quantum(&sup).expect("quantum step");
+    assert!(
+        (sup.norm_sqr() - after.norm_sqr()).abs() < 1e-12,
+        "norm preserved"
+    );
+}
+
+#[test]
+fn erasing_machine_needs_ancilla_and_builds_bijection() {
+    let m = erasing_machine();
+    // Plain register: the write erases the read symbol -> not injective.
+    assert!(
+        m.step_quantum(&m.prepare_superposition(&[0, 0, 0, 0], 0).unwrap())
+            .is_err(),
+        "erasing write should be rejected on the plain register"
+    );
+    assert!(
+        m.reversibility_gap() > 0,
+        "erasing machine has a reversibility gap"
+    );
+    // Too-small ancilla is rejected.
+    assert!(
+        m.permutation_with_ancilla(2).is_err(),
+        "ancilla < tape_cells rejected"
+    );
+    // With a full ancilla register it must form a bijection.
+    let (perm, qubits) = m.permutation_with_ancilla(4).expect("ancilla permutation");
+    assert_eq!(
+        perm.len(),
+        1usize << qubits,
+        "covers the whole enlarged space"
+    );
+    let distinct: std::collections::BTreeSet<_> = perm.values().copied().collect();
+    assert_eq!(
+        distinct.len(),
+        perm.len(),
+        "ancilla permutation is a bijection"
+    );
+}

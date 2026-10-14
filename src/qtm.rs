@@ -14,8 +14,15 @@
 //! Because the tape is a finite register here, the machine is simulated in the
 //! standard "bounded-tape" model: `n` tape cells, each holding a symbol from a
 //! small alphabet `Γ`, an `m`-cell head register, and an `h`-qubit internal
-//! state. The transition table must be a bijection on reachable configurations
-//! for `U_δ` to be unitary (we verify this and report non-reversible tables).
+//! state. Head moves **wrap** modulo the tape, so a total transition table whose
+//! writes are injective forms a unitary directly. For machines whose tape
+//! writes are *not* injective (a binary increment that clears a carried digit),
+//! [`QuantumTuringMachine::permutation_with_ancilla`] does Bennett-style
+//! uncomputation over an enlarged tape with a write buffer.
+//!
+//! Use [`QuantumTuringMachine::is_buildable`] to check the state register fits
+//! and [`QuantumTuringMachine::reversibility_gap`] to diagnose a table that
+//! is not a bijection.
 
 use crate::{Complex64, QuantumError, SmallRng, StateVector};
 use std::collections::BTreeMap;
@@ -71,6 +78,16 @@ pub enum QtmError {
     StateOutOfRange(usize),
     SymbolOutOfRange(Symbol, usize),
     TapeTooLarge(usize),
+    /// The internal-state register is too small to encode `states` injectively.
+    StateRegisterTooSmall {
+        states: usize,
+        bits: usize,
+    },
+    /// Ancilla tape too small for the uncompute register (need ≥ tape_cells).
+    AncillaTooSmall {
+        need: usize,
+        got: usize,
+    },
 }
 
 impl std::fmt::Display for QtmError {
@@ -89,6 +106,14 @@ impl std::fmt::Display for QtmError {
             QtmError::StateOutOfRange(s) => write!(f, "state {s} out of range"),
             QtmError::SymbolOutOfRange(r, a) => write!(f, "symbol {r} not in alphabet 0..{a}"),
             QtmError::TapeTooLarge(n) => write!(f, "tape of {n} cells exceeds capacity"),
+            QtmError::StateRegisterTooSmall { states, bits } => write!(
+                f,
+                "state register of {bits} bits cannot encode {states} states injectively"
+            ),
+            QtmError::AncillaTooSmall { need, got } => write!(
+                f,
+                "ancilla tape of {got} cells is too small; need at least {need}"
+            ),
         }
     }
 }
@@ -183,24 +208,23 @@ impl QuantumTuringMachine {
 
     /// The classical successor of a configuration, or `None` if the machine has
     /// no transition for the current `(state, read)`.
+    ///
+    /// Head moves **wrap** modulo the tape length (`Right` off the end returns
+    /// to cell 0, `Left` off the start to the last cell). Wrapping keeps every
+    /// head move a bijection, which is what lets a total transition table form
+    /// a unitary without extra machinery. Use [`Self::permutation_with_ancilla`]
+    /// for machines whose tape writes are not injective.
     pub fn step_classical(&self, config: &Configuration) -> Option<Configuration> {
         let read = *config.tape.get(config.head)?;
         let t = self.transitions.get(config.state)?.get(read as usize)?;
         let t = t.as_ref()?;
         let mut next = config.clone();
         next.tape[config.head] = t.write;
-        match t.direction {
-            Direction::Left => {
-                next.head = config.head.checked_sub(1)?;
-            }
-            Direction::Right => {
-                next.head = config.head + 1;
-                if next.head >= self.tape_cells {
-                    return None;
-                }
-            }
-            Direction::Stay => {}
-        }
+        next.head = match t.direction {
+            Direction::Left => (config.head + self.tape_cells - 1) % self.tape_cells,
+            Direction::Right => (config.head + 1) % self.tape_cells,
+            Direction::Stay => config.head,
+        };
         next.state = t.next_state;
         Some(next)
     }
@@ -220,10 +244,9 @@ impl QuantumTuringMachine {
 
     /// Build the transition permutation as a map `basis_index -> basis_index`,
     /// or reject the table if it is not a bijection (which would make `U_δ`
-    /// non-unitary). A configuration with no applicable transition — either an
-    /// explicit `None` entry or a head move off the tape — is a **fixed point**.
-    /// The map is a valid permutation iff every target index is claimed exactly
-    /// once across all `dimension` source indices.
+    /// non-unitary). A configuration with no applicable transition (an explicit
+    /// `None` entry) is a **fixed point**. The map is a valid permutation iff
+    /// every target index is claimed exactly once across all source indices.
     fn transition_permutation(&self) -> Result<BTreeMap<usize, usize>, QtmError> {
         let dimension = 1usize << self.qubits();
         let mut map = BTreeMap::new();
@@ -232,7 +255,7 @@ impl QuantumTuringMachine {
             let config = self.decode(index);
             let target = match self.step_classical(&config) {
                 Some(next) => self.encode(&next)?,
-                None => index, // halt / off-tape: fixed point
+                None => index, // no transition: fixed point (halt)
             };
             if claimed[target] {
                 return Err(QtmError::NotReversible);
@@ -241,6 +264,171 @@ impl QuantumTuringMachine {
             map.insert(index, target);
         }
         Ok(map)
+    }
+
+    /// Whether this machine can be synthesised as a unitary on the plain
+    /// configuration register. Requires `states ≤ 2^head_bits` (the internal
+    /// state must fit injectively in the state register). Machines that also
+    /// need ancilla tape are checked via [`Self::permutation_with_ancilla`].
+    pub fn is_buildable(&self) -> Result<(), QtmError> {
+        let head_bits = self.head_cells.trailing_zeros() as usize;
+        if self.states > (1usize << head_bits) {
+            return Err(QtmError::StateRegisterTooSmall {
+                states: self.states,
+                bits: head_bits,
+            });
+        }
+        Ok(())
+    }
+
+    /// Number of configurations whose transition collides with another's (a
+    /// bijection would have zero). A total, injective transition table gives 0;
+    /// a partial table contributes one collision per gap against the fixed
+    /// points it lands on. Useful for diagnosing *why* a table is not unitary.
+    pub fn reversibility_gap(&self) -> usize {
+        let dimension = 1usize << self.qubits();
+        let mut claimed = vec![false; dimension];
+        let mut gaps = 0usize;
+        for index in 0..dimension {
+            let config = self.decode(index);
+            let target = match self.step_classical(&config) {
+                Some(next) => match self.encode(&next) {
+                    Ok(t) => t,
+                    Err(_) => index,
+                },
+                None => index,
+            };
+            if claimed[target] {
+                gaps += 1;
+            } else {
+                claimed[target] = true;
+            }
+        }
+        gaps
+    }
+
+    /// Bennett-style uncomputation: build the transition permutation over an
+    /// enlarged tape that appends `extra_cells` ancilla cells. Each step saves
+    /// the symbol read at the head cell into ancilla cell `head` (the
+    /// "uncompute" register) *before* overwriting it, so information-erasing
+    /// writes become injective: two source configs that would collide on
+    /// `(tape', head', state')` differ in the saved `read`, which is preserved
+    /// in the ancilla. Returns the permutation plus the total qubit count.
+    ///
+    /// Requires `tape_cells + extra_cells` to be a power of two and
+    /// `extra_cells ≥ tape_cells` (one ancilla slot per head position).
+    pub fn permutation_with_ancilla(
+        &self,
+        extra_cells: usize,
+    ) -> Result<(BTreeMap<usize, usize>, usize), QtmError> {
+        let symbol_bits = self.alphabet.trailing_zeros() as usize;
+        // The ancilla register holds one slot per work-tape head position, so
+        // the enlarged tape is exactly `tape_cells (work) + extra_cells (ancilla)`
+        // with `extra_cells == tape_cells`; the head ranges only over the work
+        // region and wraps modulo `tape_cells`.
+        if extra_cells != self.tape_cells {
+            return Err(QtmError::AncillaTooSmall {
+                need: self.tape_cells,
+                got: extra_cells,
+            });
+        }
+        let work = self.tape_cells;
+        // Each ancilla slot stores a symbol `0..=alphabet` (the read value plus
+        // an "empty = 0" sentinel), so it needs one more bit than a tape cell.
+        let ancilla_bits = symbol_bits + 1;
+        let head_bits = work.trailing_zeros() as usize;
+        // Layout (little-endian): [work tape: work*symbol_bits][ancilla:
+        // work*ancilla_bits][head: head_bits][state: state_bits].
+        let work_bits = work * symbol_bits;
+        let ancilla_region_bits = work * ancilla_bits;
+        let ancilla_off = work_bits;
+        let head_off = ancilla_off + ancilla_region_bits;
+        let state_off = head_off + head_bits;
+        let state_bits = self.states.trailing_zeros() as usize;
+        let total_qubits = state_off + state_bits;
+        let dimension = 1usize << total_qubits;
+        let ancilla_mask = (1usize << ancilla_bits) - 1;
+
+        let encode = |tape: &[Symbol], anc: &[usize], head: usize, state: usize| -> usize {
+            let mut index = 0usize;
+            for (cell, &sym) in tape[..work].iter().enumerate() {
+                index |= (sym as usize) << (cell * symbol_bits);
+            }
+            for (slot, &a) in anc.iter().enumerate() {
+                index |= a << (ancilla_off + slot * ancilla_bits);
+            }
+            index |= head << head_off;
+            index |= state << state_off;
+            index
+        };
+        let decode = |mut index: usize| -> (Vec<Symbol>, Vec<usize>, usize, usize) {
+            let tape = (0..work)
+                .map(|cell| ((index >> (cell * symbol_bits)) & (self.alphabet - 1)) as Symbol)
+                .collect();
+            index >>= work_bits;
+            let anc = (0..work)
+                .map(|slot| (index >> (slot * ancilla_bits)) & ancilla_mask)
+                .collect();
+            index >>= ancilla_region_bits;
+            let head = index & ((1 << head_bits) - 1);
+            index >>= head_bits;
+            let state = index & (self.states - 1);
+            (tape, anc, head, state)
+        };
+
+        // Pass 1: every CLEAN-ancilla config fires its transition into a target.
+        // Collect src -> tgt; reject two sources sharing a target or a target
+        // that lands back on the physical (clean) subspace.
+        let mut is_source = vec![false; dimension];
+        for (index, slot) in is_source.iter_mut().enumerate() {
+            let (_, anc, _, _) = decode(index);
+            if anc.iter().all(|&a| a == 0) {
+                *slot = true;
+            }
+        }
+        let mut forward: BTreeMap<usize, usize> = BTreeMap::new();
+        for index in 0..dimension {
+            if !is_source[index] {
+                continue; // only clean-ancilla configs are physical sources
+            }
+            let (tape, mut anc, head, state) = decode(index);
+            let read = tape[head] as usize;
+            let target = match self.transitions[state][read] {
+                Some(t) => {
+                    // Save `read + 1` into the ancilla slot for this head so the
+                    // slot is always non-zero (0 = empty); the erased read value
+                    // is what makes an information-erasing write injective.
+                    anc[head] = read + 1;
+                    let mut next = tape.clone();
+                    next[head] = t.write;
+                    let next_head = match t.direction {
+                        Direction::Left => (head + work - 1) % work,
+                        Direction::Right => (head + 1) % work,
+                        Direction::Stay => head,
+                    };
+                    encode(&next, &anc, next_head, t.next_state)
+                }
+                None => index, // no transition: fixed point
+            };
+            if target != index {
+                if is_source[target] || forward.values().any(|&v| v == target) {
+                    return Err(QtmError::NotReversible);
+                }
+                forward.insert(index, target);
+            }
+        }
+        // Pass 2: compose the full-space permutation as transpositions — each
+        // moved source swaps with its dirty target (forward step == its own
+        // inverse, so applying twice uncomputes). Untouched indices are fixed.
+        let mut map = BTreeMap::new();
+        for (&src, &tgt) in &forward {
+            map.insert(src, tgt);
+            map.insert(tgt, src);
+        }
+        for index in 0..dimension {
+            map.entry(index).or_insert(index);
+        }
+        Ok((map, total_qubits))
     }
 
     /// Decode a basis index into a configuration (exact inverse of [`Self::encode`]).

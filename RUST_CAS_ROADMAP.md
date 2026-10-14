@@ -289,13 +289,20 @@ Variational / QML surface, all data-capable:
   `VariationalQnn`, both Adam and gradient-descent optimizers.
 
 Paradigm commands (QTM / MBQC / AQC), all data-capable:
-- `qtm [cells=N]` — Bernstein–Vazirani unitary Turing machine: a reversible
-  transition table (state flips each step, head/tape fixed — an involution, so
-  `U_δ` is well-defined) applied coherently to a configuration superposition,
-  then measured. `cells=` sets the (power-of-two) tape register.
-- `mbqc [edges=a-b,c-d] [qubits=N]` — measurement-based QC: builds a cluster
-  state on your graph and runs an adaptive measurement pattern with by-product
-  Pauli corrections propagated along the dependency graph.
+- `qtm [machine=counter|scan|erase] [cells=N]` — Bernstein–Vazirani unitary
+  Turing machine. Head moves **wrap** modulo the tape, so a total, injective
+  transition table forms a unitary directly (`counter`/`scan`). `reversibility_gap`
+  diagnoses a non-bijective table; `permutation_with_ancilla` does Bennett-style
+  uncomputation (an ancilla slot per head position storing `read+1`) so an
+  information-erasing table (`erase`) still yields a whole-space bijection, built
+  as transpositions (forward step == its own inverse). `is_buildable` rejects a
+  state register too small to encode the internal state injectively.
+- `mbqc [edges=a-b,c-d] [qubits=N] [pattern="..."]` — measurement-based QC:
+  builds a cluster state on your graph and runs a measurement pattern. A
+  `pattern=` spec supplies explicit angles (decimals or `pi`/`pi/2`/`2pi`),
+  bases (`eq`/`z`), X- and Z-by-product dependencies, and output flags via
+  `mbqc::parse_pattern`; without it, each vertex is measured depending on its
+  neighbours' earlier outcomes.
 - `anneal [NAME] [T=.. tol=.. steps=..]` — adiabatic QC: interpolates
   `H(s)=(1-s)H₀+sH₁` from a transverse-field driver to a problem Hamiltonian
   (named spin chain, reusing the exact-rational VQE models), driven by the

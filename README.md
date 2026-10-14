@@ -13,16 +13,16 @@ QuantumForge spans **five models of quantum computation** under one roof:
 |---|---|---|
 | **Circuit / gate model** | the standard qubits-and-gates model | `add`, `run`, `draw`, `shots` |
 | **Variational (VQE / QML)** | parameterized circuits optimized classically | `vqe`, `train`, `qnn`, `gradient` |
-| **Measurement-based (MBQC)** | the "one-way" model — cluster states measured adaptively | `mbqc edges=a-b,.. qubits=N` |
+| **Measurement-based (MBQC)** | the "one-way" model — cluster states measured adaptively | `mbqc edges=.. qubits=N pattern=SPEC` |
 | **Adiabatic (AQC)** | evolve a ground state from a driver to a problem Hamiltonian | `anneal NAME T=.. tol=.. steps=..` |
-| **Quantum Turing machine** | reversible transition unitaries on configuration superpositions | `qtm cells=N` |
+| **Quantum Turing machine** | reversible transition unitaries on configuration superpositions | `qtm machine=counter\|scan\|erase cells=N` |
 
 Every paradigm command is **data-driven** — supply your own cluster graph,
 problem Hamiltonian, or tape size rather than running a fixed demo. The headline
 feature is the `qf` REPL: build circuits incrementally, draw them as ASCII
 diagrams, run and measure them, and run variational algorithms (VQE, QML
 training) with results cross-checked against exact ground-state energies.
-91 tests back the semantics in the default build.
+99 tests back the semantics in the default build.
 
 ## Highlights
 
@@ -57,7 +57,7 @@ training) with results cross-checked against exact ground-state energies.
 
 ```bash
 cargo build            # default (CPU-only) build
-cargo test             # 91 tests (default build; llvm/cuda tests need feature flags)
+cargo test             # 99 tests (default build; llvm/cuda tests need feature flags)
 ```
 
 Run the interactive REPL:
@@ -154,7 +154,7 @@ src/mbqc.rs           Measurement-Based QC (cluster states + measurement pattern
 src/aqc.rs            Adiabatic QC (H(s) schedule driver + ground-state tracking)
 src/cuda.rs           CUDA backend (feature = cuda)
 src/llvm_backend.rs   LLVM IR + JIT (feature = llvm)
-tests/                91 integration tests in the default build (incl. REPL end-to-end)
+tests/                99 integration tests in the default build (incl. REPL end-to-end)
 RUST_CAS_ROADMAP.md   design notes and progress log
 ```
 

@@ -102,3 +102,61 @@ fn teleport_through_path_is_deterministic_given_seed() {
         assert!(a == 0 || a == 1);
     }
 }
+
+#[test]
+fn parse_pattern_builds_steps_with_angles_and_deps() {
+    use quantumforge::mbqc::parse_pattern;
+    // A 3-step pattern: eq(0.5), Z, eq(pi) with X-dep 0 on step 1 and Z-dep 1
+    // on step 2; only the last step is an output.
+    let spec = "angles=0.5,z,pi basis=eq,z,eq deps=none,0,1 depsz=none,none,0 outputs=0,0,1";
+    let p = parse_pattern(spec, 3).expect("valid pattern");
+    assert_eq!(p.steps.len(), 3);
+    assert_eq!(p.steps[0].qubit, 0);
+    match p.steps[0].basis {
+        MeasurementBasis::Equatorial(a) => assert!((a - 0.5).abs() < 1e-12),
+        _ => panic!("step 0 should be equatorial"),
+    }
+    assert_eq!(p.steps[1].basis, MeasurementBasis::Z);
+    assert_eq!(p.steps[1].depends_on_x, vec![0]);
+    assert_eq!(p.steps[2].depends_on_z, vec![0]);
+    assert!(p.steps[2].output);
+    assert!(!p.steps[0].output);
+}
+
+#[test]
+fn parse_pattern_parses_pi_angles() {
+    use quantumforge::mbqc::parse_pattern;
+    let p = parse_pattern("angles=pi/2,-pi,2pi", 3).expect("valid");
+    let pi = std::f64::consts::PI;
+    let angles: Vec<f64> = p
+        .steps
+        .iter()
+        .map(|s| match s.basis {
+            MeasurementBasis::Equatorial(a) => a,
+            _ => panic!("expected equatorial"),
+        })
+        .collect();
+    assert!((angles[0] - pi / 2.0).abs() < 1e-12);
+    assert!((angles[1] + pi).abs() < 1e-12);
+    assert!((angles[2] - 2.0 * pi).abs() < 1e-12);
+}
+
+#[test]
+fn parse_pattern_rejects_bad_input() {
+    use quantumforge::mbqc::parse_pattern;
+    assert!(parse_pattern("angles=bad", 3).is_err(), "bad angle");
+    assert!(
+        parse_pattern("angles=0.5 deps=9", 3).is_err(),
+        "dep out of range"
+    );
+    assert!(
+        parse_pattern("angles=0.5,0,0,0", 3).is_err(),
+        "too many steps for cluster"
+    );
+    assert!(parse_pattern("bogus=1", 3).is_err(), "unknown key");
+    // A step measuring qubit >= cluster size is rejected (step i -> qubit i).
+    assert!(
+        parse_pattern("angles=0,0,0,0 basis=eq,eq,eq,eq", 3).is_err(),
+        "step past cluster"
+    );
+}

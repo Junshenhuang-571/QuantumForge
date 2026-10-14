@@ -59,11 +59,14 @@ QuantumForge REPL — one session, live state. Type 'help' for this, 'quit' to e
                          bare = fit cos(x+0.7) demo (Adam)
                          qnn {x0,y0, x1,y1, ...} = fit your (x,y) pairs
                          config: target=K (demo) lr=E steps=N opt=adam|gd
-  qtm [cells=N]        Quantum Turing Machine: reversible transition unitary
-                         U_delta on a superposition of configurations, measured
-  mbqc [edges=a-b,..] [qubits=N]
+  qtm [machine=counter|scan|erase] [cells=N]
+                       Quantum Turing Machine: reversible transition unitary
+                         U_delta on a superposition of configurations, measured;
+                         `erase` shows a non-injective table fixed by ancilla
+  mbqc [edges=a-b,..] [qubits=N] [pattern=SPEC]
                        Measurement-Based QC: cluster state on your graph +
-                         adaptive measurement pattern with by-product corrections
+                         adaptive measurement pattern (explicit angles/deps or
+                         auto) with by-product corrections
   anneal [NAME] [T=.. tol=.. steps=..]
                        Adiabatic QC: interpolate -Sum(X) -> problem Hamiltonian
                          NAME = ising|tfim|heisenberg|xxz|hubbard (default demo ZZ)
@@ -911,69 +914,107 @@ impl Session {
     }
 
     /// `qtm` — Quantum Turing Machine (Bernstein–Vazirani unitary formulation).
-    ///   qtm                       built-in toggle machine, 4 cells
-    ///   qtm cells=8               toggle machine on an 8-cell tape
+    ///   qtm                       built-in counter machine, 4 cells
+    ///   qtm machine=scan          "move right, flip state" scanner
+    ///   qtm cells=8               counter machine on an 8-cell tape
     ///
-    /// `cells=` must be a power of two (tape is one register). The toggle
-    /// machine is reversible by construction (state flips each step, head and
-    /// tape fixed), so its transition unitary is well-defined.
+    /// `cells=` must be a power of two (tape is one register). Head moves wrap
+    /// modulo the tape, so both built-ins are reversible by construction (a
+    /// total, injective transition table). The reversibility gap is reported;
+    /// `machine=erase` shows a non-injective table rejected by `step_quantum`.
     fn cmd_qtm(&self, rest: &str) {
         use quantumforge::qtm::{Configuration, Direction, QuantumTuringMachine, Transition};
 
         let mut cells = 4usize;
+        let mut machine = "counter".to_owned();
         for word in rest.split_whitespace() {
             if let Some(v) = word
                 .strip_prefix("cells=")
                 .and_then(|v| v.parse::<usize>().ok())
             {
                 cells = v;
+            } else if let Some(v) = word.strip_prefix("machine=") {
+                machine = v.to_owned();
             }
         }
         if !cells.is_power_of_two() || cells == 0 {
             return eprintln!("qtm error: cells={cells} must be a power of two");
         }
 
-        // toggle: flip the internal state each step, head stays, tape fixed —
-        // a perfect involution, hence reversible.
-        let transitions = vec![
+        // `counter` and `scan` are reversible: they write the read symbol back
+        // unchanged (injective), move right (wraps), and flip state. `erase`
+        // writes 0 regardless of the read (non-injective -> needs the ancilla
+        // uncomputation shown on rejection).
+        let erase = machine == "erase";
+        let transitions = if erase {
             vec![
-                Some(Transition {
-                    next_state: 1,
-                    write: 0,
-                    direction: Direction::Stay,
-                }),
-                Some(Transition {
-                    next_state: 1,
-                    write: 1,
-                    direction: Direction::Stay,
-                }),
-            ],
+                vec![
+                    Some(Transition {
+                        next_state: 1,
+                        write: 0,
+                        direction: Direction::Right,
+                    }),
+                    Some(Transition {
+                        next_state: 1,
+                        write: 0,
+                        direction: Direction::Right,
+                    }),
+                ],
+                vec![
+                    Some(Transition {
+                        next_state: 0,
+                        write: 0,
+                        direction: Direction::Right,
+                    }),
+                    Some(Transition {
+                        next_state: 0,
+                        write: 0,
+                        direction: Direction::Right,
+                    }),
+                ],
+            ]
+        } else {
+            // counter / scan: preserve the read symbol (write it back).
             vec![
-                Some(Transition {
-                    next_state: 0,
-                    write: 0,
-                    direction: Direction::Stay,
-                }),
-                Some(Transition {
-                    next_state: 0,
-                    write: 1,
-                    direction: Direction::Stay,
-                }),
-            ],
-        ];
+                vec![
+                    Some(Transition {
+                        next_state: 1,
+                        write: 0,
+                        direction: Direction::Right,
+                    }),
+                    Some(Transition {
+                        next_state: 1,
+                        write: 1,
+                        direction: Direction::Right,
+                    }),
+                ],
+                vec![
+                    Some(Transition {
+                        next_state: 0,
+                        write: 0,
+                        direction: Direction::Right,
+                    }),
+                    Some(Transition {
+                        next_state: 0,
+                        write: 1,
+                        direction: Direction::Right,
+                    }),
+                ],
+            ]
+        };
         let m = match QuantumTuringMachine::new(2, 2, cells, cells, transitions, 0) {
             Ok(m) => m,
             Err(e) => return eprintln!("qtm error: {e}"),
         };
+        let gap = m.reversibility_gap();
         let mut tape = vec![0u8; cells];
         if cells > 1 {
             tape[1] = 1;
         }
         let head = (cells / 2).min(cells - 1);
         println!(
-            "qtm: reversible toggle machine, {} qubits, {cells} cells, tape {:?} head {head}",
-            m.qubits(),
-            tape
+            "qtm: {machine} machine, {} qubits, {cells} cells, tape {tape:?} head {head}, reversibility gap {gap}",
+            m.qubits()
         );
         let start = Configuration {
             tape: tape.clone(),
@@ -982,23 +1023,42 @@ impl Session {
         };
         let classical = m.run_classical(&start, 1);
         println!(
-            "  classical step: state {} -> {}",
-            start.state, classical.state
+            "  classical step: state {} -> {}, head {} -> {}",
+            start.state, classical.state, start.head, classical.head
         );
         let sup = match m.prepare_superposition(&tape, head) {
             Ok(s) => s,
             Err(e) => return eprintln!("qtm error: {e}"),
         };
         let before = sup.norm_sqr();
-        let stepped = match m.step_quantum(&sup) {
-            Ok(s) => s,
-            Err(e) => return eprintln!("qtm error: {e}"),
-        };
-        println!(
-            "  unitary step preserved norm: {} -> {}",
-            before,
-            stepped.norm_sqr()
-        );
+        match m.step_quantum(&sup) {
+            Ok(stepped) => println!(
+                "  unitary step preserved norm: {} -> {}",
+                before,
+                stepped.norm_sqr()
+            ),
+            Err(e) => {
+                // Non-injective table: show it needs ancilla, then build one.
+                println!("  step_quantum rejected the plain register: {e}");
+                match m.permutation_with_ancilla(cells) {
+                    Ok((perm, q)) => {
+                        let distinct: std::collections::BTreeSet<_> =
+                            perm.values().copied().collect();
+                        println!(
+                            "  ancilla uncomputation: {q} qubits, permutation is a {} ({} distinct targets)",
+                            if distinct.len() == perm.len() {
+                                "bijection ✓"
+                            } else {
+                                "NON-bijection ✗"
+                            },
+                            distinct.len()
+                        );
+                    }
+                    Err(e2) => eprintln!("  ancilla error: {e2}"),
+                }
+                return;
+            }
+        }
         match m.run_quantum_measured(&sup, 1, 7) {
             Ok((state, _)) => println!("  measured internal state after 1 step = {state}"),
             Err(e) => eprintln!("  measurement error: {e}"),
@@ -1009,21 +1069,40 @@ impl Session {
     /// on a graph and runs an adaptive measurement pattern with by-product
     /// corrections.
     ///
-    ///   mbqc                             3-qubit linear path demo
-    ///   mbqc edges=0-1,1-2,0-2 qubits=3  custom cluster graph
+    ///   mbqc                                         3-qubit linear path demo
+    ///   mbqc edges=0-1,1-2,0-2 qubits=3              custom cluster graph
+    ///   mbqc qubits=3 pattern="angles=0.5,0,pi basis=eq,eq,z deps=none,0,1 depsz=none,none,0 outputs=0,0,1"
     ///
-    /// Graph edges are given as `a-b` pairs; `qubits=N` sets the vertex count.
-    /// The pattern measures each vertex in sequence with equatorial/Z bases and
-    /// propagates by-product corrections along the dependency graph.
+    /// Graph edges are `a-b` pairs; `qubits=N` sets the vertex count. A
+    /// `pattern=` spec supplies explicit measurement angles, bases, by-product
+    /// dependencies, and output flags (see `quantumforge::mbqc::parse_pattern`);
+    /// without it, each vertex is measured with equatorial/Z bases depending on
+    /// its neighbours' earlier outcomes.
     fn cmd_mbqc(&self, rest: &str) {
         use quantumforge::mbqc::{
-            ClusterState, MeasurementBasis, MeasurementPattern, MeasurementStep,
+            ClusterState, MeasurementBasis, MeasurementPattern, MeasurementStep, parse_pattern,
         };
 
-        // Parse: edges=a-b,c-d and qubits=N (default = the 3-qubit path demo).
+        // Parse: edges=a-b,c-d, qubits=N, pattern="...".
         let mut edges_spec: Option<String> = None;
         let mut qubits = 3usize;
-        for word in rest.split_whitespace() {
+        let mut pattern_spec: Option<String> = None;
+        // Pull out a quoted pattern=... spec first (it contains spaces/commas).
+        let rest_owned = rest.to_owned();
+        let rest_clean: String = if let Some(idx) = rest_owned.find("pattern=\"") {
+            let after = &rest_owned[idx + "pattern=\"".len()..];
+            if let Some(end) = after.find('"') {
+                pattern_spec = Some(after[..end].to_owned());
+                let mut s = rest_owned[..idx].to_owned();
+                s.push_str(&after[end + 1..]);
+                s
+            } else {
+                return eprintln!("mbqc error: unterminated pattern=\"...\" quote");
+            }
+        } else {
+            rest_owned.clone()
+        };
+        for word in rest_clean.split_whitespace() {
             if let Some(v) = word.strip_prefix("qubits=") {
                 if let Ok(n) = v.parse::<usize>() {
                     qubits = n;
@@ -1062,23 +1141,31 @@ impl Session {
             cluster.edges
         );
 
-        // Build a pattern over every vertex: alternate equatorial / Z, each step
-        // depending on its neighbours' earlier outcomes (by-product propagation).
-        let mut pattern = MeasurementPattern::new();
-        for v in 0..qubits {
-            let deps = cluster.neighbours(v);
-            pattern.push(MeasurementStep {
-                qubit: v,
-                basis: if v % 2 == 0 {
-                    MeasurementBasis::Equatorial(0.6)
-                } else {
-                    MeasurementBasis::Z
-                },
-                depends_on_x: deps.clone(),
-                depends_on_z: deps,
-                output: v == 0,
-            });
-        }
+        // Build the pattern: explicit spec, or the default neighbour-dependent one.
+        let pattern = match &pattern_spec {
+            Some(spec) => match parse_pattern(spec, qubits) {
+                Ok(p) => p,
+                Err(e) => return eprintln!("mbqc error: {e}"),
+            },
+            None => {
+                let mut p = MeasurementPattern::new();
+                for v in 0..qubits {
+                    let deps = cluster.neighbours(v);
+                    p.push(MeasurementStep {
+                        qubit: v,
+                        basis: if v % 2 == 0 {
+                            MeasurementBasis::Equatorial(0.6)
+                        } else {
+                            MeasurementBasis::Z
+                        },
+                        depends_on_x: deps.clone(),
+                        depends_on_z: deps,
+                        output: v == 0,
+                    });
+                }
+                p
+            }
+        };
         match pattern.run(&cluster, 7) {
             Ok(run) => {
                 println!("  raw outcomes: {:?}", run.outcomes);
