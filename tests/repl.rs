@@ -37,8 +37,19 @@ fn bell_state_and_bloch() {
 
 #[test]
 fn observables_and_bloch_vector() {
-    let out = run_qf(&["qubits 1", "add H[0]", "run", "bloch 0", "expect X 0", "expect Y 0", "quit"]);
-    assert!(out.contains("<X>=+1.0000 <Y>=+0.0000 <Z>=+0.0000"), "bloch:\n{out}");
+    let out = run_qf(&[
+        "qubits 1",
+        "add H[0]",
+        "run",
+        "bloch 0",
+        "expect X 0",
+        "expect Y 0",
+        "quit",
+    ]);
+    assert!(
+        out.contains("<X>=+1.0000 <Y>=+0.0000 <Z>=+0.0000"),
+        "bloch:\n{out}"
+    );
     assert!(out.contains("<X_0> = +1.000000"), "expect X:\n{out}");
     assert!(out.contains("<Y_0> = +0.000000"), "expect Y:\n{out}");
 }
@@ -81,9 +92,15 @@ fn mixed_channel_and_measurement_shots() {
         "quit",
     ]);
     // Measurement op is accepted and shots produce both outcomes.
-    assert!(out.contains("Circuit[H[0], AmplitudeDamping[0,0.3], Measure[0,0]]"), "circuit:\n{out}");
+    assert!(
+        out.contains("Circuit[H[0], AmplitudeDamping[0,0.3], Measure[0,0]]"),
+        "circuit:\n{out}"
+    );
     assert!(out.contains("shots: 400 (seed 7)"), "shots header:\n{out}");
-    assert!(out.contains("|0>") && out.contains("|1>"), "both outcomes:\n{out}");
+    assert!(
+        out.contains("|0>") && out.contains("|1>"),
+        "both outcomes:\n{out}"
+    );
 }
 
 #[test]
@@ -94,7 +111,10 @@ fn draw_renders_circuit_diagram() {
     // Wire stays continuous (dashes); H and CNOT markers sit in their columns.
     assert!(out.contains("q0 ───H"), "H in column 0:\n{out}");
     assert!(out.contains("──────•"), "CNOT control in column 1:\n{out}");
-    assert!(out.contains("q1 ──────────⊕"), "target aligned with control:\n{out}");
+    assert!(
+        out.contains("q1 ──────────⊕"),
+        "target aligned with control:\n{out}"
+    );
 }
 
 #[test]
@@ -109,7 +129,10 @@ fn draw_aligns_multi_char_labels() {
         "quit",
     ]);
     // AD on q1 (col 0), PD on q0 (col 1): each keeps its prefix and column.
-    assert!(out.contains("q1 AD0.30"), "AD in column 0 keeps q1 prefix:\n{out}");
+    assert!(
+        out.contains("q1 AD0.30"),
+        "AD in column 0 keeps q1 prefix:\n{out}"
+    );
     assert!(out.contains("q0 ───────PD0.50"), "PD in column 1:\n{out}");
 }
 
@@ -134,23 +157,22 @@ fn draw_rotations_and_swap_align() {
 fn draw_connects_nonadjacent_two_qubit_gates() {
     // CNOT[0,3] and SWAP[1,2] on 4 qubits: markers align in their column and a
     // vertical │ connector spans the wires between control and target.
-    let out = run_qf(&[
-        "qubits 4",
-        "add CNOT[0,3]",
-        "add SWAP[1,2]",
-        "draw",
-        "quit",
-    ]);
+    let out = run_qf(&["qubits 4", "add CNOT[0,3]", "add SWAP[1,2]", "draw", "quit"]);
     // CNOT •/⊕ in the same column (col 0), aligned across wires.
     assert!(out.contains("q0 ───•"), "CNOT control in column 0:\n{out}");
-    assert!(out.contains("q3 ───⊕"), "CNOT target aligned with control:\n{out}");
+    assert!(
+        out.contains("q3 ───⊕"),
+        "CNOT target aligned with control:\n{out}"
+    );
     // q1 and q2 (between control and target) carry the │ connector.
     assert!(out.contains("q1 ───│"), "connector on q1:\n{out}");
     assert!(out.contains("q2 ───│"), "connector on q2:\n{out}");
     // SWAP x markers in the next column, after the connector.
-    assert!(out.contains("│──────x"), "SWAP after CNOT connector:\n{out}");
+    assert!(
+        out.contains("│──────x"),
+        "SWAP after CNOT connector:\n{out}"
+    );
 }
-
 
 #[test]
 fn gradient_adjoint_matches_parameter_shift() {
@@ -177,7 +199,10 @@ fn vqe_ising_converges_to_exact_ground() {
         "vqe ising",
         "quit",
     ]);
-    assert!(out.contains("exact ground energy = -2.000000"), "exact:\n{out}");
+    assert!(
+        out.contains("exact ground energy = -2.000000"),
+        "exact:\n{out}"
+    );
     assert!(out.contains("✓ converged"), "convergence:\n{out}");
 }
 
@@ -194,7 +219,10 @@ fn vqe_heisenberg_converges_to_exact_ground() {
         "vqe heisenberg",
         "quit",
     ]);
-    assert!(out.contains("exact ground energy = -3.000000"), "exact:\n{out}");
+    assert!(
+        out.contains("exact ground energy = -3.000000"),
+        "exact:\n{out}"
+    );
     assert!(out.contains("✓ converged"), "convergence:\n{out}");
 }
 
@@ -211,25 +239,47 @@ fn vqe_tfim_converges_to_exact_ground() {
         "vqe tfim",
         "quit",
     ]);
-    assert!(out.contains("exact ground energy = -2.236068"), "exact:\n{out}");
+    assert!(
+        out.contains("exact ground energy = -2.236068"),
+        "exact:\n{out}"
+    );
     assert!(out.contains("✓ converged"), "convergence:\n{out}");
 }
 
 #[test]
 fn vqe_rejects_unknown_hamiltonian() {
-    let out = run_qf(&["qubits 2", "add Ry[0.2,0]", "add Ry[0.2,1]", "vqe bogus", "quit"]);
-    assert!(out.contains("unknown or ill-sized hamiltonian"), "rejection:\n{out}");
+    let out = run_qf(&[
+        "qubits 2",
+        "add Ry[0.2,0]",
+        "add Ry[0.2,1]",
+        "vqe bogus",
+        "quit",
+    ]);
+    assert!(
+        out.contains("unknown or ill-sized hamiltonian"),
+        "rejection:\n{out}"
+    );
 }
 
 // Deep Ry+CNOT-ring ansatz: 3 Ry layers separated by a full CNOT ring (0-1,1-2,0-2).
 fn deep_ansatz() -> Vec<&'static str> {
     vec![
         "qubits 3",
-        "add Ry[0.3,0]", "add Ry[0.3,1]", "add Ry[0.3,2]",
-        "add CNOT[0,1]", "add CNOT[1,2]", "add CNOT[0,2]",
-        "add Ry[0.4,0]", "add Ry[0.4,1]", "add Ry[0.4,2]",
-        "add CNOT[0,1]", "add CNOT[1,2]", "add CNOT[0,2]",
-        "add Ry[0.5,0]", "add Ry[0.5,1]", "add Ry[0.5,2]",
+        "add Ry[0.3,0]",
+        "add Ry[0.3,1]",
+        "add Ry[0.3,2]",
+        "add CNOT[0,1]",
+        "add CNOT[1,2]",
+        "add CNOT[0,2]",
+        "add Ry[0.4,0]",
+        "add Ry[0.4,1]",
+        "add Ry[0.4,2]",
+        "add CNOT[0,1]",
+        "add CNOT[1,2]",
+        "add CNOT[0,2]",
+        "add Ry[0.5,0]",
+        "add Ry[0.5,1]",
+        "add Ry[0.5,2]",
     ]
 }
 
@@ -238,7 +288,10 @@ fn vqe_xxz_converges() {
     let mut cmds = deep_ansatz();
     cmds.extend(["vqe xxz", "quit"]);
     let out = run_qf(&cmds);
-    assert!(out.contains("exact ground energy = -2.372281"), "exact:\n{out}");
+    assert!(
+        out.contains("exact ground energy = -2.372281"),
+        "exact:\n{out}"
+    );
     assert!(out.contains("✓ converged"), "convergence:\n{out}");
 }
 
@@ -247,10 +300,12 @@ fn vqe_hubbard_converges() {
     let mut cmds = deep_ansatz();
     cmds.extend(["vqe hubbard", "quit"]);
     let out = run_qf(&cmds);
-    assert!(out.contains("exact ground energy = -0.686141"), "exact:\n{out}");
+    assert!(
+        out.contains("exact ground energy = -0.686141"),
+        "exact:\n{out}"
+    );
     assert!(out.contains("✓ converged"), "convergence:\n{out}");
 }
-
 
 #[test]
 fn train_regression_fits_target() {
@@ -289,7 +344,10 @@ fn train_regression_custom_data() {
 fn train_regression_custom_data_unbounded_warns() {
     // Unbounded target y=x+1 exceeds the <Z>∈[-1,1] readout; R²<0 + note.
     let out = run_qf(&["train regression {0,1, 1,2, 2,3} nfeat=1", "quit"]);
-    assert!(out.contains("note: R²<0"), "expected range-limit note:\n{out}");
+    assert!(
+        out.contains("note: R²<0"),
+        "expected range-limit note:\n{out}"
+    );
 }
 
 #[test]
@@ -308,7 +366,10 @@ fn train_data_evaluates_kernel_expressions() {
 #[test]
 fn train_data_rejects_bad_shape() {
     let out = run_qf(&["train regression {1,2,3} nfeat=1", "quit"]);
-    assert!(out.contains("not a multiple of row length"), "shape error:\n{out}");
+    assert!(
+        out.contains("not a multiple of row length"),
+        "shape error:\n{out}"
+    );
 }
 
 #[test]
@@ -333,13 +394,20 @@ fn qnn_custom_data_and_gd() {
 #[test]
 fn qnn_rejects_bad_shape() {
     let out = run_qf(&["qnn {1,2,3}", "quit"]);
-    assert!(out.contains("not a multiple of row length"), "shape error:\n{out}");
+    assert!(
+        out.contains("not a multiple of row length"),
+        "shape error:\n{out}"
+    );
 }
-
 
 #[test]
 fn scalar_math_commands() {
-    let out = run_qf(&["eval 2 + 3*Pi", "simplify x + x + 2 + 3", "diff Sin[x^2]", "quit"]);
+    let out = run_qf(&[
+        "eval 2 + 3*Pi",
+        "simplify x + x + 2 + 3",
+        "diff Sin[x^2]",
+        "quit",
+    ]);
     assert!(out.contains("11.42477"), "eval:\n{out}");
     assert!(out.contains("5 + 2 * x"), "simplify:\n{out}");
     assert!(out.contains("2 * x * Cos[x^2]"), "diff:\n{out}");
@@ -347,11 +415,26 @@ fn scalar_math_commands() {
 
 #[test]
 fn seeded_shots_are_reproducible() {
-    let a = run_qf(&["qubits 1", "add H[0]", "add Measure[0,0]", "shots 512 42", "quit"]);
-    let b = run_qf(&["qubits 1", "add H[0]", "add Measure[0,0]", "shots 512 42", "quit"]);
+    let a = run_qf(&[
+        "qubits 1",
+        "add H[0]",
+        "add Measure[0,0]",
+        "shots 512 42",
+        "quit",
+    ]);
+    let b = run_qf(&[
+        "qubits 1",
+        "add H[0]",
+        "add Measure[0,0]",
+        "shots 512 42",
+        "quit",
+    ]);
     // Same seed -> identical counts lines.
     let counts = |s: &str| -> Vec<String> {
-        s.lines().filter(|l| l.starts_with("  |")).map(str::to_owned).collect()
+        s.lines()
+            .filter(|l| l.starts_with("  |"))
+            .map(str::to_owned)
+            .collect()
     };
     assert_eq!(counts(&a), counts(&b), "seeded shots not reproducible");
 }
@@ -359,25 +442,58 @@ fn seeded_shots_are_reproducible() {
 #[test]
 fn qtm_command_runs_reversible_step() {
     let out = run_qf(&["qtm", "quit"]);
-    assert!(out.contains("reversible toggle machine"), "qtm header:\n{out}");
-    assert!(out.contains("classical step: state 0 -> 1"), "classical toggle:\n{out}");
-    assert!(out.contains("measured internal state after 1 step = 1"), "measured:\n{out}");
+    assert!(
+        out.contains("reversible toggle machine"),
+        "qtm header:\n{out}"
+    );
+    assert!(
+        out.contains("classical step: state 0 -> 1"),
+        "classical toggle:\n{out}"
+    );
+    assert!(
+        out.contains("measured internal state after 1 step = 1"),
+        "measured:\n{out}"
+    );
 }
 
 #[test]
 fn mbqc_command_runs_measurement_pattern() {
     let out = run_qf(&["mbqc", "quit"]);
-    assert!(out.contains("3-qubit linear cluster state"), "cluster header:\n{out}");
+    assert!(
+        out.contains("3-qubit cluster state"),
+        "cluster header:\n{out}"
+    );
     assert!(out.contains("2 edges"), "edge count:\n{out}");
-    assert!(out.contains("corrected angles:"), "by-product angles:\n{out}");
+    assert!(
+        out.contains("corrected angles:"),
+        "by-product angles:\n{out}"
+    );
     assert!(out.contains("output bit ="), "output bit:\n{out}");
 }
 
 #[test]
 fn anneal_command_reaches_ground_state() {
     let out = run_qf(&["anneal 20", "quit"]);
-    assert!(out.contains("H0=-(X0+X1) -> H1=Z0Z1"), "schedule header:\n{out}");
-    assert!(out.contains("exact ground energy    = -1.000000"), "exact energy:\n{out}");
+    assert!(out.contains("-(X0+X1) -> Z0Z1"), "schedule header:\n{out}");
+    assert!(
+        out.contains("exact ground energy    = -1.000000"),
+        "exact energy:\n{out}"
+    );
     assert!(out.contains("✓ adiabatic"), "adiabatic verdict:\n{out}");
 }
 
+#[test]
+fn anneal_named_schedule_and_errors() {
+    // Named schedule on >=2 qubits reaches the problem ground state.
+    let out = run_qf(&["qubits 3", "anneal ising T=15", "quit"]);
+    assert!(out.contains("-ΣX -> ising"), "named schedule:\n{out}");
+    assert!(out.contains("✓ adiabatic"), "ising converged:\n{out}");
+    // Unknown schedule and bad mbqc edges are rejected with guidance.
+    let bad = run_qf(&["anneal bogus", "quit"]);
+    assert!(
+        bad.contains("unknown or ill-sized schedule"),
+        "bad schedule:\n{bad}"
+    );
+    let bad_edge = run_qf(&["mbqc edges=0-9 qubits=3", "quit"]);
+    assert!(bad_edge.contains("bad edge"), "bad edge:\n{bad_edge}");
+}

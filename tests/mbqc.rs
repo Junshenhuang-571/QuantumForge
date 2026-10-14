@@ -1,7 +1,7 @@
 //! Integration tests for Measurement-Based Quantum Computing (MBQC).
 
 use quantumforge::mbqc::{
-    teleport_through_path, ClusterState, MeasurementBasis, MeasurementPattern, MeasurementStep,
+    ClusterState, MeasurementBasis, MeasurementPattern, MeasurementStep, teleport_through_path,
 };
 
 #[test]
@@ -18,7 +18,10 @@ fn cluster_state_prepares_valid_density() {
     // A prepared cluster state must be a normalized pure state.
     let c = ClusterState::path(3);
     let state = c.prepare().expect("prepare");
-    assert!((state.norm_sqr() - 1.0).abs() < 1e-12, "cluster state not normalized");
+    assert!(
+        (state.norm_sqr() - 1.0).abs() < 1e-12,
+        "cluster state not normalized"
+    );
 }
 
 #[test]

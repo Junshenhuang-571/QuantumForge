@@ -17,7 +17,7 @@
 //! state. The transition table must be a bijection on reachable configurations
 //! for `U_δ` to be unitary (we verify this and report non-reversible tables).
 
-use crate::{Complex64, SmallRng, StateVector, QuantumError};
+use crate::{Complex64, QuantumError, SmallRng, StateVector};
 use std::collections::BTreeMap;
 
 /// One tape symbol / alphabet entry. Kept as a small `u8` alphabet index.
@@ -81,7 +81,10 @@ impl std::fmt::Display for QtmError {
                 write!(f, "no transition for state {s} reading symbol {r}")
             }
             QtmError::NotReversible => {
-                write!(f, "transition table is not a bijection; cannot form a unitary")
+                write!(
+                    f,
+                    "transition table is not a bijection; cannot form a unitary"
+                )
             }
             QtmError::StateOutOfRange(s) => write!(f, "state {s} out of range"),
             QtmError::SymbolOutOfRange(r, a) => write!(f, "symbol {r} not in alphabet 0..{a}"),
@@ -109,7 +112,9 @@ impl QuantumTuringMachine {
         transitions: Vec<Vec<Option<Transition>>>,
         initial_state: usize,
     ) -> Result<Self, QtmError> {
-        if !states.is_power_of_two() || !tape_cells.is_power_of_two() || !head_cells.is_power_of_two()
+        if !states.is_power_of_two()
+            || !tape_cells.is_power_of_two()
+            || !head_cells.is_power_of_two()
         {
             return Err(QtmError::NotPowerOfTwo(if !states.is_power_of_two() {
                 states
@@ -269,7 +274,7 @@ impl QuantumTuringMachine {
         for (&index, &target) in &permutation {
             next[target] = amplitudes[index];
         }
-        Ok(StateVector::from_amplitudes(next).map_err(|_| QtmError::NotPowerOfTwo(0))?)
+        StateVector::from_amplitudes(next).map_err(|_| QtmError::NotPowerOfTwo(0))
     }
 
     /// Prepare the uniform superposition over all configurations sharing a
@@ -293,7 +298,7 @@ impl QuantumTuringMachine {
             let index = self.encode(&config)?;
             amplitudes[index] = amp;
         }
-        Ok(StateVector::from_amplitudes(amplitudes).map_err(|_| QtmError::NotPowerOfTwo(0))?)
+        StateVector::from_amplitudes(amplitudes).map_err(|_| QtmError::NotPowerOfTwo(0))
     }
 
     /// Measure the internal-state register after `steps` quantum steps, seeded.

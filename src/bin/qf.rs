@@ -59,12 +59,14 @@ QuantumForge REPL — one session, live state. Type 'help' for this, 'quit' to e
                          bare = fit cos(x+0.7) demo (Adam)
                          qnn {x0,y0, x1,y1, ...} = fit your (x,y) pairs
                          config: target=K (demo) lr=E steps=N opt=adam|gd
-  qtm                  Quantum Turing Machine: reversible transition unitary
+  qtm [cells=N]        Quantum Turing Machine: reversible transition unitary
                          U_delta on a superposition of configurations, measured
-  mbqc                 Measurement-Based QC: 3-qubit cluster state + adaptive
-                         measurement pattern with by-product corrections
-  anneal [T]           Adiabatic QC: interpolate H0=-(X0+X1) -> H1=Z0Z1 over
-                         time T (default 20), report final vs exact ground energy
+  mbqc [edges=a-b,..] [qubits=N]
+                       Measurement-Based QC: cluster state on your graph +
+                         adaptive measurement pattern with by-product corrections
+  anneal [NAME] [T=.. tol=.. steps=..]
+                       Adiabatic QC: interpolate -Sum(X) -> problem Hamiltonian
+                         NAME = ising|tfim|heisenberg|xxz|hubbard (default demo ZZ)
   eval EXPR            numeric eval of a scalar expression, e.g. 2 + 3*Pi
   simplify EXPR        canonicalize a scalar expression
   diff EXPR            symbolic derivative d/dx of EXPR
@@ -180,7 +182,7 @@ impl Session {
 
     fn cmd_qubits(&mut self, rest: &str) {
         match rest.parse::<usize>() {
-            Ok(n) if n >= 1 && n <= 20 => {
+            Ok(n) if (1..=20).contains(&n) => {
                 self.qubits = n;
                 self.circuit.clear();
                 let _ = self.reset_state();
@@ -258,7 +260,12 @@ impl Session {
     fn cmd_state(&self) {
         match &self.density {
             Some(d) => {
-                println!("density state ({} qubits): trace={:.6} purity={:.6}", d.qubits(), d.trace().re, d.purity());
+                println!(
+                    "density state ({} qubits): trace={:.6} purity={:.6}",
+                    d.qubits(),
+                    d.trace().re,
+                    d.purity()
+                );
                 let n = 1usize << self.qubits;
                 for i in 0..n {
                     let p = d.entries()[i * n + i].re;
@@ -353,8 +360,8 @@ impl Session {
         };
         let (x, y, z) = if let Some(d) = &self.density {
             let op = |p: fn() -> quantumforge::quantum::Operator| {
-                let o = quantumforge::quantum::Observable::new(p(), 1e-12)
-                    .expect("pauli is hermitian");
+                let o =
+                    quantumforge::quantum::Observable::new(p(), 1e-12).expect("pauli is hermitian");
                 o.expectation_density(d).map(|v| v.re).unwrap_or(f64::NAN)
             };
             (
@@ -459,15 +466,24 @@ impl Session {
         let mut params: Vec<f64> = Vec::with_capacity(rotation_count);
         for op in circuit.operations() {
             match op {
-                CircuitOp::SingleQubit { gate: Gate::Rx(t), target } => {
+                CircuitOp::SingleQubit {
+                    gate: Gate::Rx(t),
+                    target,
+                } => {
                     pc.rotation(RotationAxis::X, *target, params.len());
                     params.push(*t);
                 }
-                CircuitOp::SingleQubit { gate: Gate::Ry(t), target } => {
+                CircuitOp::SingleQubit {
+                    gate: Gate::Ry(t),
+                    target,
+                } => {
                     pc.rotation(RotationAxis::Y, *target, params.len());
                     params.push(*t);
                 }
-                CircuitOp::SingleQubit { gate: Gate::Rz(t), target } => {
+                CircuitOp::SingleQubit {
+                    gate: Gate::Rz(t),
+                    target,
+                } => {
                     pc.rotation(RotationAxis::Z, *target, params.len());
                     params.push(*t);
                 }
@@ -533,7 +549,7 @@ impl Session {
                 return eprintln!(
                     "unknown or ill-sized hamiltonian '{rest}' for {} qubits; try: tfim, ising, heisenberg, xxz, hubbard",
                     self.qubits
-                )
+                );
             }
         };
         let (pc, mut params) = match self.build_parameterized() {
@@ -602,14 +618,25 @@ impl Session {
             .and_then(|op| op.lowest_eigenpairs(1, 1e-10, 4096).ok())
             .map(|sys| sys.eigenvalues()[0]);
 
-        println!("vqe: hamiltonian '{name}' ({} qubits, {} params)", self.qubits, params.len());
+        println!(
+            "vqe: hamiltonian '{name}' ({} qubits, {} params)",
+            self.qubits,
+            params.len()
+        );
         println!("  initial energy = {initial_energy:.6}");
         println!("  vqe ground energy = {best:.6}");
         match exact {
             Some(e) => {
                 let gap = (best - e).abs();
                 println!("  exact ground energy = {e:.6}");
-                println!("  |vqe - exact| = {gap:.2e}  {}", if gap < 1e-3 { "✓ converged" } else { "(ansatz/optimizer gap)" });
+                println!(
+                    "  |vqe - exact| = {gap:.2e}  {}",
+                    if gap < 1e-3 {
+                        "✓ converged"
+                    } else {
+                        "(ansatz/optimizer gap)"
+                    }
+                );
             }
             None => println!("  exact ground energy = (solver unavailable)"),
         }
@@ -618,14 +645,15 @@ impl Session {
 
     /// QML training on a purpose-built variational circuit (angle encoding +
     /// trainable rotation + <Z> readout), optimized with Adam.
-    ///   - `train regression`            fit the built-in cos(x+0.7) demo
-    ///   - `train classify`              run the built-in separable-blobs demo
-    ///   - `train regression DATA ...`   fit your own data
-    ///   - `train classify DATA ...`     classify your own data
+    ///
+    /// - `train regression` fit the built-in cos(x+0.7) demo
+    /// - `train classify` run the built-in separable-blobs demo
+    /// - `train regression DATA ...` fit your own data
+    /// - `train classify DATA ...` classify your own data
+    ///
     /// DATA is a Wolfram-style list of {features..., target} rows, e.g.
-    ///   train regression {{0,1},{1,2},{2,3},{3,4}}
-    ///   train classify {{-1,0},{1,1}}
-    /// Optional trailing config: lr=0.1 epochs=200
+    /// `train regression {{0,1},{1,2},{2,3},{3,4}}` or
+    /// `train classify {{-1,0},{1,1}}`. Optional trailing config: lr=0.1 epochs=200
     fn cmd_train(&self, rest: &str) {
         let rest = rest.trim();
         // Split off the task word; the remainder is DATA + optional config.
@@ -664,8 +692,14 @@ impl Session {
 
     fn train_classification_demo(&self) {
         let data: Vec<(Vec<f64>, f64)> = [
-            (-1.5, 0.0), (-1.2, 0.0), (-0.9, 0.0), (-0.6, 0.0),
-            (0.6, 1.0), (0.9, 1.0), (1.2, 1.0), (1.5, 1.0),
+            (-1.5, 0.0),
+            (-1.2, 0.0),
+            (-0.9, 0.0),
+            (-0.6, 0.0),
+            (0.6, 1.0),
+            (0.9, 1.0),
+            (1.2, 1.0),
+            (1.5, 1.0),
         ]
         .into_iter()
         .map(|(x, y)| (vec![x], y))
@@ -764,7 +798,11 @@ impl Session {
         };
         match circuit.run_density(DensityMatrix::from_state(&initial)) {
             Ok(d) => {
-                println!("noisy density matrix built (trace={:.6}, purity={:.6}).", d.trace().re, d.purity());
+                println!(
+                    "noisy density matrix built (trace={:.6}, purity={:.6}).",
+                    d.trace().re,
+                    d.purity()
+                );
                 self.density = Some(d);
                 self.cmd_state();
             }
@@ -774,8 +812,10 @@ impl Session {
 
     /// `qnn` — the minimal 1-parameter VariationalQnn (Ry-encode x, trainable Ry,
     /// <Z> readout), exposed interactively:
-    ///   - `qnn`                       fit cos(x+0.7) demo (Adam)
-    ///   - `qnn DATA [opt=...]`        fit your own (x,y) pairs
+    ///
+    /// - `qnn` fit cos(x+0.7) demo (Adam)
+    /// - `qnn DATA [opt=...]` fit your own (x,y) pairs
+    ///
     /// DATA is a flat brace list {x0,y0, x1,y1, ...} (one pair per row).
     /// Config: target=K (demo only), lr=E, steps=N, opt=adam|gd.
     fn cmd_qnn(&mut self, rest: &str) {
@@ -870,36 +910,81 @@ impl Session {
         println!("{sum}");
     }
 
-    /// `qtm` — Quantum Turing Machine demo. Builds a reversible "toggle" QTM
-    /// (2 states that flip each step, head stays, tape unchanged), prepares the
-    /// uniform superposition over internal states, runs one quantum step (the
-    /// unitary transition U_δ acting coherently), and measures the state register.
-    fn cmd_qtm(&self, _rest: &str) {
+    /// `qtm` — Quantum Turing Machine (Bernstein–Vazirani unitary formulation).
+    ///   qtm                       built-in toggle machine, 4 cells
+    ///   qtm cells=8               toggle machine on an 8-cell tape
+    ///
+    /// `cells=` must be a power of two (tape is one register). The toggle
+    /// machine is reversible by construction (state flips each step, head and
+    /// tape fixed), so its transition unitary is well-defined.
+    fn cmd_qtm(&self, rest: &str) {
         use quantumforge::qtm::{Configuration, Direction, QuantumTuringMachine, Transition};
+
+        let mut cells = 4usize;
+        for word in rest.split_whitespace() {
+            if let Some(v) = word
+                .strip_prefix("cells=")
+                .and_then(|v| v.parse::<usize>().ok())
+            {
+                cells = v;
+            }
+        }
+        if !cells.is_power_of_two() || cells == 0 {
+            return eprintln!("qtm error: cells={cells} must be a power of two");
+        }
+
+        // toggle: flip the internal state each step, head stays, tape fixed —
+        // a perfect involution, hence reversible.
         let transitions = vec![
             vec![
-                Some(Transition { next_state: 1, write: 0, direction: Direction::Stay }),
-                Some(Transition { next_state: 1, write: 1, direction: Direction::Stay }),
+                Some(Transition {
+                    next_state: 1,
+                    write: 0,
+                    direction: Direction::Stay,
+                }),
+                Some(Transition {
+                    next_state: 1,
+                    write: 1,
+                    direction: Direction::Stay,
+                }),
             ],
             vec![
-                Some(Transition { next_state: 0, write: 0, direction: Direction::Stay }),
-                Some(Transition { next_state: 0, write: 1, direction: Direction::Stay }),
+                Some(Transition {
+                    next_state: 0,
+                    write: 0,
+                    direction: Direction::Stay,
+                }),
+                Some(Transition {
+                    next_state: 0,
+                    write: 1,
+                    direction: Direction::Stay,
+                }),
             ],
         ];
-        let m = match QuantumTuringMachine::new(2, 2, 4, 4, transitions, 0) {
+        let m = match QuantumTuringMachine::new(2, 2, cells, cells, transitions, 0) {
             Ok(m) => m,
             Err(e) => return eprintln!("qtm error: {e}"),
         };
-        let tape = [0u8, 1, 0, 0];
-        let head = 2;
+        let mut tape = vec![0u8; cells];
+        if cells > 1 {
+            tape[1] = 1;
+        }
+        let head = (cells / 2).min(cells - 1);
         println!(
-            "qtm: reversible toggle machine, {} qubits, tape {:?} head {head}",
+            "qtm: reversible toggle machine, {} qubits, {cells} cells, tape {:?} head {head}",
             m.qubits(),
             tape
         );
-        let start = Configuration { tape: tape.to_vec(), head, state: 0 };
+        let start = Configuration {
+            tape: tape.clone(),
+            head,
+            state: 0,
+        };
         let classical = m.run_classical(&start, 1);
-        println!("  classical step: state {} -> {}", start.state, classical.state);
+        println!(
+            "  classical step: state {} -> {}",
+            start.state, classical.state
+        );
         let sup = match m.prepare_superposition(&tape, head) {
             Ok(s) => s,
             Err(e) => return eprintln!("qtm error: {e}"),
@@ -909,98 +994,168 @@ impl Session {
             Ok(s) => s,
             Err(e) => return eprintln!("qtm error: {e}"),
         };
-        println!("  unitary step preserved norm: {} -> {}", before, stepped.norm_sqr());
+        println!(
+            "  unitary step preserved norm: {} -> {}",
+            before,
+            stepped.norm_sqr()
+        );
         match m.run_quantum_measured(&sup, 1, 7) {
             Ok((state, _)) => println!("  measured internal state after 1 step = {state}"),
             Err(e) => eprintln!("  measurement error: {e}"),
         }
     }
 
-    /// `mbqc` — Measurement-Based Quantum Computing demo. Prepares a 3-qubit
-    /// linear cluster state, runs a measurement pattern with by-product
-    /// corrections, and reports the corrected angles and outputs.
-    fn cmd_mbqc(&self, _rest: &str) {
-        use quantumforge::mbqc::{ClusterState, MeasurementBasis, MeasurementPattern, MeasurementStep};
-        let cluster = ClusterState::path(3);
+    /// `mbqc` — Measurement-Based Quantum Computing. Prepares a cluster state
+    /// on a graph and runs an adaptive measurement pattern with by-product
+    /// corrections.
+    ///
+    ///   mbqc                             3-qubit linear path demo
+    ///   mbqc edges=0-1,1-2,0-2 qubits=3  custom cluster graph
+    ///
+    /// Graph edges are given as `a-b` pairs; `qubits=N` sets the vertex count.
+    /// The pattern measures each vertex in sequence with equatorial/Z bases and
+    /// propagates by-product corrections along the dependency graph.
+    fn cmd_mbqc(&self, rest: &str) {
+        use quantumforge::mbqc::{
+            ClusterState, MeasurementBasis, MeasurementPattern, MeasurementStep,
+        };
+
+        // Parse: edges=a-b,c-d and qubits=N (default = the 3-qubit path demo).
+        let mut edges_spec: Option<String> = None;
+        let mut qubits = 3usize;
+        for word in rest.split_whitespace() {
+            if let Some(v) = word.strip_prefix("qubits=") {
+                if let Ok(n) = v.parse::<usize>() {
+                    qubits = n;
+                }
+            } else if let Some(v) = word.strip_prefix("edges=") {
+                edges_spec = Some(v.to_owned());
+            }
+        }
+
+        let cluster = match edges_spec {
+            None => ClusterState::path(qubits),
+            Some(spec) => {
+                let mut edges = Vec::new();
+                for pair in spec.split(',') {
+                    let mut it = pair.split('-');
+                    match (
+                        it.next().and_then(|a| a.trim().parse::<usize>().ok()),
+                        it.next().and_then(|b| b.trim().parse::<usize>().ok()),
+                    ) {
+                        (Some(a), Some(b)) if a < qubits && b < qubits && a != b => {
+                            edges.push(if a < b { (a, b) } else { (b, a) });
+                        }
+                        _ => {
+                            return eprintln!(
+                                "mbqc error: bad edge '{pair}' (need a-b with a,b < {qubits})"
+                            );
+                        }
+                    }
+                }
+                ClusterState::new(qubits, edges)
+            }
+        };
         println!(
-            "mbqc: 3-qubit linear cluster state, {} edges {:?}",
+            "mbqc: {qubits}-qubit cluster state, {} edges {:?}",
             cluster.edges.len(),
             cluster.edges
         );
+
+        // Build a pattern over every vertex: alternate equatorial / Z, each step
+        // depending on its neighbours' earlier outcomes (by-product propagation).
         let mut pattern = MeasurementPattern::new();
-        pattern.push(MeasurementStep {
-            qubit: 1,
-            basis: MeasurementBasis::Equatorial(0.6),
-            depends_on_x: vec![],
-            depends_on_z: vec![],
-            output: false,
-        });
-        pattern.push(MeasurementStep {
-            qubit: 2,
-            basis: MeasurementBasis::Z,
-            depends_on_x: vec![],
-            depends_on_z: vec![],
-            output: false,
-        });
-        pattern.push(MeasurementStep {
-            qubit: 0,
-            basis: MeasurementBasis::Equatorial(0.0),
-            depends_on_x: vec![1],
-            depends_on_z: vec![2],
-            output: true,
-        });
+        for v in 0..qubits {
+            let deps = cluster.neighbours(v);
+            pattern.push(MeasurementStep {
+                qubit: v,
+                basis: if v % 2 == 0 {
+                    MeasurementBasis::Equatorial(0.6)
+                } else {
+                    MeasurementBasis::Z
+                },
+                depends_on_x: deps.clone(),
+                depends_on_z: deps,
+                output: v == 0,
+            });
+        }
         match pattern.run(&cluster, 7) {
             Ok(run) => {
                 println!("  raw outcomes: {:?}", run.outcomes);
+                let angles: Vec<String> = run.angles.iter().map(|a| format!("{a:.4}")).collect();
+                println!("  corrected angles: {}", angles.join(", "));
                 println!(
-                    "  corrected angles: {:.4}, {:.4}, {:.4}",
-                    run.angles[0], run.angles[1], run.angles[2]
+                    "  output bit = {}",
+                    run.outputs.first().copied().unwrap_or(0)
                 );
-                println!("  output bit = {}", run.outputs[0]);
             }
             Err(e) => eprintln!("mbqc error: {e}"),
         }
     }
 
-    /// `anneal` — Adiabatic Quantum Computing demo. Interpolates from a
-    /// transverse-field driver H0 = -(X0+X1) to the problem H1 = Z0 Z1 over a
-    /// fixed schedule and reports the final energy vs the exact ground energy.
+    /// `anneal` — Adiabatic Quantum Computing. Interpolates a driver Hamiltonian
+    /// to a problem Hamiltonian and reports the final energy vs the exact ground.
+    ///
+    ///   anneal                    built-in demo: -(X0+X1) -> Z0Z1, T=20
+    ///   anneal NAME               named schedule (ising, tfim, heisenberg, xxz, hubbard)
+    ///   anneal NAME T=40 tol=1e-6 steps=100000
+    ///
+    /// Named schedules reuse the exact-rational spin Hamiltonians from `vqe` as
+    /// the problem term, with a transverse-field driver.
     fn cmd_anneal(&self, rest: &str) {
-        use quantumforge::aqc::{run_adiabatic, uniform_superposition, AdiabaticSchedule};
-        let total_time: f64 = rest.trim().parse().unwrap_or(20.0);
-        let total_time = if total_time > 0.0 { total_time } else { 20.0 };
+        use quantumforge::aqc::{run_adiabatic, uniform_superposition};
 
-        let x = [0.0, 1.0, 1.0, 0.0];
-        let i = [1.0, 0.0, 0.0, 1.0];
-        let z = [1.0, 0.0, 0.0, -1.0];
-        let kron = |a: &[f64; 4], b: &[f64; 4]| -> Vec<f64> {
-            let mut out = vec![0.0; 16];
-            for r in 0..2 {
-                for c in 0..2 {
-                    for k in 0..2 {
-                        for l in 0..2 {
-                            out[(r * 2 + k) * 4 + (c * 2 + l)] = a[r * 2 + c] * b[k * 2 + l];
-                        }
-                    }
+        // Parse: optional leading schedule name, then key=value config. A bare
+        // leading number is accepted as total_time for backward compatibility
+        // (`anneal 20` == `anneal T=20`).
+        let mut name = "demo";
+        let mut total_time = 20.0f64;
+        let mut tol = 1e-6f64;
+        let mut max_steps = 50000usize;
+        for (i, word) in rest.split_whitespace().enumerate() {
+            if let Some(v) = word.strip_prefix("T=").and_then(|v| v.parse::<f64>().ok()) {
+                total_time = v;
+            } else if let Some(v) = word
+                .strip_prefix("tol=")
+                .and_then(|v| v.parse::<f64>().ok())
+            {
+                tol = v;
+            } else if let Some(v) = word
+                .strip_prefix("steps=")
+                .and_then(|v| v.parse::<usize>().ok())
+            {
+                max_steps = v;
+            } else if i == 0 {
+                // A bare leading number is total_time; otherwise it's a schedule name.
+                match word.parse::<f64>() {
+                    Ok(v) if v > 0.0 => total_time = v,
+                    _ => name = word,
                 }
             }
-            out
-        };
-        let xi = kron(&x, &i);
-        let ix = kron(&i, &x);
-        let h0: Vec<f64> = (0..16).map(|k| -(xi[k] + ix[k])).collect();
-        let zz = kron(&z, &z);
+        }
+        if total_time <= 0.0 {
+            return eprintln!("anneal error: total_time must be positive");
+        }
 
-        let schedule = match AdiabaticSchedule::from_dense(2, h0, zz) {
+        // Build the schedule: demo (2-qubit ZZ) or a named spin chain.
+        let (schedule, label) = if name == "demo" {
+            match quantumforge::aqc::demo_schedule() {
+                Ok(s) => (s, "-(X0+X1) -> Z0Z1".to_owned()),
+                Err(e) => return eprintln!("anneal error: {e}"),
+            }
+        } else {
+            let n = self.qubits;
+            match build_named_schedule(name, n) {
+                Ok(pair) => pair,
+                Err(e) => return eprintln!("anneal error: {e}"),
+            }
+        };
+        let initial = match uniform_superposition(schedule.qubits()) {
             Ok(s) => s,
             Err(e) => return eprintln!("anneal error: {e}"),
         };
-        let initial = match uniform_superposition(2) {
-            Ok(s) => s,
-            Err(e) => return eprintln!("anneal error: {e}"),
-        };
-        println!("anneal: H0=-(X0+X1) -> H1=Z0Z1, total_time={total_time}");
-        match run_adiabatic(&schedule, &initial, total_time, 1e-6, 50000) {
+        println!("anneal: {label}, total_time={total_time}, tol={tol}, steps={max_steps}");
+        match run_adiabatic(&schedule, &initial, total_time, tol, max_steps) {
             Ok(r) => {
                 println!("  initial ground energy = {:.6}", r.initial_energy);
                 println!("  final energy under H1 = {:.6}", r.final_energy);
@@ -1009,13 +1164,51 @@ impl Session {
                 let verdict = if gap < 5e-3 {
                     "✓ adiabatic (tracked ground state)"
                 } else {
-                    "(leaked — try longer total_time)"
+                    "(leaked — try longer total_time / looser tol)"
                 };
                 println!("  |final - exact| = {gap:.2e}  {verdict}");
             }
             Err(e) => eprintln!("  anneal error: {e}"),
         }
     }
+}
+
+/// Build a named spin-chain adiabatic schedule: transverse-field driver
+/// `H0 = -Σ Xᵢ` interpolated to the exact-rational problem Hamiltonian `H1`
+/// named by `name` on `qubits` sites. Returns (schedule, label).
+fn build_named_schedule(
+    name: &str,
+    qubits: usize,
+) -> Result<(quantumforge::aqc::AdiabaticSchedule, String), String> {
+    use quantumforge::aqc::AdiabaticSchedule;
+    use quantumforge::quantum::Operator;
+
+    // Driver: -Σ Xᵢ as a dense operator.
+    let driver = {
+        let space =
+            quantumforge::quantum::HilbertSpace::qubits(qubits).map_err(|e| e.to_string())?;
+        let dim = space.dimension();
+        let mut entries = vec![quantumforge::Complex64::ZERO; dim * dim];
+        for q in 0..qubits {
+            // Add -X_q: flips bit q, coefficient -1.
+            let mask = 1usize << q;
+            for i in 0..dim {
+                let j = i ^ mask;
+                entries[i * dim + j].re -= 1.0;
+            }
+        }
+        Operator::new(space.clone(), space, entries).map_err(|e| e.to_string())?
+    };
+    // Problem: reuse the exact-rational VQE Hamiltonian.
+    let problem = named_hamiltonian(name, qubits).ok_or_else(|| {
+        format!(
+            "unknown or ill-sized schedule '{name}' for {qubits} qubits; \
+             try: ising, tfim, heisenberg, xxz, hubbard (need >= 2 qubits)"
+        )
+    })?;
+    let schedule =
+        AdiabaticSchedule::from_hamiltonians(&driver, &problem).map_err(|e| e.to_string())?;
+    Ok((schedule, format!("-ΣX -> {name} ({qubits}q)")))
 }
 
 /// Interpret a parsed scalar expression as a sum of single-qubit Pauli words.
@@ -1047,10 +1240,12 @@ fn collect_pauli_terms(
             let mut symbol: Option<Pauli> = None;
             for f in factors {
                 match f {
-                    S::Exact(c) => coeff = match coeff.checked_mul(*c) {
-                        Ok(v) => v,
-                        Err(_) => return Err("exact multiplication overflow".to_owned()),
-                    },
+                    S::Exact(c) => {
+                        coeff = match coeff.checked_mul(*c) {
+                            Ok(v) => v,
+                            Err(_) => return Err("exact multiplication overflow".to_owned()),
+                        }
+                    }
                     S::Symbol(name) => match word_of(name) {
                         Some(p) => symbol = Some(p),
                         None => return Err(format!("unknown Pauli word: {name}")),
@@ -1145,7 +1340,11 @@ struct TrainConfig {
 }
 impl Default for TrainConfig {
     fn default() -> Self {
-        Self { lr: 0.1, epochs: 200, nfeat: 1 }
+        Self {
+            lr: 0.1,
+            epochs: 200,
+            nfeat: 1,
+        }
     }
 }
 
@@ -1160,10 +1359,16 @@ fn split_config(tail: &str) -> (&str, TrainConfig) {
         if let Some(v) = word.strip_prefix("lr=").and_then(|v| v.parse::<f64>().ok()) {
             config.lr = v;
             data_end = data_end.min(i);
-        } else if let Some(v) = word.strip_prefix("epochs=").and_then(|v| v.parse::<usize>().ok()) {
+        } else if let Some(v) = word
+            .strip_prefix("epochs=")
+            .and_then(|v| v.parse::<usize>().ok())
+        {
             config.epochs = v;
             data_end = data_end.min(i);
-        } else if let Some(v) = word.strip_prefix("nfeat=").and_then(|v| v.parse::<usize>().ok()) {
+        } else if let Some(v) = word
+            .strip_prefix("nfeat=")
+            .and_then(|v| v.parse::<usize>().ok())
+        {
             config.nfeat = v;
             data_end = data_end.min(i);
         }
@@ -1184,7 +1389,9 @@ fn parse_dataset(src: &str, nfeat: usize) -> Result<Vec<(Vec<f64>, f64)>, String
     let mut values = Vec::new();
     for tok in inner.split(',').map(str::trim).filter(|t| !t.is_empty()) {
         let expr = parse_scalar_expr(tok).map_err(|e| format!("'{tok}': {e}"))?;
-        let v = expr.evaluate(&HashMap::new()).map_err(|e| format!("'{tok}': {e}"))?;
+        let v = expr
+            .evaluate(&HashMap::new())
+            .map_err(|e| format!("'{tok}': {e}"))?;
         if v.im.abs() > 1e-12 {
             return Err(format!("'{tok}' is not real"));
         }
@@ -1236,26 +1443,52 @@ fn run_regression(data: &[(Vec<f64>, f64)], label: &str, config: &TrainConfig) {
         batch_size: data.len(),
         seed: 42,
     };
-    let (loss0, _) = match model.mse_loss_and_gradient(data, &init, n_features, SingleQubitObservable::Z, 0) {
-        Ok(v) => v,
-        Err(e) => return eprintln!("train error: {e}"),
-    };
-    let weights = match model.train_regression_adam(data, &init, n_features, SingleQubitObservable::Z, 0, qml) {
+    let (loss0, _) =
+        match model.mse_loss_and_gradient(data, &init, n_features, SingleQubitObservable::Z, 0) {
+            Ok(v) => v,
+            Err(e) => return eprintln!("train error: {e}"),
+        };
+    let weights = match model.train_regression_adam(
+        data,
+        &init,
+        n_features,
+        SingleQubitObservable::Z,
+        0,
+        qml,
+    ) {
         Ok(w) => w,
         Err(e) => return eprintln!("train error: {e}"),
     };
-    let (loss1, _) = match model.mse_loss_and_gradient(data, &weights, n_features, SingleQubitObservable::Z, 0) {
+    let (loss1, _) = match model.mse_loss_and_gradient(
+        data,
+        &weights,
+        n_features,
+        SingleQubitObservable::Z,
+        0,
+    ) {
         Ok(v) => v,
         Err(e) => return eprintln!("train error: {e}"),
     };
     let mean_y: f64 = data.iter().map(|(_, y)| y).sum::<f64>() / data.len() as f64;
     let ss_tot: f64 = data.iter().map(|(_, y)| (y - mean_y).powi(2)).sum();
     let ss_res: f64 = loss1 * data.len() as f64;
-    let r2 = if ss_tot > 1e-12 { 1.0 - ss_res / ss_tot } else { f64::NAN };
-    println!("train regression ({label}): {n_features} feature(s), {} samples, 1 trainable weight", data.len());
-    println!("  mse: {loss0:.6} -> {loss1:.6}   R² = {r2:.4}   weight = {:.6}", weights[0]);
+    let r2 = if ss_tot > 1e-12 {
+        1.0 - ss_res / ss_tot
+    } else {
+        f64::NAN
+    };
+    println!(
+        "train regression ({label}): {n_features} feature(s), {} samples, 1 trainable weight",
+        data.len()
+    );
+    println!(
+        "  mse: {loss0:.6} -> {loss1:.6}   R² = {r2:.4}   weight = {:.6}",
+        weights[0]
+    );
     if r2 < 0.0 {
-        println!("  note: R²<0 — the <Z>∈[-1,1] readout can't fit these targets; try bounded targets");
+        println!(
+            "  note: R²<0 — the <Z>∈[-1,1] readout can't fit these targets; try bounded targets"
+        );
     }
 }
 
@@ -1269,7 +1502,12 @@ struct QnnConfig {
 }
 impl Default for QnnConfig {
     fn default() -> Self {
-        Self { target: 0.7, lr: 0.05, steps: 100, adam: true }
+        Self {
+            target: 0.7,
+            lr: 0.05,
+            steps: 100,
+            adam: true,
+        }
     }
 }
 
@@ -1279,13 +1517,19 @@ fn split_qnn_config(tail: &str) -> (&str, QnnConfig) {
     let mut data_end = tail.len();
     for (i, _) in tail.match_indices(char::is_whitespace) {
         let word = tail[i..].split_whitespace().next().unwrap_or("");
-        if let Some(v) = word.strip_prefix("target=").and_then(|v| v.parse::<f64>().ok()) {
+        if let Some(v) = word
+            .strip_prefix("target=")
+            .and_then(|v| v.parse::<f64>().ok())
+        {
             cfg.target = v;
             data_end = data_end.min(i);
         } else if let Some(v) = word.strip_prefix("lr=").and_then(|v| v.parse::<f64>().ok()) {
             cfg.lr = v;
             data_end = data_end.min(i);
-        } else if let Some(v) = word.strip_prefix("steps=").and_then(|v| v.parse::<usize>().ok()) {
+        } else if let Some(v) = word
+            .strip_prefix("steps=")
+            .and_then(|v| v.parse::<usize>().ok())
+        {
             cfg.steps = v;
             data_end = data_end.min(i);
         } else if word == "opt=adam" {
@@ -1324,8 +1568,14 @@ fn run_qnn(qnn: &VariationalQnn, data: &[(f64, f64)], cfg: &QnnConfig) {
         Err(e) => return eprintln!("qnn error: {e}"),
     };
     let opt = if cfg.adam { "Adam" } else { "GD" };
-    println!("qnn (1-param Ry-encode + trainable Ry, <Z> readout, {opt}, {} samples):", data.len());
-    println!("  mse: {l0:.6} -> {l1:.6}   weight = {trained:.6}  (lr={}, steps={})", cfg.lr, cfg.steps);
+    println!(
+        "qnn (1-param Ry-encode + trainable Ry, <Z> readout, {opt}, {} samples):",
+        data.len()
+    );
+    println!(
+        "  mse: {l0:.6} -> {l1:.6}   weight = {trained:.6}  (lr={}, steps={})",
+        cfg.lr, cfg.steps
+    );
 }
 
 /// Classification core: same ansatz, full-batch Adam on binary cross-entropy.
@@ -1354,7 +1604,10 @@ fn run_classification(data: &[(Vec<f64>, f64)], label: &str, config: &TrainConfi
         model
             .binary_cross_entropy_and_gradient(data, w, n_features, SingleQubitObservable::Z, 0)
             .map(|(l, g)| {
-                (l / data.len() as f64, g.iter().map(|x| x / data.len() as f64).collect::<Vec<_>>())
+                (
+                    l / data.len() as f64,
+                    g.iter().map(|x| x / data.len() as f64).collect::<Vec<_>>(),
+                )
             })
     };
     let (loss0, _) = match loss_grad(&weights) {
@@ -1390,24 +1643,30 @@ fn run_classification(data: &[(Vec<f64>, f64)], label: &str, config: &TrainConfi
         }
     }
     let acc = correct as f64 / data.len() as f64;
-    println!("train classify ({label}): {n_features} feature(s), {} samples", data.len());
-    println!("  cross-entropy: {loss0:.6} -> {loss1:.6}   accuracy = {:.0}% ({correct}/{})   weight = {:.6}", acc * 100.0, data.len(), weights[0]);
+    println!(
+        "train classify ({label}): {n_features} feature(s), {} samples",
+        data.len()
+    );
+    println!(
+        "  cross-entropy: {loss0:.6} -> {loss1:.6}   accuracy = {:.0}% ({correct}/{})   weight = {:.6}",
+        acc * 100.0,
+        data.len(),
+        weights[0]
+    );
 }
 
 /// Built-in VQE Hamiltonians with exact rational coefficients (the exact-arithmetic
 /// PauliSum kernel's sweet spot). Standard spin-model benchmarks on `qubits` sites:
-///   - tfim:       transverse-field Ising, H = -Σ Z_i Z_{i+1} - Σ X_i
-///   - ising:      pure Ising,               H = -Σ Z_i Z_{i+1}
-///   - heisenberg: XXX Heisenberg chain,     H = Σ (X_i X_{i+1} + Y_i Y_{i+1} + Z_i Z_{i+1})
-///   - xxz:        anisotropic XXZ ring,     H = Σ (X_iX_{i+1} + Y_iY_{i+1} - ½ Z_iZ_{i+1})
-///   - hubbard:    Hubbard ring (t=1, U=1) mapped to spins via Jordan-Wigner,
-///                 H = Σ (c†ᵢc_{i+1} + h.c.) + U Σ n_i n_{i+1}
-///                 = -½Σ(X_iX_{i+1}+Y_iY_{i+1}) + ¼Σ(I_iI_{i+1} - Z_iZ_{i+1})
+///
+/// - tfim: transverse-field Ising, H = -Σ Z_i Z_{i+1} - Σ X_i
+/// - ising: pure Ising, H = -Σ Z_i Z_{i+1}
+/// - heisenberg: XXX Heisenberg chain, H = Σ (X_i X_{i+1} + Y_i Y_{i+1} + Z_i Z_{i+1})
+/// - xxz: anisotropic XXZ ring, H = Σ (X_iX_{i+1} + Y_iY_{i+1} - ½ Z_iZ_{i+1})
+/// - hubbard: Hubbard ring (t=1, U=1) mapped to spins via Jordan-Wigner,
+///   H = Σ (c†ᵢc_{i+1} + h.c.) + U Σ n_i n_{i+1} = -½Σ(X_iX_{i+1}+Y_iY_{i+1}) + ¼Σ(I_iI_{i+1} - Z_iZ_{i+1})
+///
 /// Returns None for unknown names or qubit counts < 2 (no bonds to form).
-fn named_hamiltonian(
-    name: &str,
-    qubits: usize,
-) -> Option<quantumforge::analytic::PauliSum> {
+fn named_hamiltonian(name: &str, qubits: usize) -> Option<quantumforge::analytic::PauliSum> {
     use quantumforge::analytic::{ExactComplex, Pauli, PauliSum, PauliWord, Rational};
 
     fn c(num: i128, den: i128) -> ExactComplex {

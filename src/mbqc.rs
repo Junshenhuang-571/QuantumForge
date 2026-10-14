@@ -158,10 +158,8 @@ impl MeasurementPattern {
             // Z-by-products mirror the plane (X <-> Y), i.e. negate the angle.
             let mut mirror = false;
             for &dep in &step.depends_on_z {
-                if let Some(&s) = outcome_of.get(&dep) {
-                    if s == 1 {
-                        mirror = !mirror;
-                    }
+                if outcome_of.get(&dep) == Some(&1) {
+                    mirror = !mirror;
                 }
             }
             if mirror {
@@ -175,10 +173,14 @@ impl MeasurementPattern {
                 MeasurementBasis::Equatorial(_) => {
                     // Measure cos(phi) X + sin(phi) Y: rotate by -phi about Z so
                     // the observable aligns with X, then measure X.
-                    state.apply(crate::Gate::Rz(-phi), step.qubit).map_err(|e| e.to_string())?;
+                    state
+                        .apply(crate::Gate::Rz(-phi), step.qubit)
+                        .map_err(|e| e.to_string())?;
                     measure_x(&mut state, step.qubit, &mut rng)?
                 }
-                MeasurementBasis::Z => state.measure(step.qubit, &mut rng).map_err(|e| e.to_string())?,
+                MeasurementBasis::Z => state
+                    .measure(step.qubit, &mut rng)
+                    .map_err(|e| e.to_string())?,
             };
             outcome_of.insert(step.qubit, outcome);
             outcomes.push(outcome);
@@ -187,7 +189,11 @@ impl MeasurementPattern {
             }
         }
 
-        Ok(MbqcRun { angles, outcomes, outputs })
+        Ok(MbqcRun {
+            angles,
+            outcomes,
+            outputs,
+        })
     }
 }
 

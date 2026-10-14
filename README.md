@@ -5,20 +5,24 @@ A quantum-computation kernel in Rust: an **exact-rational analytic core**, a
 **interactive REPL**, and optional **CUDA / LLVM** execution backends — all
 sharing one set of semantics.
 
+[![CI](https://github.com/Junshenhuang-571/QuantumForge/actions/workflows/ci.yml/badge.svg)](https://github.com/Junshenhuang-571/QuantumForge/actions/workflows/ci.yml)
+
 QuantumForge spans **five models of quantum computation** under one roof:
 
 | Paradigm | What it is | `qf` command |
 |---|---|---|
 | **Circuit / gate model** | the standard qubits-and-gates model | `add`, `run`, `draw`, `shots` |
 | **Variational (VQE / QML)** | parameterized circuits optimized classically | `vqe`, `train`, `qnn`, `gradient` |
-| **Measurement-based (MBQC)** | the "one-way" model — cluster states measured adaptively | `mbqc` |
-| **Adiabatic (AQC)** | evolve a ground state from a driver to a problem Hamiltonian | `anneal` |
-| **Quantum Turing machine** | reversible transition unitaries on configuration superpositions | `qtm` |
+| **Measurement-based (MBQC)** | the "one-way" model — cluster states measured adaptively | `mbqc edges=a-b,.. qubits=N` |
+| **Adiabatic (AQC)** | evolve a ground state from a driver to a problem Hamiltonian | `anneal NAME T=.. tol=.. steps=..` |
+| **Quantum Turing machine** | reversible transition unitaries on configuration superpositions | `qtm cells=N` |
 
-The headline feature is the `qf` REPL: build circuits incrementally, draw them
-as ASCII diagrams, run and measure them, and run variational algorithms
-(VQE, QML training) with results cross-checked against exact ground-state
-energies. 89 tests back the semantics in the default build.
+Every paradigm command is **data-driven** — supply your own cluster graph,
+problem Hamiltonian, or tape size rather than running a fixed demo. The headline
+feature is the `qf` REPL: build circuits incrementally, draw them as ASCII
+diagrams, run and measure them, and run variational algorithms (VQE, QML
+training) with results cross-checked against exact ground-state energies.
+91 tests back the semantics in the default build.
 
 ## Highlights
 
@@ -53,7 +57,7 @@ energies. 89 tests back the semantics in the default build.
 
 ```bash
 cargo build            # default (CPU-only) build
-cargo test             # 89 tests (default build; llvm/cuda tests need feature flags)
+cargo test             # 91 tests (default build; llvm/cuda tests need feature flags)
 ```
 
 Run the interactive REPL:
@@ -150,8 +154,20 @@ src/mbqc.rs           Measurement-Based QC (cluster states + measurement pattern
 src/aqc.rs            Adiabatic QC (H(s) schedule driver + ground-state tracking)
 src/cuda.rs           CUDA backend (feature = cuda)
 src/llvm_backend.rs   LLVM IR + JIT (feature = llvm)
-tests/                89 integration tests in the default build (incl. REPL end-to-end)
+tests/                91 integration tests in the default build (incl. REPL end-to-end)
 RUST_CAS_ROADMAP.md   design notes and progress log
+```
+
+## CI
+
+Every push and PR runs GitHub Actions (`.github/workflows/ci.yml`):
+`cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo build`,
+and `cargo test`. Reproduce locally:
+
+```bash
+cargo fmt --all -- --check
+cargo clippy --all-targets -- -D warnings
+cargo test
 ```
 
 ## License

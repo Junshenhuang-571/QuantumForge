@@ -1137,7 +1137,7 @@ where
     let mut state = initial.clone();
     let mut time = start_time;
     let mut step = total_interval;
-    let krylov_iterations = initial.space.dimension.min(32).max(1);
+    let krylov_iterations = initial.space.dimension.clamp(1, 32);
 
     for _ in 0..max_steps {
         let remaining = end_time - time;

@@ -12,8 +12,8 @@ pub mod llvm_backend;
 pub mod mbqc;
 pub mod numeric_ir;
 pub mod parser;
-pub mod quantum;
 pub mod qtm;
+pub mod quantum;
 
 use std::collections::BTreeMap;
 use std::error::Error;

@@ -288,6 +288,25 @@ Variational / QML surface, all data-capable:
 - `qnn [DATA] [target=K lr=E steps=N opt=adam|gd]` — the minimal 1-parameter
   `VariationalQnn`, both Adam and gradient-descent optimizers.
 
+Paradigm commands (QTM / MBQC / AQC), all data-capable:
+- `qtm [cells=N]` — Bernstein–Vazirani unitary Turing machine: a reversible
+  transition table (state flips each step, head/tape fixed — an involution, so
+  `U_δ` is well-defined) applied coherently to a configuration superposition,
+  then measured. `cells=` sets the (power-of-two) tape register.
+- `mbqc [edges=a-b,c-d] [qubits=N]` — measurement-based QC: builds a cluster
+  state on your graph and runs an adaptive measurement pattern with by-product
+  Pauli corrections propagated along the dependency graph.
+- `anneal [NAME] [T=.. tol=.. steps=..]` — adiabatic QC: interpolates
+  `H(s)=(1-s)H₀+sH₁` from a transverse-field driver to a problem Hamiltonian
+  (named spin chain, reusing the exact-rational VQE models), driven by the
+  adaptive-step Trotter integrator. A bare leading number is `T=` for
+  backward-compat. The driver guards integrator non-convergence with a
+  tolerance floor and reports an actionable error.
+
+CI: `.github/workflows/ci.yml` runs `cargo fmt --check`,
+`cargo clippy --all-targets -- -D warnings`, `cargo build`, and `cargo test`
+on every push/PR.
+
 Custom (subscripted multi-qubit) Hamiltonian input via `pauli`/`vqe` remains
 future work — the scalar parser has no list/word-of-qubits form, so `vqe`
 currently uses the built-in named models.
