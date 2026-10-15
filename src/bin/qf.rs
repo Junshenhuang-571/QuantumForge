@@ -504,6 +504,11 @@ impl Session {
 
     /// `layers` — greedy gate scheduling: pack each op into the earliest layer
     /// where all its qubits are free. Prints the layers and the circuit depth.
+    ///
+    /// Before scheduling, consecutive diagonal single-qubit gates on the same
+    /// qubit (Z/S/T/Rz and their adjoints) are merged into one Rz, since they
+    /// commute and compose additively — this shrinks the depth a naive
+    /// first-fit scheduler would report.
     fn cmd_layers(&self) {
         let circuit = match parse_circuit(&self.full_circuit_source()) {
             Ok(c) => c,
@@ -514,27 +519,62 @@ impl Session {
             println!("(empty circuit)");
             return;
         }
-        // busy[layer] = set of qubits already used in that layer.
+        let (merged, merged_count) = merge_diagonal_runs(ops);
+        // busy[layer] = qubits used in that layer; produced[layer] = classical
+        // bits measured in that layer. A conditional on bit b must land in a
+        // layer strictly after the one that measured b (feedforward dependency).
         let mut busy: Vec<[bool; 64]> = Vec::new();
-        let mut layer_of: Vec<usize> = Vec::with_capacity(ops.len());
-        for op in ops {
+        let mut produced: Vec<[bool; 64]> = Vec::new();
+        let mut layer_of: Vec<usize> = Vec::with_capacity(merged.len());
+        for op in &merged {
             let qubits = op_qubits(op);
-            let layer = busy.iter().position(|b| qubits.iter().all(|&q| !b[q]));
-            let layer = layer.unwrap_or_else(|| {
+            let needs_bit = match op {
+                CircuitOp::ConditionalSingleQubit { classical_bit, .. } => Some(*classical_bit),
+                _ => None,
+            };
+            let writes_bit = match op {
+                CircuitOp::Measure { classical_bit, .. } => Some(*classical_bit),
+                _ => None,
+            };
+            // Earliest layer where all qubits are free AND (if this op needs a
+            // classical bit) that bit was produced in an earlier layer.
+            let mut chosen = None;
+            for (layer, used) in busy.iter().enumerate() {
+                let qubits_free = qubits.iter().all(|&q| !used[q]);
+                let bit_ready = match needs_bit {
+                    Some(b) => produced[..layer].iter().any(|p| p[b]),
+                    None => true,
+                };
+                if qubits_free && bit_ready {
+                    chosen = Some(layer);
+                    break;
+                }
+            }
+            let layer = chosen.unwrap_or_else(|| {
                 busy.push([false; 64]);
+                produced.push([false; 64]);
                 busy.len() - 1
             });
             for &q in &qubits {
                 busy[layer][q] = true;
             }
+            if let Some(b) = writes_bit {
+                produced[layer][b] = true;
+            }
             layer_of.push(layer);
         }
         let depth = busy.len();
+        let saved = ops.len().saturating_sub(merged_count);
+        let note = if saved > 0 {
+            format!(" ({saved} diagonal ops merged)")
+        } else {
+            String::new()
+        };
         println!(
-            "circuit depth = {depth} layers ({ops_len} ops)",
+            "circuit depth = {depth} layers ({merged_count} ops after merging, {ops_len} original){note}",
             ops_len = ops.len()
         );
-        for (layer, ops_in) in group_by_layer(&layer_of, ops).iter().enumerate() {
+        for (layer, ops_in) in group_by_layer(&layer_of, &merged).iter().enumerate() {
             let names: Vec<String> = ops_in.iter().map(op_name).collect();
             println!("  layer {layer}: {}", names.join("  "));
         }
@@ -1643,6 +1683,53 @@ fn group_by_layer(layer_of: &[usize], ops: &[CircuitOp]) -> Vec<Vec<CircuitOp>> 
         layers[layer].push(*op);
     }
     layers
+}
+
+/// The Rz angle a diagonal single-qubit gate contributes (Z=π, S=π/2, T=π/4,
+/// and adjoints negative), or `None` for non-diagonal gates. Diagonal gates on
+/// the same qubit commute and their phases add, so a run collapses to one Rz.
+fn diagonal_angle(gate: &Gate) -> Option<f64> {
+    match gate {
+        Gate::Z => Some(std::f64::consts::PI),
+        Gate::S => Some(std::f64::consts::FRAC_PI_2),
+        Gate::Sdg => Some(-std::f64::consts::FRAC_PI_2),
+        Gate::T => Some(std::f64::consts::FRAC_PI_4),
+        Gate::Tdg => Some(-std::f64::consts::FRAC_PI_4),
+        Gate::Rz(theta) => Some(*theta),
+        _ => None,
+    }
+}
+
+/// Collapse maximal runs of consecutive diagonal single-qubit gates on the same
+/// qubit into a single `Rz(sum)`. Semantics are preserved exactly (they commute
+/// and phases add). Returns the merged ops and the post-merge count.
+fn merge_diagonal_runs(ops: &[CircuitOp]) -> (Vec<CircuitOp>, usize) {
+    let mut out: Vec<CircuitOp> = Vec::with_capacity(ops.len());
+    for op in ops {
+        if let CircuitOp::SingleQubit { gate, target } = op
+            && let Some(angle) = diagonal_angle(gate)
+        {
+            // Extend the previous op if it's an Rz we just emitted on the
+            // same qubit (i.e. the tail of an ongoing diagonal run).
+            if let Some(CircuitOp::SingleQubit {
+                gate: Gate::Rz(acc),
+                target: t,
+            }) = out.last_mut()
+                && *t == *target
+            {
+                *acc += angle;
+                continue;
+            }
+            out.push(CircuitOp::SingleQubit {
+                gate: Gate::Rz(angle),
+                target: *target,
+            });
+            continue;
+        }
+        out.push(*op);
+    }
+    let count = out.len();
+    (out, count)
 }
 
 /// Optional hyperparameters for `train` (lr=, epochs=). Defaults match the demos.

@@ -218,6 +218,51 @@ fn census_counts_gates_by_arity() {
 }
 
 #[test]
+fn layers_merges_consecutive_diagonal_gates() {
+    // T then T then Z on the same qubit all commute and collapse to one Rz:
+    // angle = π/4 + π/4 + π = 3π/2. So 3 ops become 1 (2 merged).
+    let out = run_qf(&[
+        "qubits 1", "add T[0]", "add T[0]", "add Z[0]", "layers", "quit",
+    ]);
+    assert!(out.contains("2 diagonal ops merged"), "merge note:\n{out}");
+    assert!(
+        out.contains("1 ops after merging"),
+        "post-merge count:\n{out}"
+    );
+    assert!(
+        out.contains("layer 0: Rz4.71"),
+        "merged Rz(3π/2≈4.71):\n{out}"
+    );
+}
+
+#[test]
+fn layers_respects_measure_conditional_feedforward() {
+    // A conditional on classical bit 0 must schedule strictly after the
+    // Measure that writes bit 0 — never in the same or an earlier layer.
+    let out = run_qf(&[
+        "qubits 2",
+        "add H[0]",
+        "add Measure[0,0]",
+        "add IfBit[0,1,X,1]",
+        "layers",
+        "quit",
+    ]);
+    // The measure and the conditional end up in different layers (measure
+    // first); the conditional's layer index is greater.
+    assert!(out.contains("layer 0:"), "measure layer:\n{out}");
+    assert!(
+        out.contains("layer 1:"),
+        "conditional in a later layer:\n{out}"
+    );
+    let m_layer = out.find("M[0->0]").unwrap();
+    let c_layer = out.find("X[1|0=1]").unwrap();
+    assert!(
+        c_layer > m_layer,
+        "conditional scheduled after measure:\n{out}"
+    );
+}
+
+#[test]
 fn gradient_adjoint_matches_parameter_shift() {
     let out = run_qf(&["qubits 1", "add Ry[0.5,0]", "gradient Z 0", "quit"]);
     // d<Z>/dθ for Ry(θ) on |0> is -sin(θ); both methods must agree.
