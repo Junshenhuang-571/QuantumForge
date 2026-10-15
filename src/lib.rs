@@ -1003,6 +1003,10 @@ pub enum Gate {
     Y,
     Z,
     H,
+    S,
+    Sdg,
+    T,
+    Tdg,
     Rx(f64),
     Ry(f64),
     Rz(f64),
@@ -1024,6 +1028,26 @@ impl Gate {
                 Complex64::new(s, 0.0),
                 Complex64::new(-s, 0.0),
             ),
+            Self::S => (o, z, z, i),                           // diag(1, i)
+            Self::Sdg => (o, z, z, Complex64::new(0.0, -1.0)), // diag(1, -i)
+            Self::T => (
+                o,
+                z,
+                z,
+                Complex64::new(
+                    std::f64::consts::FRAC_1_SQRT_2,
+                    std::f64::consts::FRAC_1_SQRT_2,
+                ),
+            ), // diag(1, e^{iπ/4})
+            Self::Tdg => (
+                o,
+                z,
+                z,
+                Complex64::new(
+                    std::f64::consts::FRAC_1_SQRT_2,
+                    -std::f64::consts::FRAC_1_SQRT_2,
+                ),
+            ), // diag(1, e^{-iπ/4})
             Self::Rx(theta) => {
                 let c = (theta * 0.5).cos();
                 let si = (theta * 0.5).sin();
@@ -1070,6 +1094,10 @@ fn adjoint_gate(gate: Gate) -> Gate {
         Gate::Rx(theta) => Gate::Rx(-theta),
         Gate::Ry(theta) => Gate::Ry(-theta),
         Gate::Rz(theta) => Gate::Rz(-theta),
+        Gate::S => Gate::Sdg,
+        Gate::Sdg => Gate::S,
+        Gate::T => Gate::Tdg,
+        Gate::Tdg => Gate::T,
         self_adjoint => self_adjoint,
     }
 }

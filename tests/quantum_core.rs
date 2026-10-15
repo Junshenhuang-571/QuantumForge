@@ -12,6 +12,40 @@ fn close(a: f64, b: f64, tolerance: f64) {
 }
 
 #[test]
+fn phase_gates_s_t_and_adjoints_behave_correctly() {
+    // T on |1> adds phase e^{iπ/4}; T·T† = I; T⁴ = Z; S = T².
+    let mut t = StateVector::zero(1).unwrap();
+    t.apply(Gate::X, 0).unwrap(); // |1>
+    t.apply(Gate::T, 0).unwrap();
+    let amp = t.amplitudes()[1];
+    close(amp.re, std::f64::consts::FRAC_1_SQRT_2, 1e-12);
+    close(amp.im, std::f64::consts::FRAC_1_SQRT_2, 1e-12);
+
+    // T then T† is the identity (|0> stays |0>).
+    let mut inv = StateVector::zero(1).unwrap();
+    inv.apply(Gate::T, 0).unwrap();
+    inv.apply(Gate::Tdg, 0).unwrap();
+    close(inv.amplitudes()[0].re, 1.0, 1e-12);
+    close(inv.amplitudes()[0].im, 0.0, 1e-12);
+
+    // T⁴ = Z: apply T four times to |1>, expect phase -1.
+    let mut z = StateVector::zero(1).unwrap();
+    z.apply(Gate::X, 0).unwrap();
+    for _ in 0..4 {
+        z.apply(Gate::T, 0).unwrap();
+    }
+    close(z.amplitudes()[1].re, -1.0, 1e-12);
+    close(z.amplitudes()[1].im, 0.0, 1e-12);
+
+    // S = T² : S on |1> gives phase i.
+    let mut s = StateVector::zero(1).unwrap();
+    s.apply(Gate::X, 0).unwrap();
+    s.apply(Gate::S, 0).unwrap();
+    close(s.amplitudes()[1].re, 0.0, 1e-12);
+    close(s.amplitudes()[1].im, 1.0, 1e-12);
+}
+
+#[test]
 fn bell_state_and_partial_trace_have_expected_statistics() {
     let mut state = StateVector::zero(2).unwrap();
     state.apply(Gate::H, 0).unwrap();

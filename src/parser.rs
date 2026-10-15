@@ -160,7 +160,8 @@ impl CircuitParser<'_> {
         };
         self.expect(TokenKind::LeftBracket, "expected '[' after operation name")?;
         match name.as_str() {
-            "I" | "Identity" | "X" | "Y" | "Z" | "H" => {
+            "I" | "Identity" | "X" | "Y" | "Z" | "H" | "S" | "S†" | "Sdg" | "T" | "T†" | "Tdg" =>
+            {
                 let target = self.read_index()?;
                 self.close_operation()?;
                 let gate = fixed_gate(&name)
@@ -376,6 +377,10 @@ fn fixed_gate(name: &str) -> Option<Gate> {
         "Y" => Some(Gate::Y),
         "Z" => Some(Gate::Z),
         "H" => Some(Gate::H),
+        "S" => Some(Gate::S),
+        "S†" | "Sdg" => Some(Gate::Sdg),
+        "T" => Some(Gate::T),
+        "T†" | "Tdg" => Some(Gate::Tdg),
         _ => None,
     }
 }
