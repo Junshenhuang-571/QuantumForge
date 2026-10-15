@@ -106,20 +106,22 @@ fn mixed_channel_and_measurement_shots() {
 #[test]
 fn draw_renders_circuit_diagram() {
     let out = run_qf(&["qubits 2", "add H[0]", "add CNOT[0,1]", "draw", "quit"]);
-    assert!(out.contains('•'), "control node missing:\n{out}");
-    assert!(out.contains('⊕'), "target symbol missing:\n{out}");
-    // H centred on the wire; CNOT control • and target ⊕ in the same column.
-    assert!(out.contains("───H─────•"), "H then CNOT control:\n{out}");
+    // Boxed gate, column ruler, control/target nodes aligned in one column.
+    assert!(out.contains("┤──H───├"), "H boxed:\n{out}");
+    assert!(out.contains('●'), "control node:\n{out}");
+    assert!(out.contains('⊕'), "target node:\n{out}");
+    assert!(out.contains("────●───"), "CNOT control column:\n{out}");
     assert!(
-        out.contains("─────────⊕"),
+        out.contains("───────────⊕"),
         "target aligned with control:\n{out}"
     );
+    assert!(out.contains("        0"), "column ruler present:\n{out}");
 }
 
 #[test]
 fn draw_aligns_multi_char_labels() {
-    // Multi-char labels (channels, rotations) occupy their own CELL; the wire
-    // stays continuous and the qubit-label prefix is never clobbered.
+    // Multi-char labels (channels, rotations) sit boxed in their own CELL; the
+    // wire stays continuous and the qubit-label prefix is never clobbered.
     let out = run_qf(&[
         "qubits 2",
         "add AmplitudeDamping[1,0.3]",
@@ -127,12 +129,11 @@ fn draw_aligns_multi_char_labels() {
         "draw",
         "quit",
     ]);
-    // AD on q1 (col 0), PD on q0 (col 1): each keeps its prefix and column.
     assert!(
-        out.contains("q1 AD0.30"),
-        "AD in column 0 keeps q1 prefix:\n{out}"
+        out.contains("q1 ┤AD0.30├"),
+        "AD boxed in column 0 keeps q1 prefix:\n{out}"
     );
-    assert!(out.contains("q0 ──────PD0.50"), "PD in column 1:\n{out}");
+    assert!(out.contains("┤PD0.50├"), "PD boxed in column 1:\n{out}");
 }
 
 #[test]
@@ -146,10 +147,11 @@ fn draw_rotations_and_swap_align() {
         "draw",
         "quit",
     ]);
-    // Each gate centred in its own CELL column; SWAP × markers aligned.
-    assert!(out.contains("───X─────"), "X in column 0:\n{out}");
-    assert!(out.contains("─────────Y"), "Y in column 1:\n{out}");
-    assert!(out.contains('×'), "SWAP marker present:\n{out}");
+    // Each gate boxed in its own column; SWAP ✕ markers aligned.
+    assert!(out.contains("┤──X───├"), "X boxed in column 0:\n{out}");
+    assert!(out.contains("┤──Y───├"), "Y boxed in column 1:\n{out}");
+    assert!(out.contains("┤──Z───├"), "Z boxed in column 2:\n{out}");
+    assert!(out.contains('✕'), "SWAP marker present:\n{out}");
 }
 
 #[test]
@@ -157,14 +159,30 @@ fn draw_connects_nonadjacent_two_qubit_gates() {
     // CNOT[0,3] and SWAP[1,2] on 4 qubits: markers align in their column and a
     // vertical │ connector spans the wires between control and target.
     let out = run_qf(&["qubits 4", "add CNOT[0,3]", "add SWAP[1,2]", "draw", "quit"]);
-    // CNOT •/⊕ in the same column (col 0), aligned across wires.
-    assert!(out.contains("q0 ───•"), "CNOT control in column 0:\n{out}");
-    assert!(out.contains("q3 ───⊕"), "CNOT target aligned:\n{out}");
-    // q1 and q2 (between control and target) carry the │ connector.
-    assert!(out.contains("q1 ───│"), "connector on q1:\n{out}");
-    assert!(out.contains("q2 ───│"), "connector on q2:\n{out}");
-    // SWAP × markers in the next column, after the connector.
-    assert!(out.contains('×'), "SWAP markers present:\n{out}");
+    assert!(out.contains("q0 ────●"), "CNOT control in column 0:\n{out}");
+    assert!(out.contains("q3 ────⊕"), "CNOT target aligned:\n{out}");
+    assert!(out.contains("q1 ────│"), "connector on q1:\n{out}");
+    assert!(out.contains("q2 ────│"), "connector on q2:\n{out}");
+    assert!(out.contains('✕'), "SWAP markers present:\n{out}");
+}
+
+#[test]
+fn draw_routes_measurements_to_classical_register() {
+    // Measurements drop a ╨ into the classical register aligned under the M.
+    let out = run_qf(&[
+        "qubits 2",
+        "add H[0]",
+        "add CNOT[0,1]",
+        "add Measure[0,0]",
+        "add Measure[1,1]",
+        "draw",
+        "quit",
+    ]);
+    assert!(out.contains("┤──M───├"), "measure boxed:\n{out}");
+    assert!(out.contains('║'), "measurement routing present:\n{out}");
+    assert!(out.contains("c0 "), "classical register rendered:\n{out}");
+    assert!(out.contains("c1 "), "second classical bit rendered:\n{out}");
+    assert!(out.contains('╨'), "register tap present:\n{out}");
 }
 
 #[test]
