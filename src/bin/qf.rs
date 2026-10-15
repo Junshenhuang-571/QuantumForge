@@ -450,52 +450,16 @@ impl Session {
             println!("(empty circuit)");
             return;
         }
-        // Fixed-width columns; gate labels sit in their CELL, the wire stays
-        // continuous (dashes) everywhere else. Markers at the cell midpoint so
-        // vertical connectors line up under them.
-        let mid = CELL / 2;
-        let width = PREFIX + ops.len() * CELL;
-        let mut rows: Vec<String> = (0..self.qubits)
-            .map(|q| {
-                let mut r = format!("q{q} ");
-                r.push_str(&"─".repeat(width - PREFIX));
-                r
-            })
-            .collect();
+        // Boxed circuit diagram. Each op occupies a CELL-wide column; gate
+        // labels sit inside ┤ ├ box glyphs on the wire, control/target use
+        // round nodes, and vertical ┆ connectors link two-qubit gates across
+        // the wires they span. The wire stays continuous (─) elsewhere.
+        let mut grid = Diagram::new(self.qubits, ops.len());
         for (col, op) in ops.iter().enumerate() {
-            let x = PREFIX + col * CELL + mid;
-            match op {
-                CircuitOp::SingleQubit { gate, target } => {
-                    label(&mut rows[*target], col, &gate_label(gate));
-                }
-                CircuitOp::Channel { channel, target } => {
-                    label(&mut rows[*target], col, &channel_label(channel));
-                }
-                CircuitOp::Cnot { control, target } => {
-                    connect(&mut rows, *control, *target, x);
-                    put_at(&mut rows[*control], x, "•");
-                    put_at(&mut rows[*target], x, "⊕");
-                }
-                CircuitOp::Cz { first, second } => {
-                    connect(&mut rows, *first, *second, x);
-                    put_at(&mut rows[*first], x, "•");
-                    put_at(&mut rows[*second], x, "•");
-                }
-                CircuitOp::Swap { first, second } => {
-                    connect(&mut rows, *first, *second, x);
-                    put_at(&mut rows[*first], x, "x");
-                    put_at(&mut rows[*second], x, "x");
-                }
-                CircuitOp::Measure { target, .. } => {
-                    put_at(&mut rows[*target], x, "M");
-                }
-                CircuitOp::ConditionalSingleQubit { gate, target, .. } => {
-                    label(&mut rows[*target], col, &gate_label(gate));
-                }
-            }
+            grid.place(col, op);
         }
-        println!("{}", rows.join("\n"));
-        println!("legend: ─ wire  • control  ⊕ target(X)  │ span  x swap  M measure");
+        print!("{}", grid.render());
+        println!("{}", Diagram::legend());
     }
 
     /// Build a ParameterizedCircuit from the live circuit, assigning one trainable
@@ -1465,44 +1429,147 @@ fn collect_pauli_terms(
     }
 }
 
-/// Fixed-width layout: every gate column is CELL chars wide, offset by the
-/// `qN ` wire-label prefix so the qubit label is never overwritten.
-const CELL: usize = 7;
-/// Char width of the `qN ` wire label (e.g. `q0 `, `q10 `); rows start here.
-const PREFIX: usize = 3;
+/// Column width for one operation in the circuit diagram (chars).
+const CELL: usize = 8;
 
-/// Write a single-char `marker` at exact char index `x`, extending with spaces
-/// if the row is too short. Used for gate markers + vertical connectors.
-fn put_at(row: &mut String, x: usize, marker: &str) {
-    let chars: Vec<char> = row.chars().collect();
-    let mut out: String = chars[..x.min(chars.len())].iter().collect();
-    while out.chars().count() < x {
-        out.push(' ');
-    }
-    out.push_str(marker);
-    if chars.len() > x + marker.chars().count() {
-        out.extend(&chars[x + marker.chars().count()..]);
-    }
-    *row = out;
+/// A boxed ASCII circuit diagram renderer.
+///
+/// Grid is `qubits` rows × (`ops * CELL`) columns of chars. Each row starts
+/// with a right-aligned `qN ` label, then a continuous `─` wire. Operations are
+/// placed per column: single-qubit gates get a `┤label├` box, control/target
+/// nodes are `●`/`⊕`, measurements get a `┤M✔` meter, and two-qubit gates are
+/// linked by vertical `┆` connectors across the wires they span.
+struct Diagram {
+    rows: Vec<Vec<char>>,
+    qubits: usize,
 }
 
-/// Center a gate `label` within its CELL-width column (offset past the `qN `
-/// prefix), overwriting the wire dashes there. Labels longer than CELL are
-/// truncated so the wire keeps its column rhythm.
-fn label(row: &mut String, col: usize, text: &str) {
-    let text: String = text.chars().take(CELL).collect();
-    let pad = (CELL - text.chars().count()) / 2;
-    let x = PREFIX + col * CELL + pad;
-    put_at(row, x, &text);
+impl Diagram {
+    fn new(qubits: usize, ops: usize) -> Self {
+        let cols = Self::label_width(qubits) + 1 + ops * CELL;
+        Self {
+            rows: vec![vec![' '; cols]; qubits],
+            qubits,
+        }
+    }
+
+    /// Char index where the wire begins (after the `qN ` label).
+    fn wire_start(&self) -> usize {
+        Self::label_width(self.qubits) + 1
+    }
+
+    /// Width of the widest qubit label `q{qubits-1}` (e.g. `q11` → 3), min 2.
+    fn label_width(qubits: usize) -> usize {
+        format!("q{}", qubits.saturating_sub(1))
+            .chars()
+            .count()
+            .max(2)
+    }
+
+    /// Char index of the centre of operation column `col`.
+    fn col_center(&self, col: usize) -> usize {
+        self.wire_start() + col * CELL + CELL / 2
+    }
+
+    /// Paint a single-qubit gate box `┤label├` centred in column `col` on `row`.
+    /// The label is clipped to `CELL-2` inner chars so the two box edges always
+    /// fit inside the column.
+    fn boxed(&mut self, row: usize, col: usize, label: &str) {
+        let inner = CELL - 2;
+        let chars: Vec<char> = label.chars().take(inner).collect();
+        let col_start = self.wire_start() + col * CELL;
+        // Inner region is [col_start+1, col_start+CELL-1); centre the label in it.
+        let pad = (inner - chars.len()) / 2;
+        let left = col_start + 1 + pad;
+        let r = &mut self.rows[row];
+        put(r, col_start, '┤');
+        for (i, &c) in chars.iter().enumerate() {
+            put(r, left + i, c);
+        }
+        put(r, col_start + CELL - 1, '├');
+    }
+
+    /// Place a round node (control `●` / target `⊕` / swap `✕`) at column `col`.
+    fn node(&mut self, row: usize, col: usize, glyph: char) {
+        let center = self.col_center(col);
+        put(&mut self.rows[row], center, glyph);
+    }
+
+    /// Draw vertical `┆` connectors on every wire strictly between `a` and `b`.
+    fn span(&mut self, a: usize, b: usize, col: usize) {
+        let (lo, hi) = if a < b { (a, b) } else { (b, a) };
+        let center = self.col_center(col);
+        for row in self.rows.iter_mut().take(hi).skip(lo + 1) {
+            put(row, center, '┆');
+        }
+    }
+
+    fn place(&mut self, col: usize, op: &CircuitOp) {
+        match op {
+            CircuitOp::SingleQubit { gate, target } => {
+                self.boxed(*target, col, &gate_label(gate));
+            }
+            CircuitOp::Channel { channel, target } => {
+                self.boxed(*target, col, &channel_label(channel));
+            }
+            CircuitOp::Cnot { control, target } => {
+                self.span(*control, *target, col);
+                self.node(*control, col, '●');
+                self.node(*target, col, '⊕');
+            }
+            CircuitOp::Cz { first, second } => {
+                self.span(*first, *second, col);
+                self.node(*first, col, '●');
+                self.node(*second, col, '●');
+            }
+            CircuitOp::Swap { first, second } => {
+                self.span(*first, *second, col);
+                self.node(*first, col, '✕');
+                self.node(*second, col, '✕');
+            }
+            CircuitOp::Measure { target, .. } => {
+                self.boxed(*target, col, "M✔");
+            }
+            CircuitOp::ConditionalSingleQubit {
+                classical_bit,
+                value,
+                gate,
+                target,
+            } => {
+                // Render as a boxed gate with a `[c=v]` condition tag.
+                let tag = format!("{}[{classical_bit}={value}]", gate_label(gate));
+                self.boxed(*target, col, &tag);
+            }
+        }
+    }
+
+    fn render(&self) -> String {
+        let label_w = Self::label_width(self.qubits);
+        let start = self.wire_start();
+        let mut out = String::new();
+        for (q, row) in self.rows.iter().enumerate() {
+            // Right-aligned qubit label, then the wire chars.
+            let lbl = format!("q{q}");
+            out.push_str(&" ".repeat(label_w.saturating_sub(lbl.chars().count())));
+            out.push_str(&lbl);
+            out.push(' ');
+            for &c in &row[start..] {
+                out.push(if c == ' ' { '─' } else { c });
+            }
+            out.push('\n');
+        }
+        out
+    }
+
+    fn legend() -> String {
+        "  ─ wire   ┤├ gate box   ● control   ⊕ X-target   ✕ swap   ┆ span   M✔ measure".to_owned()
+    }
 }
 
-/// Draw a vertical `│` at char index `x` on every wire strictly between qubits
-/// `a` and `b` (exclusive), visually linking a two-qubit gate's control to its
-/// target across the wires it spans.
-fn connect(rows: &mut [String], a: usize, b: usize, x: usize) {
-    let (lo, hi) = if a < b { (a, b) } else { (b, a) };
-    for row in rows.iter_mut().skip(lo + 1).take(hi.saturating_sub(lo + 1)) {
-        put_at(row, x, "│");
+/// Write `ch` at char index `x` in `row`, growing with spaces if needed.
+fn put(row: &mut [char], x: usize, ch: char) {
+    if x < row.len() {
+        row[x] = ch;
     }
 }
 
