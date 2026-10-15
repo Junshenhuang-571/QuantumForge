@@ -15,10 +15,12 @@
 //! standard "bounded-tape" model: `n` tape cells, each holding a symbol from a
 //! small alphabet `Γ`, an `m`-cell head register, and an `h`-qubit internal
 //! state. Head moves **wrap** modulo the tape, so a total transition table whose
-//! writes are injective forms a unitary directly. For machines whose tape
-//! writes are *not* injective (a binary increment that clears a carried digit),
-//! [`QuantumTuringMachine::permutation_with_ancilla`] does Bennett-style
-//! uncomputation over an enlarged tape with a write buffer.
+//! writes are injective forms a unitary directly ([`QuantumTuringMachine::step_quantum`]).
+//! For machines whose tape writes are *not* injective (an information-erasing
+//! write), [`QuantumTuringMachine::step_quantum_ancilla`] runs on an
+//! ancilla-augmented register that preserves the erased symbol — a reversible
+//! involution (apply once to advance, twice to return), which is the practical
+//! form of Bennett's trick for a single step, not an unbounded history tape.
 //!
 //! Use [`QuantumTuringMachine::is_buildable`] to check the state register fits
 //! and [`QuantumTuringMachine::reversibility_gap`] to diagnose a table that
@@ -307,16 +309,23 @@ impl QuantumTuringMachine {
         gaps
     }
 
-    /// Bennett-style uncomputation: build the transition permutation over an
-    /// enlarged tape that appends `extra_cells` ancilla cells. Each step saves
-    /// the symbol read at the head cell into ancilla cell `head` (the
-    /// "uncompute" register) *before* overwriting it, so information-erasing
-    /// writes become injective: two source configs that would collide on
-    /// `(tape', head', state')` differ in the saved `read`, which is preserved
-    /// in the ancilla. Returns the permutation plus the total qubit count.
+    /// Bennett-style ancilla augmentation: build the one-step transition map on
+    /// an enlarged register that appends `extra_cells` ancilla cells. Each step
+    /// saves the symbol read at the head into ancilla slot `head` (storing
+    /// `read + 1`, so `0` means "empty") *before* overwriting it, which is what
+    /// makes an information-erasing write injective.
     ///
-    /// Requires `tape_cells + extra_cells` to be a power of two and
-    /// `extra_cells ≥ tape_cells` (one ancilla slot per head position).
+    /// The returned map is a **whole-space involution**: each clean-ancilla
+    /// source swaps with its ancilla-dirty target (`src ↔ tgt`), everything
+    /// else is fixed. So applying `U_δ` once advances a clean state into the
+    /// ancilla record; applying it twice returns to the start (the inverse is
+    /// the same map). This is the reversible-step primitive that
+    /// [`Self::step_quantum_ancilla`] applies coherently — note it is a
+    /// *swap*, not a multi-step history tape, so it is "reversible ancilla
+    /// stepping" rather than full unbounded Bennett uncomputation.
+    ///
+    /// Requires `extra_cells == tape_cells` (one ancilla slot per head
+    /// position). Rejects a tape large enough to exhaust memory.
     pub fn permutation_with_ancilla(
         &self,
         extra_cells: usize,
@@ -346,6 +355,9 @@ impl QuantumTuringMachine {
         let state_off = head_off + head_bits;
         let state_bits = self.states.trailing_zeros() as usize;
         let total_qubits = state_off + state_bits;
+        if total_qubits > 24 {
+            return Err(QtmError::TapeTooLarge(total_qubits));
+        }
         let dimension = 1usize << total_qubits;
         let ancilla_mask = (1usize << ancilla_bits) - 1;
 
@@ -429,6 +441,68 @@ impl QuantumTuringMachine {
             map.entry(index).or_insert(index);
         }
         Ok((map, total_qubits))
+    }
+
+    /// Run one quantum step on the **ancilla-augmented** register, applying the
+    /// involution from [`Self::permutation_with_ancilla`] coherently to a state
+    /// vector over the enlarged space. This is what lets an information-erasing
+    /// transition table (rejected by [`Self::step_quantum`] on the plain
+    /// register) run as a unitary: the erased read symbol is preserved in the
+    /// ancilla, so the map is a bijection on the full space.
+    ///
+    /// `state` must be a `StateVector` over `2^total_qubits` amplitudes, where
+    /// `total_qubits` is the value returned alongside the permutation. Build
+    /// the initial state with [`Self::prepare_superposition_ancilla`].
+    pub fn step_quantum_ancilla(
+        &self,
+        state: &StateVector,
+        extra_cells: usize,
+    ) -> Result<StateVector, QtmError> {
+        let (permutation, total_qubits) = self.permutation_with_ancilla(extra_cells)?;
+        let amplitudes = state.amplitudes().to_vec();
+        if amplitudes.len() != 1usize << total_qubits {
+            return Err(QtmError::NotPowerOfTwo(state.qubits()));
+        }
+        // Apply the permutation: new[target] = old[index].
+        let mut next = vec![Complex64::ZERO; amplitudes.len()];
+        for (&index, &target) in &permutation {
+            next[target] = amplitudes[index];
+        }
+        StateVector::from_amplitudes(next).map_err(|_| QtmError::NotPowerOfTwo(0))
+    }
+
+    /// Prepare the uniform superposition over internal states for a given tape
+    /// and head, on the **ancilla-augmented** register (ancilla starts empty).
+    /// Feed the result to [`Self::step_quantum_ancilla`].
+    pub fn prepare_superposition_ancilla(
+        &self,
+        tape: &[Symbol],
+        head: usize,
+        extra_cells: usize,
+    ) -> Result<StateVector, QtmError> {
+        let (_, total_qubits) = self.permutation_with_ancilla(extra_cells)?;
+        let symbol_bits = self.alphabet.trailing_zeros() as usize;
+        let work = self.tape_cells;
+        let ancilla_bits = symbol_bits + 1;
+        let work_bits = work * symbol_bits;
+        let ancilla_region_bits = work * ancilla_bits;
+        let ancilla_off = work_bits;
+        let head_off = ancilla_off + ancilla_region_bits;
+        let state_off = head_off + work.trailing_zeros() as usize;
+        let dimension = 1usize << total_qubits;
+        let mut amplitudes = vec![Complex64::ZERO; dimension];
+        let amp = Complex64::new(1.0 / (self.states as f64).sqrt(), 0.0);
+        for state in 0..self.states {
+            let mut index = 0usize;
+            for (cell, &sym) in tape.iter().enumerate() {
+                index |= (sym as usize) << (cell * symbol_bits);
+            }
+            // ancilla region left zero (empty)
+            index |= head << head_off;
+            index |= state << state_off;
+            amplitudes[index] = amp;
+        }
+        StateVector::from_amplitudes(amplitudes).map_err(|_| QtmError::NotPowerOfTwo(0))
     }
 
     /// Decode a basis index into a configuration (exact inverse of [`Self::encode`]).

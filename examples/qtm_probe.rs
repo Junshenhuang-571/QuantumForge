@@ -1,16 +1,17 @@
 //! Demonstrate the two QTM reversibility paths in `quantumforge::qtm`:
 //!
 //! 1. A **total, injective** transition table (writes the read symbol back,
-//!    moves right which wraps, flips state) forms a unitary directly.
+//!    moves right which wraps, flips state) forms a unitary directly via
+//!    `step_quantum`.
 //! 2. An **information-erasing** table (always writes 0) is *not* injective on
-//!    the plain configuration register, so `step_quantum` rejects it —
-//!    but `permutation_with_ancilla` builds a whole-space bijection via
-//!    Bennett-style uncomputation (one ancilla slot per head position).
+//!    the plain register, so `step_quantum` rejects it — but
+//!    `step_quantum_ancilla` runs it as a unitary on an ancilla-augmented
+//!    register that preserves the erased symbol. The ancilla map is an
+//!    involution: one step advances, a second step returns to the start.
 //!
 //! Run with: `cargo run --release --example qtm_probe`
 
 use quantumforge::qtm::{Direction, QuantumTuringMachine, Transition};
-use std::collections::BTreeSet;
 
 /// A reversible scanner: write the read symbol back, move right, flip state.
 fn reversible_machine() -> QuantumTuringMachine {
@@ -91,7 +92,7 @@ fn main() {
         stepped.norm_sqr()
     );
 
-    // 2. Erasing machine: rejected on the plain register, fixed by ancilla.
+    // 2. Erasing machine: rejected on the plain register, run on ancilla instead.
     let era = erasing_machine();
     println!(
         "erasing machine: reversibility gap = {}",
@@ -104,24 +105,28 @@ fn main() {
     );
     println!("  step_quantum rejected the plain register (not a bijection)");
 
-    let (perm, qubits) = era
+    let asup = era
+        .prepare_superposition_ancilla(&[1, 0, 1, 0], 0, 4)
+        .expect("ancilla superposition");
+    let (_, qubits) = era
         .permutation_with_ancilla(4)
         .expect("ancilla permutation");
-    let distinct: BTreeSet<_> = perm.values().copied().collect();
+    let before = asup.norm_sqr();
+    let once = era.step_quantum_ancilla(&asup, 4).expect("ancilla step");
+    let twice = era.step_quantum_ancilla(&once, 4).expect("ancilla step 2");
     println!(
-        "  ancilla uncomputation: {qubits} qubits, {} distinct targets over {} entries -> {}",
-        distinct.len(),
-        perm.len(),
-        if distinct.len() == perm.len() {
-            "bijection"
-        } else {
-            "NOT a bijection"
-        }
+        "  ancilla register ({qubits} qubits): step preserved norm {} -> {}; second step restores {} (involution)",
+        before,
+        once.norm_sqr(),
+        twice.norm_sqr()
     );
-    assert_eq!(
-        distinct.len(),
-        perm.len(),
-        "ancilla permutation must be a bijection"
+    assert!(
+        (before - once.norm_sqr()).abs() < 1e-12,
+        "ancilla step preserves norm"
+    );
+    assert!(
+        (before - twice.norm_sqr()).abs() < 1e-12,
+        "two steps uncompute"
     );
     println!("all checks passed");
 }

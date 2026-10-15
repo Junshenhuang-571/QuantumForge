@@ -334,3 +334,44 @@ fn erasing_machine_needs_ancilla_and_builds_bijection() {
         "ancilla permutation is a bijection"
     );
 }
+
+#[test]
+fn erasing_machine_runs_quantumly_on_ancilla_register() {
+    // The real fix: the erasing table runs as a unitary on the ancilla-augmented
+    // register. One step preserves norm; because the map is an involution, two
+    // steps return to the start (reversible ancilla stepping).
+    let m = erasing_machine();
+    let sup = m
+        .prepare_superposition_ancilla(&[1, 0, 1, 0], 0, 4)
+        .expect("ancilla superposition");
+    let before = sup.norm_sqr();
+    let once = m.step_quantum_ancilla(&sup, 4).expect("ancilla step");
+    assert!(
+        (before - once.norm_sqr()).abs() < 1e-12,
+        "ancilla step preserves norm"
+    );
+    // The step actually moved the state (not a no-op).
+    assert!(
+        once.amplitudes()[..]
+            .iter()
+            .zip(sup.amplitudes())
+            .any(|(a, b)| (*a - *b).norm_sqr() > 1e-12),
+        "ancilla step changes the state"
+    );
+    // Involution: applying twice returns to the original amplitudes.
+    let twice = m.step_quantum_ancilla(&once, 4).expect("ancilla step 2");
+    for (a, b) in twice.amplitudes().iter().zip(sup.amplitudes()) {
+        assert!((*a - *b).norm_sqr() < 1e-12, "two ancilla steps uncompute");
+    }
+}
+
+#[test]
+fn ancilla_capacity_guard_rejects_oversized_tape() {
+    // A tape whose ancilla-augmented register exceeds the qubit cap is rejected
+    // instead of trying to allocate an enormous state vector.
+    let m = erasing_machine();
+    assert!(
+        m.permutation_with_ancilla(1024).is_err(),
+        "oversized ancilla tape must be rejected"
+    );
+}

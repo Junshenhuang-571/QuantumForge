@@ -22,7 +22,7 @@ problem Hamiltonian, or tape size rather than running a fixed demo. The headline
 feature is the `qf` REPL: build circuits incrementally, draw them as ASCII
 diagrams, run and measure them, and run variational algorithms (VQE, QML
 training) with results cross-checked against exact ground-state energies.
-99 tests back the semantics in the default build.
+101 tests back the semantics in the default build.
 
 ## Highlights
 
@@ -57,7 +57,7 @@ training) with results cross-checked against exact ground-state energies.
 
 ```bash
 cargo build            # default (CPU-only) build
-cargo test             # 99 tests (default build; llvm/cuda tests need feature flags)
+cargo test             # 101 tests (default build; llvm/cuda tests need feature flags)
 ```
 
 Run the interactive REPL:
@@ -154,7 +154,7 @@ src/mbqc.rs           Measurement-Based QC (cluster states + measurement pattern
 src/aqc.rs            Adiabatic QC (H(s) schedule driver + ground-state tracking)
 src/cuda.rs           CUDA backend (feature = cuda)
 src/llvm_backend.rs   LLVM IR + JIT (feature = llvm)
-tests/                99 integration tests in the default build (incl. REPL end-to-end)
+tests/                101 integration tests in the default build (incl. REPL end-to-end)
 RUST_CAS_ROADMAP.md   design notes and progress log
 ```
 

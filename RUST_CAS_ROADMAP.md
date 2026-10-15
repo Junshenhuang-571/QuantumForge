@@ -291,12 +291,15 @@ Variational / QML surface, all data-capable:
 Paradigm commands (QTM / MBQC / AQC), all data-capable:
 - `qtm [machine=counter|scan|erase] [cells=N]` — Bernstein–Vazirani unitary
   Turing machine. Head moves **wrap** modulo the tape, so a total, injective
-  transition table forms a unitary directly (`counter`/`scan`). `reversibility_gap`
-  diagnoses a non-bijective table; `permutation_with_ancilla` does Bennett-style
-  uncomputation (an ancilla slot per head position storing `read+1`) so an
-  information-erasing table (`erase`) still yields a whole-space bijection, built
-  as transpositions (forward step == its own inverse). `is_buildable` rejects a
-  state register too small to encode the internal state injectively.
+  transition table forms a unitary directly (`counter`/`scan` via `step_quantum`).
+  `reversibility_gap` diagnoses a non-bijective table; `step_quantum_ancilla` runs
+  an information-erasing table (`erase`) as a unitary on an ancilla-augmented
+  register that preserves the erased symbol (one ancilla slot per head position,
+  storing `read+1`). The ancilla map is a whole-space **involution** — one step
+  advances, a second returns — i.e. reversible ancilla stepping for a single
+  step, not an unbounded Bennett history tape. `is_buildable` rejects a state
+  register too small to encode the internal state injectively; a qubit cap
+  guards against oversized tapes.
 - `mbqc [edges=a-b,c-d] [qubits=N] [pattern="..."]` — measurement-based QC:
   builds a cluster state on your graph and runs a measurement pattern. A
   `pattern=` spec supplies explicit angles (decimals or `pi`/`pi/2`/`2pi`),

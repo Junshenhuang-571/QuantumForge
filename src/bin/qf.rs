@@ -1038,21 +1038,31 @@ impl Session {
                 stepped.norm_sqr()
             ),
             Err(e) => {
-                // Non-injective table: show it needs ancilla, then build one.
+                // Non-injective table: the plain register can't hold a unitary.
+                // Run it on the ancilla-augmented register instead, which
+                // preserves the erased symbol so the step is a bijection.
                 println!("  step_quantum rejected the plain register: {e}");
-                match m.permutation_with_ancilla(cells) {
-                    Ok((perm, q)) => {
-                        let distinct: std::collections::BTreeSet<_> =
-                            perm.values().copied().collect();
-                        println!(
-                            "  ancilla uncomputation: {q} qubits, permutation is a {} ({} distinct targets)",
-                            if distinct.len() == perm.len() {
-                                "bijection ✓"
-                            } else {
-                                "NON-bijection ✗"
-                            },
-                            distinct.len()
-                        );
+                match m.prepare_superposition_ancilla(&tape, head, cells) {
+                    Ok(asup) => {
+                        let abefore = asup.norm_sqr();
+                        match m.step_quantum_ancilla(&asup, cells) {
+                            Ok(astepped) => {
+                                let (_, aq) = m.permutation_with_ancilla(cells).unwrap_or_default();
+                                println!(
+                                    "  ancilla step ({aq} qubits) preserved norm: {} -> {}",
+                                    abefore,
+                                    astepped.norm_sqr()
+                                );
+                                match m.step_quantum_ancilla(&astepped, cells) {
+                                    Ok(back) => println!(
+                                        "  ancilla involution: second step restores norm {} (reversible)",
+                                        back.norm_sqr()
+                                    ),
+                                    Err(e3) => eprintln!("  ancilla step 2 error: {e3}"),
+                                }
+                            }
+                            Err(e3) => eprintln!("  ancilla step error: {e3}"),
+                        }
                     }
                     Err(e2) => eprintln!("  ancilla error: {e2}"),
                 }

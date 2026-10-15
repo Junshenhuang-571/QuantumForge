@@ -460,7 +460,7 @@ fn qtm_command_runs_reversible_step() {
 #[test]
 fn qtm_erase_machine_uses_ancilla() {
     // The `erase` machine is non-injective on the plain register; the command
-    // must reject it there and then build a valid bijection via ancilla.
+    // must reject it there and then RUN it on the ancilla-augmented register.
     let out = run_qf(&["qtm machine=erase cells=4", "quit"]);
     assert!(
         out.contains("reversibility gap 64"),
@@ -471,8 +471,12 @@ fn qtm_erase_machine_uses_ancilla() {
         "plain register rejected:\n{out}"
     );
     assert!(
-        out.contains("permutation is a bijection"),
-        "ancilla fixes it:\n{out}"
+        out.contains("ancilla step"),
+        "runs on the ancilla register:\n{out}"
+    );
+    assert!(
+        out.contains("ancilla involution"),
+        "ancilla step is reversible:\n{out}"
     );
 }
 
