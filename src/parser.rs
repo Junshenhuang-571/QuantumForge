@@ -61,6 +61,7 @@ pub fn parse_scalar_expr(source: &str) -> Result<ScalarExpr, ParseError> {
         tokens: tokenize(source)?,
         position: 0,
         source_len: source.len(),
+        depth: 0,
     };
     if parser.tokens.is_empty() {
         return Err(ParseError::new(0, "expected an expression"));
@@ -383,7 +384,14 @@ struct Parser {
     tokens: Vec<Token>,
     position: usize,
     source_len: usize,
+    /// Current recursion depth, to bound stack use on deeply nested input.
+    depth: usize,
 }
+
+/// Maximum expression nesting depth before the parser bails out. Deep enough
+/// for any realistic expression, shallow enough that recursive descent cannot
+/// overflow the stack (a pasted `((((…))))` returns an error, not a crash).
+const MAX_PARSE_DEPTH: usize = 256;
 impl Parser {
     fn peek(&self) -> Option<&Token> {
         self.tokens.get(self.position)
@@ -394,6 +402,21 @@ impl Parser {
         token
     }
     fn parse_expression(&mut self, minimum_bp: u8) -> Result<ScalarExpr, ParseError> {
+        // Bound recursion so deeply nested input returns an error, not a
+        // stack overflow.
+        if self.depth >= MAX_PARSE_DEPTH {
+            return Err(ParseError::new(
+                self.source_len,
+                format!("expression nests deeper than {MAX_PARSE_DEPTH} levels"),
+            ));
+        }
+        self.depth += 1;
+        let result = self.parse_expression_inner(minimum_bp);
+        self.depth -= 1;
+        result
+    }
+
+    fn parse_expression_inner(&mut self, minimum_bp: u8) -> Result<ScalarExpr, ParseError> {
         let mut left = self.parse_prefix()?;
         loop {
             let (left_bp, right_bp, operation) = match self.peek().map(|token| &token.kind) {

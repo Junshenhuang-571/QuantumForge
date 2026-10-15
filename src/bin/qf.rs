@@ -67,7 +67,7 @@ QuantumForge REPL — one session, live state. Type 'help' for this, 'quit' to e
                        Measurement-Based QC: cluster state on your graph +
                          adaptive measurement pattern (explicit angles/deps or
                          auto) with by-product corrections
-  anneal [NAME] [T=.. tol=.. steps=..]
+  anneal [NAME] [T=.. tol=.. steps=..] [path=linear|fast|poly]
                        Adiabatic QC: interpolate -Sum(X) -> problem Hamiltonian
                          NAME = ising|tfim|heisenberg|xxz|hubbard (default demo ZZ)
   eval EXPR            numeric eval of a scalar expression, e.g. 2 + 3*Pi
@@ -1006,6 +1006,10 @@ impl Session {
             Ok(m) => m,
             Err(e) => return eprintln!("qtm error: {e}"),
         };
+        // The internal-state register must fit the machine's state count.
+        if let Err(e) = m.is_buildable() {
+            return eprintln!("qtm error: {e}");
+        }
         let gap = m.reversibility_gap();
         let mut tape = vec![0u8; cells];
         if cells > 1 {
@@ -1197,11 +1201,15 @@ impl Session {
     ///   anneal                    built-in demo: -(X0+X1) -> Z0Z1, T=20
     ///   anneal NAME               named schedule (ising, tfim, heisenberg, xxz, hubbard)
     ///   anneal NAME T=40 tol=1e-6 steps=100000
+    ///   anneal ising path=fast T=30        fast-start annealing path
+    ///   anneal ising path=poly T=30        polynomial (p=2) path
     ///
     /// Named schedules reuse the exact-rational spin Hamiltonians from `vqe` as
-    /// the problem term, with a transverse-field driver.
+    /// the problem term, with a derived transverse-field driver. `path=` selects
+    /// the annealing path: `linear` (default), `fast` (Roland–Cerf fast-start),
+    /// or `poly` (quadratic).
     fn cmd_anneal(&self, rest: &str) {
-        use quantumforge::aqc::{run_adiabatic, uniform_superposition};
+        use quantumforge::aqc::{AnnealPath, run_adiabatic, uniform_superposition};
 
         // Parse: optional leading schedule name, then key=value config. A bare
         // leading number is accepted as total_time for backward compatibility
@@ -1210,6 +1218,7 @@ impl Session {
         let mut total_time = 20.0f64;
         let mut tol = 1e-6f64;
         let mut max_steps = 50000usize;
+        let mut path = AnnealPath::Linear;
         for (i, word) in rest.split_whitespace().enumerate() {
             if let Some(v) = word.strip_prefix("T=").and_then(|v| v.parse::<f64>().ok()) {
                 total_time = v;
@@ -1223,6 +1232,17 @@ impl Session {
                 .and_then(|v| v.parse::<usize>().ok())
             {
                 max_steps = v;
+            } else if let Some(v) = word.strip_prefix("path=") {
+                path = match v {
+                    "linear" => AnnealPath::Linear,
+                    "fast" | "fast-start" => AnnealPath::FastStart(0.3),
+                    "poly" | "polynomial" => AnnealPath::Polynomial(2.0),
+                    other => {
+                        return eprintln!(
+                            "anneal error: unknown path '{other}' (linear|fast|poly)"
+                        );
+                    }
+                };
             } else if i == 0 {
                 // A bare leading number is total_time; otherwise it's a schedule name.
                 match word.parse::<f64>() {
@@ -1248,11 +1268,15 @@ impl Session {
                 Err(e) => return eprintln!("anneal error: {e}"),
             }
         };
+        let schedule = schedule.with_path(path);
         let initial = match uniform_superposition(schedule.qubits()) {
             Ok(s) => s,
             Err(e) => return eprintln!("anneal error: {e}"),
         };
-        println!("anneal: {label}, total_time={total_time}, tol={tol}, steps={max_steps}");
+        println!(
+            "anneal: {label}, path={}, total_time={total_time}, tol={tol}, steps={max_steps}",
+            schedule.path().label()
+        );
         match run_adiabatic(&schedule, &initial, total_time, tol, max_steps) {
             Ok(r) => {
                 println!("  initial ground energy = {:.6}", r.initial_energy);

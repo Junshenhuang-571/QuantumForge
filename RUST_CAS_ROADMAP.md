@@ -307,12 +307,14 @@ Paradigm commands (QTM / MBQC / AQC), all data-capable:
   permutation — each qubit measured exactly once), by-product dependencies, and
   output flags via `mbqc::parse_pattern`; without it, each vertex is measured
   depending on its neighbours' earlier outcomes.
-- `anneal [NAME] [T=.. tol=.. steps=..]` — adiabatic QC: interpolates
-  `H(s)=(1-s)H₀+sH₁` from a transverse-field driver to a problem Hamiltonian
-  (named spin chain, reusing the exact-rational VQE models), driven by the
-  adaptive-step Trotter integrator. A bare leading number is `T=` for
-  backward-compat. The driver guards integrator non-convergence with a
-  tolerance floor and reports an actionable error.
+- `anneal [NAME] [T=.. tol=.. steps=..] [path=linear|fast|poly]` — adiabatic
+  QC: interpolates `H(s)=(1-s)H₀+sH₁` from a derived transverse-field driver
+  (`aqc::transverse_field_driver`) to a problem Hamiltonian (named spin chain,
+  reusing the exact-rational VQE models), driven by the adaptive-step Trotter
+  integrator. `path=` selects the annealing path `s(τ)`: `linear` (default),
+  `fast` (Roland–Cerf fast-start), or `poly` (quadratic). A bare leading number
+  is `T=` for backward-compat. The driver guards integrator non-convergence
+  with a tolerance floor and reports an actionable error.
 
 CI: `.github/workflows/ci.yml` runs `cargo fmt --check`,
 `cargo clippy --all-targets -- -D warnings`, `cargo build`, and `cargo test`
@@ -321,6 +323,17 @@ on every push/PR.
 Custom (subscripted multi-qubit) Hamiltonian input via `pauli`/`vqe` remains
 future work — the scalar parser has no list/word-of-qubits form, so `vqe`
 currently uses the built-in named models.
+
+## Parser robustness
+
+The hand-rolled Wolfram-style parser is fuzzed with proptest
+(`tests/parser_fuzz.rs`): random and structured-garbage strings are thrown at
+`parse_scalar_expr` and `parse_circuit`, asserting they never panic (always
+`Ok`/`Err`). This caught a real stack-overflow on deeply nested brackets, fixed
+by a `MAX_PARSE_DEPTH` (256) guard in recursive descent — a pathological paste
+now returns an error instead of crashing. `cargo-fuzz` (libFuzzer) needs nightly
+and a separate workspace the stable CI can't run, so proptest gives comparable
+coverage on stable.
 
 
 ## Scope discipline

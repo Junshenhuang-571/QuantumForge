@@ -66,6 +66,47 @@ impl From<LinearError> for AdiabaticError {
     }
 }
 
+/// The annealing path `s(t) ∈ [0,1]` from driver (`s=0`) to problem (`s=1`)
+/// over normalized time `τ = t / total_time ∈ [0,1]`. Different paths trade
+/// off minimum-gap crossing speed against runtime — the linear path is the
+/// textbook default; `FastStart` spends more time near the small-gap region.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub enum AnnealPath {
+    /// `s = τ` — the standard linear interpolation.
+    #[default]
+    Linear,
+    /// `s = τ / (τ + a·(1-τ))` with `a < 1` — a "fast-start" (Roland–Cerf)
+    /// schedule that lingers near `s≈0` and accelerates through the gap.
+    /// `a` must be in `(0,1)`; smaller `a` = faster start.
+    FastStart(f64),
+    /// `s = τ^p` with `p > 1` — a polynomial path that is slow at the start.
+    Polynomial(f64),
+}
+
+impl AnnealPath {
+    /// Evaluate the path at normalized time `τ ∈ [0,1]`, clamped to `[0,1]`.
+    pub fn at(&self, tau: f64) -> f64 {
+        let tau = tau.clamp(0.0, 1.0);
+        match self {
+            AnnealPath::Linear => tau,
+            AnnealPath::FastStart(a) => {
+                let a = a.clamp(1e-6, 1.0 - 1e-6);
+                tau / (tau + a * (1.0 - tau))
+            }
+            AnnealPath::Polynomial(p) => tau.powf(*p),
+        }
+    }
+
+    /// Short label for display.
+    pub fn label(&self) -> String {
+        match self {
+            AnnealPath::Linear => "linear".to_owned(),
+            AnnealPath::FastStart(a) => format!("fast-start(a={a})"),
+            AnnealPath::Polynomial(p) => format!("poly(p={p})"),
+        }
+    }
+}
+
 /// An adiabatic interpolation between a driver Hamiltonian `H₀` and a problem
 /// Hamiltonian `H₁`, both given as dense f64 matrices (row-major, dimension
 /// `2^n`). Built once; `hamiltonian_at(s)` returns the interpolated operator.
@@ -76,6 +117,8 @@ pub struct AdiabaticSchedule {
     h0: Vec<f64>,
     /// Dense `H₁` (problem), row-major.
     h1: Vec<f64>,
+    /// The annealing path `s(t)`.
+    path: AnnealPath,
 }
 
 impl AdiabaticSchedule {
@@ -93,7 +136,24 @@ impl AdiabaticSchedule {
             dimension,
             h0,
             h1,
+            path: AnnealPath::Linear,
         })
+    }
+
+    /// Set the annealing path (builder). Defaults to [`AnnealPath::Linear`].
+    pub fn with_path(mut self, path: AnnealPath) -> Self {
+        self.path = path;
+        self
+    }
+
+    /// The annealing path in use.
+    pub fn path(&self) -> AnnealPath {
+        self.path
+    }
+
+    /// Evaluate the annealing path at normalized time `τ = t / total_time`.
+    pub fn s_at(&self, tau: f64) -> f64 {
+        self.path.at(tau)
     }
 
     /// Build a schedule from a driver Hamiltonian (as a dense `Operator`) and a
@@ -170,15 +230,16 @@ pub fn run_adiabatic(
     let h_end = schedule.hamiltonian_at(1.0)?;
     let initial_energy = h_start.lowest_eigenpairs(1, 1e-10, 1000)?.eigenvalues()[0];
 
-    // Drive s from 0 to 1 linearly in time over [0, total_time]. The adaptive
-    // integrator halves its step on convergence failure but never floors it, so
-    // a tolerance tighter than the step budget allows burns through `max_steps`
-    // and returns EigenDecompositionNoConvergence. Guard against that by
-    // retrying once with a relaxed tolerance (floor = 1e-4) if the first pass
-    // fails to converge.
+    // Drive s from 0 to 1 along the schedule's annealing path over
+    // [0, total_time]. The adaptive integrator halves its step on convergence
+    // failure but never floors it, so a tolerance tighter than the step budget
+    // allows burns through `max_steps` and returns EigenDecompositionNoConvergence.
+    // Guard against that by retrying once with a relaxed tolerance (floor =
+    // 1e-4) if the first pass fails to converge.
+    let path = schedule.path;
     let drive = |tol: f64| {
         evolve_ket_time_dependent(&ket, 0.0, total_time, tol, max_steps, |t| {
-            let s = (t / total_time).clamp(0.0, 1.0);
+            let s = path.at(t / total_time);
             schedule.hamiltonian_at(s)
         })
     };
@@ -225,6 +286,24 @@ pub fn uniform_superposition(qubits: usize) -> Result<StateVector, crate::Quantu
         state.apply(crate::Gate::H, q)?;
     }
     Ok(state)
+}
+
+/// Build the canonical transverse-field driver `H₀ = -Σᵢ Xᵢ` as a dense
+/// row-major `dim × dim` operator on `qubits` qubits. Its ground state is the
+/// uniform superposition `|+...+>` (see [`uniform_superposition`]), the standard
+/// AQC starting point. Lets callers derive the driver from the problem's size
+/// instead of hand-constructing it.
+pub fn transverse_field_driver(qubits: usize) -> Result<Vec<f64>, LinearError> {
+    let dim = 1usize << qubits;
+    let mut entries = vec![0.0; dim * dim];
+    for q in 0..qubits {
+        let mask = 1usize << q;
+        for i in 0..dim {
+            let j = i ^ mask; // X flips bit q
+            entries[i * dim + j] -= 1.0;
+        }
+    }
+    Ok(entries)
 }
 
 /// Kronecker product of two 2×2 matrices (row-major), returning a 4×4 matrix.

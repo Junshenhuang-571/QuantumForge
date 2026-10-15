@@ -111,3 +111,20 @@ fn circuit_parser_reports_invalid_operation_syntax() {
         assert!(!error.message().is_empty());
     }
 }
+
+#[test]
+fn deeply_nested_expression_is_rejected_not_crashing() {
+    // A pathological paste must return an error, not overflow the stack.
+    let deep = format!("{}1{}", "(".repeat(5000), ")".repeat(5000));
+    let error = parse_scalar_expr(&deep).unwrap_err();
+    assert!(
+        error.message().contains("nests deeper"),
+        "should report the depth limit: {error}"
+    );
+    // A moderately nested expression still parses fine.
+    let ok = format!("{}1{}", "(".repeat(50), ")".repeat(50));
+    assert!(
+        parse_scalar_expr(&ok).is_ok(),
+        "50-deep nesting should parse"
+    );
+}
