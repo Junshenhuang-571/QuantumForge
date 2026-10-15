@@ -218,6 +218,43 @@ fn census_counts_gates_by_arity() {
 }
 
 #[test]
+fn channel_applies_noise_to_density_matrix() {
+    // Build a pure Bell state via noisy (purity 1.0 -> after a density run with
+    // no channels it stays pure), then depolarize q0 and watch purity drop.
+    let out = run_qf(&[
+        "qubits 2",
+        "add H[0]",
+        "add CNOT[0,1]",
+        "noisy",
+        "purity",
+        "channel dep 0 0.5",
+        "purity",
+        "quit",
+    ]);
+    assert!(out.contains("purity=1.000000"), "pure after noisy:\n{out}");
+    assert!(
+        out.contains("applied depolarizing(p=0.5) to q0"),
+        "channel applied:\n{out}"
+    );
+    // Purity after 50% depolarizing on one qubit of a Bell pair drops to 1/3
+    // (strictly mixed) — the channel reports it inline.
+    assert!(
+        out.contains("purity=0.333333"),
+        "purity dropped to 1/3 after depolarizing:\n{out}"
+    );
+}
+
+#[test]
+fn channel_requires_density_matrix() {
+    // Without building a density state first, `channel` errors clearly.
+    let out = run_qf(&["qubits 2", "add H[0]", "channel dep 0 0.1", "quit"]);
+    assert!(
+        out.contains("no density matrix"),
+        "channel needs a density state:\n{out}"
+    );
+}
+
+#[test]
 fn layers_merges_consecutive_diagonal_gates() {
     // T then T then Z on the same qubit all commute and collapse to one Rz:
     // angle = π/4 + π/4 + π = 3π/2. So 3 ops become 1 (2 merged).

@@ -42,6 +42,8 @@ QuantumForge REPL — one session, live state. Type 'help' for this, 'quit' to e
   probs                show |amp|^2 (or density populations if noisy)
   ptrace Q1,Q2,...     partial trace of the density matrix to a subsystem
   mix                  replace the state with the maximally-mixed state (I/2^n)
+  channel dep|ad|pd Q P   apply a noise channel to the density matrix (needs noisy/mix)
+  purity               show trace + purity of the density matrix
   expect X|Y|Z Q       expectation value of X/Y/Z on qubit Q
   bloch Q              print Bloch vector (<X>, <Y>, <Z>) for qubit Q
   gradient X|Y|Z Q     d<O>/dtheta for each rotation (adjoint vs parameter-shift)
@@ -166,6 +168,8 @@ impl Session {
             "probs" => self.cmd_probs(),
             "ptrace" => self.cmd_ptrace(rest),
             "mix" => self.cmd_mix(),
+            "channel" => self.cmd_channel(rest),
+            "purity" => self.cmd_purity(),
             "expect" => self.cmd_expect(rest),
             "expz" => self.cmd_expect(&format!("Z {rest}")),
             "bloch" => self.cmd_bloch(rest),
@@ -368,6 +372,75 @@ impl Session {
                 self.cmd_state();
             }
             Err(e) => eprintln!("mix error: {e}"),
+        }
+    }
+
+    /// `channel NAME Q P` — apply a noise channel directly to the live density
+    /// matrix. NAME = dep (depolarizing), ad (amplitude damping), pd (phase
+    /// damping); P is the probability/gamma. Requires a density-matrix state
+    /// (build one first with `noisy` or `mix`).
+    fn cmd_channel(&mut self, rest: &str) {
+        let mut parts = rest.split_whitespace();
+        let (name, q, p) = match (parts.next(), parts.next(), parts.next()) {
+            (Some(n), Some(q), Some(p)) => (n, q, p),
+            _ => return eprintln!("usage: channel dep|ad|pd Q P   (e.g. channel dep 0 0.1)"),
+        };
+        let qubit: usize = match q.parse() {
+            Ok(v) => v,
+            Err(_) => {
+                return eprintln!("channel error: qubit index must be a non-negative integer");
+            }
+        };
+        let prob: f64 = match p.parse() {
+            Ok(v) if (0.0..=1.0).contains(&v) => v,
+            Ok(_) => return eprintln!("channel error: probability/gamma must be in [0, 1]"),
+            Err(_) => return eprintln!("channel error: probability/gamma must be a number"),
+        };
+        let d = match self.density.as_mut() {
+            Some(d) => d,
+            None => return eprintln!("no density matrix — build one first with `noisy` or `mix`"),
+        };
+        let label = match name {
+            "dep" | "depolarizing" => {
+                if let Err(e) = d.depolarize(qubit, prob) {
+                    return eprintln!("channel error: {e}");
+                }
+                format!("depolarizing(p={prob})")
+            }
+            "ad" | "amplitude" => {
+                let ch = quantumforge::NoiseChannel::AmplitudeDamping { gamma: prob };
+                if let Err(e) = d.apply_channel(ch, qubit) {
+                    return eprintln!("channel error: {e}");
+                }
+                format!("amplitude-damping(γ={prob})")
+            }
+            "pd" | "phase" => {
+                let ch = quantumforge::NoiseChannel::PhaseDamping { gamma: prob };
+                if let Err(e) = d.apply_channel(ch, qubit) {
+                    return eprintln!("channel error: {e}");
+                }
+                format!("phase-damping(γ={prob})")
+            }
+            other => return eprintln!("channel error: unknown channel '{other}' (dep|ad|pd)"),
+        };
+        println!(
+            "channel: applied {label} to q{qubit} (trace={:.6}, purity={:.6})",
+            d.trace().re,
+            d.purity()
+        );
+    }
+
+    /// `purity` — show trace and purity of the live density matrix. Purity 1.0
+    /// is a pure state; 1/2ⁿ is maximally mixed.
+    fn cmd_purity(&self) {
+        match &self.density {
+            Some(d) => println!(
+                "density: {} qubits, trace={:.6}, purity={:.6}",
+                d.qubits(),
+                d.trace().re,
+                d.purity()
+            ),
+            None => eprintln!("no density matrix — build one first with `noisy` or `mix`"),
         }
     }
 
