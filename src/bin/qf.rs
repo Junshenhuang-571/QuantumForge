@@ -30,6 +30,8 @@ QuantumForge REPL — one session, live state. Type 'help' for this, 'quit' to e
   qubits N             set system size N (resets circuit + state)
   circuit              print the current circuit source
   draw                 ASCII circuit diagram (qubit wires + gates)
+  layers               greedy gate scheduling: parallel layers + circuit depth
+  census               gate counts by arity (1-qubit vs 2-qubit)
   add <op>             append an op: H[0] Rx[0.5,1] CNOT[0,1] CZ[0,1] SWAP[0,1]
                          Measure[0,0] IfBit[0,1,X,1] AmplitudeDamping[0,0.2]
                          PhaseDamping[0,0.1] Depolarizing[0,0.1]
@@ -150,6 +152,8 @@ impl Session {
             "qubits" => self.cmd_qubits(rest),
             "circuit" => println!("{}", self.full_circuit_source()),
             "draw" => self.cmd_draw(),
+            "layers" => self.cmd_layers(),
+            "census" => self.cmd_census(),
             "add" => self.cmd_add(rest),
             "clear" => {
                 self.circuit.clear();
@@ -496,6 +500,71 @@ impl Session {
         }
         println!("{}", rows.join("\n"));
         println!("legend: ─ wire  • control  ⊕ target(X)  │ span  x swap  M measure");
+    }
+
+    /// `layers` — greedy gate scheduling: pack each op into the earliest layer
+    /// where all its qubits are free. Prints the layers and the circuit depth.
+    fn cmd_layers(&self) {
+        let circuit = match parse_circuit(&self.full_circuit_source()) {
+            Ok(c) => c,
+            Err(e) => return eprintln!("circuit parse error: {e}"),
+        };
+        let ops = circuit.operations();
+        if ops.is_empty() {
+            println!("(empty circuit)");
+            return;
+        }
+        // busy[layer] = set of qubits already used in that layer.
+        let mut busy: Vec<[bool; 64]> = Vec::new();
+        let mut layer_of: Vec<usize> = Vec::with_capacity(ops.len());
+        for op in ops {
+            let qubits = op_qubits(op);
+            let layer = busy.iter().position(|b| qubits.iter().all(|&q| !b[q]));
+            let layer = layer.unwrap_or_else(|| {
+                busy.push([false; 64]);
+                busy.len() - 1
+            });
+            for &q in &qubits {
+                busy[layer][q] = true;
+            }
+            layer_of.push(layer);
+        }
+        let depth = busy.len();
+        println!(
+            "circuit depth = {depth} layers ({ops_len} ops)",
+            ops_len = ops.len()
+        );
+        for (layer, ops_in) in group_by_layer(&layer_of, ops).iter().enumerate() {
+            let names: Vec<String> = ops_in.iter().map(op_name).collect();
+            println!("  layer {layer}: {}", names.join("  "));
+        }
+    }
+
+    /// `census` — count gates by arity (1-qubit vs 2-qubit) and list them.
+    fn cmd_census(&self) {
+        let circuit = match parse_circuit(&self.full_circuit_source()) {
+            Ok(c) => c,
+            Err(e) => return eprintln!("circuit parse error: {e}"),
+        };
+        let ops = circuit.operations();
+        if ops.is_empty() {
+            println!("(empty circuit)");
+            return;
+        }
+        let (mut one, mut two, mut other) = (0usize, 0usize, 0usize);
+        for op in ops {
+            match op_qubits(op).len() {
+                1 => one += 1,
+                2 => two += 1,
+                _ => other += 1,
+            }
+        }
+        println!("gate census: {} total", ops.len());
+        println!("  1-qubit gates: {one}");
+        println!("  2-qubit gates: {two}");
+        if other > 0 {
+            println!("  other ops:     {other}");
+        }
     }
 
     /// Build a ParameterizedCircuit from the live circuit, assigning one trainable
@@ -1529,6 +1598,51 @@ fn channel_label(channel: &quantumforge::NoiseChannel) -> String {
         quantumforge::NoiseChannel::AmplitudeDamping { gamma } => format!("AD{gamma:.2}"),
         quantumforge::NoiseChannel::PhaseDamping { gamma } => format!("PD{gamma:.2}"),
     }
+}
+
+/// The qubit indices an operation acts on (its "footprint").
+fn op_qubits(op: &CircuitOp) -> Vec<usize> {
+    match op {
+        CircuitOp::SingleQubit { target, .. }
+        | CircuitOp::Channel { target, .. }
+        | CircuitOp::Measure { target, .. }
+        | CircuitOp::ConditionalSingleQubit { target, .. } => vec![*target],
+        CircuitOp::Cnot { control, target } => vec![*control, *target],
+        CircuitOp::Cz { first, second } | CircuitOp::Swap { first, second } => {
+            vec![*first, *second]
+        }
+    }
+}
+
+/// A short display name for an operation (used by `layers`).
+fn op_name(op: &CircuitOp) -> String {
+    match op {
+        CircuitOp::SingleQubit { gate, target } => format!("{}[{target}]", gate_label(gate)),
+        CircuitOp::Channel { channel, target } => format!("{}[{target}]", channel_label(channel)),
+        CircuitOp::Cnot { control, target } => format!("CNOT[{control},{target}]"),
+        CircuitOp::Cz { first, second } => format!("CZ[{first},{second}]"),
+        CircuitOp::Swap { first, second } => format!("SWAP[{first},{second}]"),
+        CircuitOp::Measure {
+            target,
+            classical_bit,
+        } => format!("M[{target}->{classical_bit}]"),
+        CircuitOp::ConditionalSingleQubit {
+            classical_bit,
+            value,
+            gate,
+            target,
+        } => format!("{}[{target}|{classical_bit}={value}]", gate_label(gate)),
+    }
+}
+
+/// Group operations by their assigned layer index (layer -> ops in order).
+fn group_by_layer(layer_of: &[usize], ops: &[CircuitOp]) -> Vec<Vec<CircuitOp>> {
+    let depth = layer_of.iter().copied().max().map_or(0, |m| m + 1);
+    let mut layers: Vec<Vec<CircuitOp>> = vec![Vec::new(); depth];
+    for (op, &layer) in ops.iter().zip(layer_of) {
+        layers[layer].push(*op);
+    }
+    layers
 }
 
 /// Optional hyperparameters for `train` (lr=, epochs=). Defaults match the demos.

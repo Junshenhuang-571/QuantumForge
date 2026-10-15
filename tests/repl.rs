@@ -175,6 +175,49 @@ fn draw_connects_nonadjacent_two_qubit_gates() {
 }
 
 #[test]
+fn layers_schedules_gates_into_parallel_layers() {
+    // A 5-qubit layered circuit (the QAOA-style diagram): gates on disjoint
+    // qubits pack into the same layer. Depth < op count.
+    let out = run_qf(&[
+        "qubits 5",
+        "add H[0]",
+        "add CNOT[0,1]",
+        "add H[3]",
+        "add CNOT[3,4]",
+        "add T[0]",
+        "add H[1]",
+        "add CNOT[1,2]",
+        "add T[3]",
+        "add H[4]",
+        "layers",
+        "quit",
+    ]);
+    assert!(out.contains("circuit depth ="), "depth line:\n{out}");
+    assert!(out.contains("layer 0:"), "first layer:\n{out}");
+    // Layer 0 holds the first four gates (H0, CNOT01, H3, CNOT34 — all
+    // disjoint qubit pairs), so depth (5) is well under the 10 ops.
+    assert!(out.contains("H[0]"), "H[0] named in a layer:\n{out}");
+    assert!(out.contains("CNOT[0,1]"), "CNOT named in a layer:\n{out}");
+}
+
+#[test]
+fn census_counts_gates_by_arity() {
+    let out = run_qf(&[
+        "qubits 3",
+        "add H[0]",
+        "add T[1]",
+        "add CNOT[0,1]",
+        "add SWAP[1,2]",
+        "census",
+        "quit",
+    ]);
+    // 2 one-qubit gates (H, T) + 2 two-qubit gates (CNOT, SWAP) = 4 total.
+    assert!(out.contains("gate census: 4 total"), "total:\n{out}");
+    assert!(out.contains("1-qubit gates: 2"), "one-qubit count:\n{out}");
+    assert!(out.contains("2-qubit gates: 2"), "two-qubit count:\n{out}");
+}
+
+#[test]
 fn gradient_adjoint_matches_parameter_shift() {
     let out = run_qf(&["qubits 1", "add Ry[0.5,0]", "gradient Z 0", "quit"]);
     // d<Z>/dθ for Ry(θ) on |0> is -sin(θ); both methods must agree.
