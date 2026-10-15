@@ -22,6 +22,17 @@
 //! involution (apply once to advance, twice to return), which is the practical
 //! form of Bennett's trick for a single step, not an unbounded history tape.
 //!
+//! **Why multi-step (`t>1`) ancilla is out of scope here.** Genuine `t`-step
+//! coherent evolution of an erasing machine needs the ancilla to grow with `t`
+//! (Bennett's history tape is unbounded), or the machine to already be
+//! reversible. On a *bounded* tape, no finite ancilla layout makes the single
+//! forward step a total bijection while also advancing `t>1` distinct configs:
+//! a step-counter, a history log, and a push/pop stack were each implemented
+//! and each fails injectivity — two configs differing only in the erased read
+//! symbol collide after the write overwrites it, and the ancilla cannot
+//! disambiguate them without unbounded growth. The single-step involution is
+//! therefore the correct bounded-tape answer; `U_δ² = I`, not `U_δᵗ ≠ I`.
+//!
 //! Use [`QuantumTuringMachine::is_buildable`] to check the state register fits
 //! and [`QuantumTuringMachine::reversibility_gap`] to diagnose a table that
 //! is not a bijection.
