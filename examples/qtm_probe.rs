@@ -7,7 +7,9 @@
 //!    the plain register, so `step_quantum` rejects it — but
 //!    `step_quantum_ancilla` runs it as a unitary on an ancilla-augmented
 //!    register that preserves the erased symbol. The ancilla map is an
-//!    involution: one step advances, a second step returns to the start.
+//!    involution: one step advances, a second step returns to the start
+//!    (reversible single-step ancilla stepping; full unbounded multi-step
+//!    Bennett uncomputation is out of scope for a bounded tape).
 //!
 //! Run with: `cargo run --release --example qtm_probe`
 

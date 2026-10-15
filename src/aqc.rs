@@ -294,13 +294,37 @@ pub fn uniform_superposition(qubits: usize) -> Result<StateVector, crate::Quantu
 /// AQC starting point. Lets callers derive the driver from the problem's size
 /// instead of hand-constructing it.
 pub fn transverse_field_driver(qubits: usize) -> Result<Vec<f64>, LinearError> {
+    build_field_driver(qubits, |_q, mask, i, entries, dim| {
+        let j = i ^ mask; // X flips bit q
+        entries[i * dim + j] -= 1.0;
+    })
+}
+
+/// Build a mixed-basis driver `H₀ = -Σᵢ (Xᵢ + Zᵢ)` — a transverse field plus a
+/// longitudinal `Z` term. Useful when the problem Hamiltonian is `X`-heavy, so
+/// a pure transverse field leaves a larger minimum gap. Ground state is a
+/// product of `|+_θ>` tilted toward `|0>`; callers should start from the
+/// matching tilted state, not the plain uniform superposition.
+pub fn mixed_basis_driver(qubits: usize) -> Result<Vec<f64>, LinearError> {
+    build_field_driver(qubits, |_q, mask, i, entries, dim| {
+        let j = i ^ mask; // X flips bit q
+        entries[i * dim + j] -= 1.0; // -X term
+        entries[i * dim + i] -= if i & mask == 0 { 1.0 } else { -1.0 }; // -Z term
+    })
+}
+
+/// Shared dense-driver builder: `fill` mutates the `dim × dim` entry buffer for
+/// each single-qubit term on qubit `q` (bit `mask`, basis index `i`).
+fn build_field_driver(
+    qubits: usize,
+    mut fill: impl FnMut(usize, usize, usize, &mut [f64], usize),
+) -> Result<Vec<f64>, LinearError> {
     let dim = 1usize << qubits;
     let mut entries = vec![0.0; dim * dim];
     for q in 0..qubits {
         let mask = 1usize << q;
         for i in 0..dim {
-            let j = i ^ mask; // X flips bit q
-            entries[i * dim + j] -= 1.0;
+            fill(q, mask, i, &mut entries, dim);
         }
     }
     Ok(entries)

@@ -38,6 +38,8 @@ QuantumForge REPL — one session, live state. Type 'help' for this, 'quit' to e
   noisy                run the circuit through a density matrix (live mixed state)
   state                show live amplitudes (or density diagonal if noisy)
   probs                show |amp|^2 (or density populations if noisy)
+  ptrace Q1,Q2,...     partial trace of the density matrix to a subsystem
+  mix                  replace the state with the maximally-mixed state (I/2^n)
   expect X|Y|Z Q       expectation value of X/Y/Z on qubit Q
   bloch Q              print Bloch vector (<X>, <Y>, <Z>) for qubit Q
   gradient X|Y|Z Q     d<O>/dtheta for each rotation (adjoint vs parameter-shift)
@@ -67,8 +69,8 @@ QuantumForge REPL — one session, live state. Type 'help' for this, 'quit' to e
                        Measurement-Based QC: cluster state on your graph +
                          adaptive measurement pattern (explicit angles/deps or
                          auto) with by-product corrections
-  anneal [NAME] [T=.. tol=.. steps=..] [path=linear|fast|poly]
-                       Adiabatic QC: interpolate -Sum(X) -> problem Hamiltonian
+  anneal [NAME] [T=.. tol=.. steps=..] [path=linear|fast|poly] [driver=tf|xz]
+                       Adiabatic QC: interpolate driver -> problem Hamiltonian
                          NAME = ising|tfim|heisenberg|xxz|hubbard (default demo ZZ)
   eval EXPR            numeric eval of a scalar expression, e.g. 2 + 3*Pi
   simplify EXPR        canonicalize a scalar expression
@@ -158,6 +160,8 @@ impl Session {
             "noisy" => self.cmd_noisy(),
             "state" => self.cmd_state(),
             "probs" => self.cmd_probs(),
+            "ptrace" => self.cmd_ptrace(rest),
+            "mix" => self.cmd_mix(),
             "expect" => self.cmd_expect(rest),
             "expz" => self.cmd_expect(&format!("Z {rest}")),
             "bloch" => self.cmd_bloch(rest),
@@ -308,6 +312,58 @@ impl Session {
                     }
                 }
             }
+        }
+    }
+
+    /// `ptrace KEEP` — partial trace of the live density matrix down to the
+    /// subsystem `KEEP` (comma-separated qubit indices), tracing out the rest.
+    /// Reduces the register to `|KEEP|` qubits. Requires a density-matrix state
+    /// (use `noisy` or `mix` first). Example: `ptrace 0,2`.
+    fn cmd_ptrace(&mut self, rest: &str) {
+        let keep: Vec<usize> = rest
+            .split(',')
+            .filter_map(|s| s.trim().parse::<usize>().ok())
+            .collect();
+        if keep.is_empty() {
+            return eprintln!("usage: ptrace Q1,Q2,...   (qubits to keep; others traced out)");
+        }
+        let d = match &self.density {
+            Some(d) => d,
+            None => {
+                return eprintln!("ptrace needs a density matrix — run `noisy` or `mix` first");
+            }
+        };
+        for &q in &keep {
+            if q >= d.qubits() {
+                return eprintln!(
+                    "ptrace error: qubit {q} out of range ({} qubits)",
+                    d.qubits()
+                );
+            }
+        }
+        match d.partial_trace(&keep) {
+            Ok(sub) => {
+                let n = sub.qubits();
+                self.density = Some(sub);
+                self.qubits = n;
+                println!("ptrace: kept qubits {keep:?} -> {n}-qubit reduced state");
+                self.cmd_state();
+            }
+            Err(e) => eprintln!("ptrace error: {e}"),
+        }
+    }
+
+    /// `mix` — replace the live state with the maximally-mixed state on the
+    /// current qubit count (I/2^n). A convenience for exploring mixed-state
+    /// dynamics without building a noisy circuit first.
+    fn cmd_mix(&mut self) {
+        match DensityMatrix::maximally_mixed(self.qubits) {
+            Ok(d) => {
+                self.density = Some(d);
+                println!("mix: maximally-mixed state on {} qubits", self.qubits);
+                self.cmd_state();
+            }
+            Err(e) => eprintln!("mix error: {e}"),
         }
     }
 
@@ -1219,6 +1275,7 @@ impl Session {
         let mut tol = 1e-6f64;
         let mut max_steps = 50000usize;
         let mut path = AnnealPath::Linear;
+        let mut driver = "tf";
         for (i, word) in rest.split_whitespace().enumerate() {
             if let Some(v) = word.strip_prefix("T=").and_then(|v| v.parse::<f64>().ok()) {
                 total_time = v;
@@ -1243,6 +1300,16 @@ impl Session {
                         );
                     }
                 };
+            } else if let Some(v) = word.strip_prefix("driver=") {
+                driver = match v {
+                    "tf" | "transverse" => "tf",
+                    "xz" | "mixed" => "xz",
+                    other => {
+                        return eprintln!(
+                            "anneal error: unknown driver '{other}' (tf|transverse, xz|mixed)"
+                        );
+                    }
+                };
             } else if i == 0 {
                 // A bare leading number is total_time; otherwise it's a schedule name.
                 match word.parse::<f64>() {
@@ -1263,7 +1330,7 @@ impl Session {
             }
         } else {
             let n = self.qubits;
-            match build_named_schedule(name, n) {
+            match build_named_schedule(name, n, driver) {
                 Ok(pair) => pair,
                 Err(e) => return eprintln!("anneal error: {e}"),
             }
@@ -1295,32 +1362,35 @@ impl Session {
     }
 }
 
-/// Build a named spin-chain adiabatic schedule: transverse-field driver
-/// `H0 = -Σ Xᵢ` interpolated to the exact-rational problem Hamiltonian `H1`
-/// named by `name` on `qubits` sites. Returns (schedule, label).
+/// Build a named spin-chain adiabatic schedule: a driver Hamiltonian `H₀`
+/// interpolated to the exact-rational problem Hamiltonian `H₁` named by `name`
+/// on `qubits` sites. `driver` selects the driver: `tf` (transverse field
+/// `-ΣX`, default) or `xz` (mixed basis `-Σ(X+Z)`). Returns (schedule, label).
 fn build_named_schedule(
     name: &str,
     qubits: usize,
+    driver: &str,
 ) -> Result<(quantumforge::aqc::AdiabaticSchedule, String), String> {
     use quantumforge::aqc::AdiabaticSchedule;
-    use quantumforge::quantum::Operator;
+    use quantumforge::quantum::{HilbertSpace, Operator};
 
-    // Driver: -Σ Xᵢ as a dense operator.
-    let driver = {
-        let space =
-            quantumforge::quantum::HilbertSpace::qubits(qubits).map_err(|e| e.to_string())?;
-        let dim = space.dimension();
-        let mut entries = vec![quantumforge::Complex64::ZERO; dim * dim];
-        for q in 0..qubits {
-            // Add -X_q: flips bit q, coefficient -1.
-            let mask = 1usize << q;
-            for i in 0..dim {
-                let j = i ^ mask;
-                entries[i * dim + j].re -= 1.0;
-            }
+    // Driver Hamiltonian as a dense row-major matrix.
+    let h0 = match driver {
+        "tf" | "transverse" => quantumforge::aqc::transverse_field_driver(qubits),
+        "xz" | "mixed" => quantumforge::aqc::mixed_basis_driver(qubits),
+        other => {
+            return Err(format!(
+                "unknown driver '{other}' (try tf|transverse, xz|mixed)"
+            ));
         }
-        Operator::new(space.clone(), space, entries).map_err(|e| e.to_string())?
-    };
+    }
+    .map_err(|e| e.to_string())?;
+    let space = HilbertSpace::qubits(qubits).map_err(|e| e.to_string())?;
+    let entries: Vec<quantumforge::Complex64> = h0
+        .iter()
+        .map(|&v| quantumforge::Complex64::new(v, 0.0))
+        .collect();
+    let driver_op = Operator::new(space.clone(), space, entries).map_err(|e| e.to_string())?;
     // Problem: reuse the exact-rational VQE Hamiltonian.
     let problem = named_hamiltonian(name, qubits).ok_or_else(|| {
         format!(
@@ -1329,8 +1399,12 @@ fn build_named_schedule(
         )
     })?;
     let schedule =
-        AdiabaticSchedule::from_hamiltonians(&driver, &problem).map_err(|e| e.to_string())?;
-    Ok((schedule, format!("-ΣX -> {name} ({qubits}q)")))
+        AdiabaticSchedule::from_hamiltonians(&driver_op, &problem).map_err(|e| e.to_string())?;
+    let driver_label = match driver {
+        "xz" | "mixed" => "-Σ(X+Z)",
+        _ => "-ΣX",
+    };
+    Ok((schedule, format!("{driver_label} -> {name} ({qubits}q)")))
 }
 
 /// Interpret a parsed scalar expression as a sum of single-qubit Pauli words.

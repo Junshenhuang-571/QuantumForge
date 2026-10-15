@@ -307,14 +307,15 @@ Paradigm commands (QTM / MBQC / AQC), all data-capable:
   permutation — each qubit measured exactly once), by-product dependencies, and
   output flags via `mbqc::parse_pattern`; without it, each vertex is measured
   depending on its neighbours' earlier outcomes.
-- `anneal [NAME] [T=.. tol=.. steps=..] [path=linear|fast|poly]` — adiabatic
-  QC: interpolates `H(s)=(1-s)H₀+sH₁` from a derived transverse-field driver
-  (`aqc::transverse_field_driver`) to a problem Hamiltonian (named spin chain,
-  reusing the exact-rational VQE models), driven by the adaptive-step Trotter
-  integrator. `path=` selects the annealing path `s(τ)`: `linear` (default),
-  `fast` (Roland–Cerf fast-start), or `poly` (quadratic). A bare leading number
-  is `T=` for backward-compat. The driver guards integrator non-convergence
-  with a tolerance floor and reports an actionable error.
+- `anneal [NAME] [T=.. tol=.. steps=..] [path=linear|fast|poly] [driver=tf|xz]` —
+  adiabatic QC: interpolates `H(s)=(1-s)H₀+sH₁` from a driver Hamiltonian to a
+  problem Hamiltonian (named spin chain, reusing the exact-rational VQE models),
+  driven by the adaptive-step Trotter integrator. `driver=` selects the driver:
+  `tf` (transverse field `-ΣX`, default) or `xz` (mixed basis `-Σ(X+Z)`, for
+  `X`-heavy problems). `path=` selects the annealing path `s(τ)`: `linear`
+  (default), `fast` (Roland–Cerf fast-start), or `poly` (quadratic). A bare
+  leading number is `T=` for backward-compat. The driver guards integrator
+  non-convergence with a tolerance floor and reports an actionable error.
 
 CI: `.github/workflows/ci.yml` runs `cargo fmt --check`,
 `cargo clippy --all-targets -- -D warnings`, `cargo build`, and `cargo test`

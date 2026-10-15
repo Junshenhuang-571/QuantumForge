@@ -82,7 +82,8 @@ qf> measure                    # seeded shots -> reproducible counts
 ```
 
 Core commands: `qubits`, `circuit`, `draw`, `add`, `clear`, `run`, `noisy`,
-`state`, `probs`, `expect X|Y|Z Q`, `bloch Q`, `shots N SEED`,
+`state`, `probs`, `ptrace Q1,Q2,...` (partial trace to a subsystem), `mix`
+(maximally-mixed state), `expect X|Y|Z Q`, `bloch Q`, `shots N SEED`,
 `shots-noise N SEED`, plus the analytic core (`eval`, `simplify`, `diff`,
 `pauli`, `assume`).
 
