@@ -778,10 +778,10 @@ impl Session {
         }
     }
 
-    /// Variational Quantum Eigensolver: minimize <H> over the circuit's rotation
+    /// Variational Quantum Eigensolver: minimize `<H>` over the circuit's rotation
     /// parameters, then compare against the exact ground-state energy from a
     /// sparse Hermitian eigensolver. Uses gradient descent with the analytic
-    /// adjoint gradient of <H> (sum of per-Pauli-term gradients).
+    /// adjoint gradient of `<H>` (sum of per-Pauli-term gradients).
     fn cmd_vqe(&self, rest: &str) {
         let name = rest.trim().to_ascii_lowercase();
         let hamiltonian = match named_hamiltonian(&name, self.qubits) {
@@ -885,7 +885,7 @@ impl Session {
     }
 
     /// QML training on a purpose-built variational circuit (angle encoding +
-    /// trainable rotation + <Z> readout), optimized with Adam.
+    /// trainable rotation + `<Z>` readout), optimized with Adam.
     ///
     /// - `train regression` fit the built-in cos(x+0.7) demo
     /// - `train classify` run the built-in separable-blobs demo
@@ -1052,7 +1052,7 @@ impl Session {
     }
 
     /// `qnn` — the minimal 1-parameter VariationalQnn (Ry-encode x, trainable Ry,
-    /// <Z> readout), exposed interactively:
+    /// `<Z>` readout), exposed interactively:
     ///
     /// - `qnn` fit cos(x+0.7) demo (Adam)
     /// - `qnn DATA [opt=...]` fit your own (x,y) pairs
@@ -1892,7 +1892,7 @@ fn parse_dataset(src: &str, nfeat: usize) -> Result<Vec<(Vec<f64>, f64)>, String
         .collect())
 }
 
-/// Regression core: angle-encode each feature, one trainable Ry weight, <Z>
+/// Regression core: angle-encode each feature, one trainable Ry weight, `<Z>`
 /// readout; Adam-optimize MSE. Works for any feature count by summing encoded
 /// rotations (feature 0 encodes x0, feature i>0 adds Ry(x_i) — a simple but
 /// valid linear-ish angle encoding).

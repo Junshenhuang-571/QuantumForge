@@ -2,6 +2,14 @@
 name = "quantumforge"
 version = "0.1.0"
 edition = "2024"
+description = "A small, backend-neutral quantum simulation kernel: CPU, CUDA, and LLVM backends with gate-model circuits, VQE/QML, MBQC, adiabatic QC, and unitary Turing machines."
+license = "GPL-3.0"
+repository = "https://github.com/Junshenhuang-571/QuantumForge"
+homepage = "https://github.com/Junshenhuang-571/QuantumForge"
+documentation = "https://docs.rs/quantumforge"
+readme = "README.md"
+keywords = ["quantum", "simulation", "quantum-computing", "vqe", "cuda"]
+categories = ["science", "simulation", "hardware-support"]
 
 [workspace]
 members = ["."]
