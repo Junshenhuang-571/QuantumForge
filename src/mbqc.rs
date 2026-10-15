@@ -257,14 +257,18 @@ fn parse_deps(tok: &str) -> Result<Vec<usize>, String> {
 ///
 /// - `angles=0.5,0,pi/2`  — nominal equatorial angles (or `z` for Z-basis)
 /// - `basis=eq,eq,z`      — `eq`/`z` per step (alternative to `z` in angles)
+/// - `qubits=2,0,1`       — which qubit each step measures (default: step order `0,1,2,...`); any order
 /// - `deps=none,0,1`      — X-by-product dependencies (phase-shift sources)
 /// - `depsz=none,none,0`  — Z-by-product dependencies (plane-mirror sources)
 /// - `outputs=0,0,1`      — 1 marks an output step
 ///
-/// Example: `angles=0.5,0,pi basis=eq,eq,z deps=none,0,1 depsz=none,none,0 outputs=0,0,1`
+/// Every qubit must be measured exactly once (a valid MBQC pattern consumes the
+/// whole cluster). Example:
+/// `angles=0.5,0,pi basis=eq,eq,z qubits=1,2,0 deps=none,0,1 depsz=none,none,0 outputs=0,0,1`
 pub fn parse_pattern(spec: &str, qubits: usize) -> Result<MeasurementPattern, String> {
     let mut angles: Vec<String> = Vec::new();
     let mut basis: Vec<String> = Vec::new();
+    let mut step_qubits: Vec<usize> = Vec::new();
     let mut deps: Vec<Vec<usize>> = Vec::new();
     let mut depsz: Vec<Vec<usize>> = Vec::new();
     let mut outputs: Vec<bool> = Vec::new();
@@ -276,6 +280,16 @@ pub fn parse_pattern(spec: &str, qubits: usize) -> Result<MeasurementPattern, St
         match k {
             "angles" => angles = v.split(',').map(|s| s.trim().to_owned()).collect(),
             "basis" => basis = v.split(',').map(|s| s.trim().to_owned()).collect(),
+            "qubits" => {
+                step_qubits = v
+                    .split(',')
+                    .map(|s| {
+                        s.trim()
+                            .parse::<usize>()
+                            .map_err(|_| format!("bad qubit index '{s}'"))
+                    })
+                    .collect::<Result<_, _>>()?
+            }
             "deps" => deps = v.split(',').map(parse_deps).collect::<Result<_, _>>()?,
             "depsz" => depsz = v.split(',').map(parse_deps).collect::<Result<_, _>>()?,
             "outputs" => {
@@ -292,10 +306,38 @@ pub fn parse_pattern(spec: &str, qubits: usize) -> Result<MeasurementPattern, St
         }
     }
 
-    let n = angles.len().max(basis.len()).max(deps.len());
+    let n = angles
+        .len()
+        .max(basis.len())
+        .max(deps.len())
+        .max(step_qubits.len());
     if n == 0 {
         return Err("empty pattern (need angles= and/or basis=)".to_owned());
     }
+    // A pattern must consume every cluster qubit exactly once.
+    if n != qubits {
+        return Err(format!(
+            "pattern has {n} steps but the cluster has {qubits} qubits (must measure each once)"
+        ));
+    }
+    // Resolve the qubit each step measures (default: step order).
+    let resolved: Vec<usize> = (0..n)
+        .map(|i| step_qubits.get(i).copied().unwrap_or(i))
+        .collect();
+    // Every qubit in range, and each measured exactly once (a permutation).
+    let mut seen = vec![false; qubits];
+    for (i, &q) in resolved.iter().enumerate() {
+        if q >= qubits {
+            return Err(format!(
+                "step {i} measures qubit {q} but cluster has {qubits}"
+            ));
+        }
+        if seen[q] {
+            return Err(format!("qubit {q} is measured more than once"));
+        }
+        seen[q] = true;
+    }
+
     let mut pattern = MeasurementPattern::new();
     for i in 0..n {
         // Basis: explicit basis= wins; else `z` in angles= means Z-basis.
@@ -319,14 +361,8 @@ pub fn parse_pattern(spec: &str, qubits: usize) -> Result<MeasurementPattern, St
                 MeasurementBasis::Equatorial(parse_angle(a)?)
             }
         };
-        let qubit = i; // default: measure vertices in order
-        if qubit >= qubits {
-            return Err(format!(
-                "step {i} measures qubit {qubit} but cluster has {qubits}"
-            ));
-        }
         pattern.push(MeasurementStep {
-            qubit,
+            qubit: resolved[i],
             basis: b,
             depends_on_x: deps.get(i).cloned().unwrap_or_default(),
             depends_on_z: depsz.get(i).cloned().unwrap_or_default(),

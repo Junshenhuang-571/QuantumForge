@@ -303,9 +303,10 @@ Paradigm commands (QTM / MBQC / AQC), all data-capable:
 - `mbqc [edges=a-b,c-d] [qubits=N] [pattern="..."]` — measurement-based QC:
   builds a cluster state on your graph and runs a measurement pattern. A
   `pattern=` spec supplies explicit angles (decimals or `pi`/`pi/2`/`2pi`),
-  bases (`eq`/`z`), X- and Z-by-product dependencies, and output flags via
-  `mbqc::parse_pattern`; without it, each vertex is measured depending on its
-  neighbours' earlier outcomes.
+  bases (`eq`/`z`), a free per-step measurement order (`qubits=`, any
+  permutation — each qubit measured exactly once), by-product dependencies, and
+  output flags via `mbqc::parse_pattern`; without it, each vertex is measured
+  depending on its neighbours' earlier outcomes.
 - `anneal [NAME] [T=.. tol=.. steps=..]` — adiabatic QC: interpolates
   `H(s)=(1-s)H₀+sH₁` from a transverse-field driver to a problem Hamiltonian
   (named spin chain, reusing the exact-rational VQE models), driven by the

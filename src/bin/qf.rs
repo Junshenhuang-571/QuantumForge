@@ -1081,13 +1081,14 @@ impl Session {
     ///
     ///   mbqc                                         3-qubit linear path demo
     ///   mbqc edges=0-1,1-2,0-2 qubits=3              custom cluster graph
-    ///   mbqc qubits=3 pattern="angles=0.5,0,pi basis=eq,eq,z deps=none,0,1 depsz=none,none,0 outputs=0,0,1"
+    ///   mbqc qubits=3 pattern="angles=0.5,0,pi basis=eq,eq,z qubits=1,2,0 deps=none,0,1 depsz=none,none,0 outputs=0,0,1"
     ///
     /// Graph edges are `a-b` pairs; `qubits=N` sets the vertex count. A
-    /// `pattern=` spec supplies explicit measurement angles, bases, by-product
-    /// dependencies, and output flags (see `quantumforge::mbqc::parse_pattern`);
-    /// without it, each vertex is measured with equatorial/Z bases depending on
-    /// its neighbours' earlier outcomes.
+    /// `pattern=` spec supplies explicit measurement angles, bases, per-step
+    /// qubit order (`qubits=`, any permutation), by-product dependencies, and
+    /// output flags (see `quantumforge::mbqc::parse_pattern`); without it, each
+    /// vertex is measured with equatorial/Z bases depending on its neighbours'
+    /// earlier outcomes.
     fn cmd_mbqc(&self, rest: &str) {
         use quantumforge::mbqc::{
             ClusterState, MeasurementBasis, MeasurementPattern, MeasurementStep, parse_pattern,

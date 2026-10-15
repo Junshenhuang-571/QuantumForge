@@ -106,9 +106,9 @@ fn teleport_through_path_is_deterministic_given_seed() {
 #[test]
 fn parse_pattern_builds_steps_with_angles_and_deps() {
     use quantumforge::mbqc::parse_pattern;
-    // A 3-step pattern: eq(0.5), Z, eq(pi) with X-dep 0 on step 1 and Z-dep 1
+    // A 3-step pattern: eq(0.5), Z, eq(pi) with X-dep 0 on step 1 and Z-dep 0
     // on step 2; only the last step is an output.
-    let spec = "angles=0.5,z,pi basis=eq,z,eq deps=none,0,1 depsz=none,none,0 outputs=0,0,1";
+    let spec = "angles=0.5,z,pi basis=eq,z,eq deps=none,0,0 depsz=none,none,0 outputs=0,0,1";
     let p = parse_pattern(spec, 3).expect("valid pattern");
     assert_eq!(p.steps.len(), 3);
     assert_eq!(p.steps[0].qubit, 0);
@@ -121,6 +121,19 @@ fn parse_pattern_builds_steps_with_angles_and_deps() {
     assert_eq!(p.steps[2].depends_on_z, vec![0]);
     assert!(p.steps[2].output);
     assert!(!p.steps[0].output);
+}
+
+#[test]
+fn parse_pattern_supports_free_measurement_order() {
+    use quantumforge::mbqc::parse_pattern;
+    // qubits=2,0,1 measures qubit 2 first, then 0, then 1 — a free order that
+    // is NOT the default step order.
+    let spec =
+        "angles=0.5,z,pi basis=eq,z,eq qubits=2,0,1 deps=none,0,1 depsz=none,none,0 outputs=0,0,1";
+    let p = parse_pattern(spec, 3).expect("valid free-order pattern");
+    assert_eq!(p.steps[0].qubit, 2, "step 0 measures qubit 2");
+    assert_eq!(p.steps[1].qubit, 0, "step 1 measures qubit 0");
+    assert_eq!(p.steps[2].qubit, 1, "step 2 measures qubit 1");
 }
 
 #[test]
@@ -144,19 +157,23 @@ fn parse_pattern_parses_pi_angles() {
 #[test]
 fn parse_pattern_rejects_bad_input() {
     use quantumforge::mbqc::parse_pattern;
-    assert!(parse_pattern("angles=bad", 3).is_err(), "bad angle");
+    assert!(parse_pattern("angles=bad", 1).is_err(), "bad angle");
     assert!(
-        parse_pattern("angles=0.5 deps=9", 3).is_err(),
+        parse_pattern("angles=0.5 deps=9", 1).is_err(),
         "dep out of range"
     );
-    assert!(
-        parse_pattern("angles=0.5,0,0,0", 3).is_err(),
-        "too many steps for cluster"
-    );
-    assert!(parse_pattern("bogus=1", 3).is_err(), "unknown key");
-    // A step measuring qubit >= cluster size is rejected (step i -> qubit i).
+    // A pattern must measure every cluster qubit exactly once.
     assert!(
         parse_pattern("angles=0,0,0,0 basis=eq,eq,eq,eq", 3).is_err(),
-        "step past cluster"
+        "wrong step count for cluster"
     );
+    assert!(
+        parse_pattern("angles=0,0 qubits=0,0", 2).is_err(),
+        "qubit measured twice"
+    );
+    assert!(
+        parse_pattern("angles=0,0 qubits=0,5", 2).is_err(),
+        "qubit index out of range"
+    );
+    assert!(parse_pattern("bogus=1", 1).is_err(), "unknown key");
 }
