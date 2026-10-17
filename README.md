@@ -102,7 +102,7 @@ println!("{:?}", result.counts);
 
 ```bash
 cargo build            # default (CPU-only) build
-cargo test             # 129 tests (default build; llvm/cuda tests need feature flags)
+cargo test             # 151 tests (default build; llvm/cuda tests need feature flags)
 ```
 
 Run the interactive REPL:
@@ -177,6 +177,32 @@ let result = circuit.run_shots(&initial, 1000, 42).unwrap();
 Key types: `Circuit` / `Gate` / `NoiseChannel`, `StateVector`, `DensityMatrix`,
 `ParameterizedCircuit` (QML), `VariationalQnn`, and the analytic module's
 `PauliSum` / `ExactComplex` / `Rational` / `ScalarExpr`.
+
+## QASM 2.0 support
+
+Import/export circuits in the standard OpenQASM 2.0 format:
+
+```rust
+use quantumforge::{qasm::parse_qasm, StateVector};
+
+let qasm = r#"
+OPENQASM 2.0;
+include "qelib1.inc";
+qreg q[2];
+creg c[2];
+h q[0];
+cx q[0], q[1];
+measure q[0] -> c[0];
+measure q[1] -> c[1];
+"#;
+
+let circuit = parse_qasm(qasm).unwrap();
+let n_qubits = quantumforge::qasm::qubit_count(qasm).unwrap(); // returns 2
+let initial = StateVector::zero(n_qubits).unwrap();
+let result = circuit.run_shots(&initial, 1000, 42).unwrap();
+```
+
+Supported features: gates (X, Y, Z, H, S, S†, T, T†, RX, RY, RZ, U1, U2, U3, CX, CZ, SWAP, CCX), parameter expressions (`pi`, `pi/2`, `2*pi`), `measure`, `barrier`, `reset`, and user-defined gates with formal parameters.
 
 ## Optional features
 
