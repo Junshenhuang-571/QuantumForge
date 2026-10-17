@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>QuantumForge — Quantum Computation in Rust</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --fg: #c9d1d9;
+    --accent: #58a6ff;
+    --accent2: #a371f7;
+    --border: #30363d;
+    --code-bg: #161b22;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    line-height: 1.6;
+  }
+  .container { max-width: 960px; margin: 0 auto; padding: 2rem 1.5rem; }
+  header { text-align: center; padding: 3rem 0 2rem; }
+  h1 {
+    font-size: 2.5rem;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin-bottom: 0.5rem;
+  }
+  .tagline { color: #8b949e; font-size: 1.1rem; max-width: 600px; margin: 0 auto; }
+  .badge-row { margin-top: 1rem; }
+  .badge {
+    display: inline-block;
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.25rem 0.75rem;
+    margin: 0.25rem;
+    font-size: 0.85rem;
+    color: var(--accent);
+  }
+  section { margin: 2.5rem 0; }
+  h2 {
+    font-size: 1.5rem;
+    color: var(--accent);
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 0.5rem;
+    margin-bottom: 1rem;
+  }
+  .features { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; }
+  .feature-card {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.25rem;
+  }
+  .feature-card h3 { color: var(--accent2); margin-bottom: 0.5rem; font-size: 1.1rem; }
+  .feature-card p { color: #8b949e; font-size: 0.9rem; }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.25rem;
+    overflow-x: auto;
+    font-size: 0.85rem;
+    line-height: 1.5;
+  }
+  code {
+    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+    color: var(--fg);
+  }
+  .prompt { color: var(--accent); }
+  .output { color: #8b949e; }
+  .install-cmd {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+    margin: 1rem 0;
+    font-family: monospace;
+    font-size: 0.9rem;
+  }
+  .install-cmd .comment { color: #8b949e; }
+  .btn {
+    display: inline-block;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    color: #fff;
+    text-decoration: none;
+    padding: 0.6rem 1.5rem;
+    border-radius: 6px;
+    font-weight: 600;
+    margin: 0.5rem 0.5rem 0.5rem 0;
+  }
+  .btn:hover { opacity: 0.9; }
+  .btn-outline {
+    background: transparent;
+    border: 1px solid var(--accent);
+    color: var(--accent);
+  }
+  footer {
+    text-align: center;
+    padding: 2rem 0;
+    color: #8b949e;
+    font-size: 0.85rem;
+    border-top: 1px solid var(--border);
+    margin-top: 3rem;
+  }
+  .paradigm-table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+  .paradigm-table th, .paradigm-table td {
+    text-align: left;
+    padding: 0.6rem 1rem;
+    border-bottom: 1px solid var(--border);
+  }
+  .paradigm-table th { color: var(--accent); }
+  .paradigm-table td { color: #8b949e; }
+</style>
+</head>
+<body>
+<div class="container">
+
+<header>
+  <h1>QuantumForge</h1>
+  <p class="tagline">A quantum-computation kernel in Rust — exact-rational analytic core, CPU simulator, interactive REPL, and optional CUDA / LLVM backends, all sharing one set of semantics.</p>
+  <div class="badge-row">
+    <span class="badge">Rust</span>
+    <span class="badge">Exact-Rational</span>
+    <span class="badge">CUDA</span>
+    <span class="badge">LLVM JIT</span>
+    <span class="badge">136 Tests</span>
+    <span class="badge">GPL-3.0</span>
+  </div>
+</header>
+
+<section>
+  <h2>Install &amp; Run</h2>
+  <div class="install-cmd">
+    <span class="comment"># Install from crates.io</span><br>
+    cargo install quantumforge<br>
+    <br>
+    <span class="comment"># Or build from source</span><br>
+    git clone https://github.com/Junshenhuang-571/QuantumForge.git<br>
+    cd QuantumForge<br>
+    cargo run --bin qf
+  </div>
+  <a class="btn" href="https://github.com/Junshenhuang-571/QuantumForge">View on GitHub</a>
+  <a class="btn btn-outline" href="https://crates.io/crates/quantumforge">crates.io</a>
+  <a class="btn btn-outline" href="https://docs.rs/quantumforge">docs.rs</a>
+</section>
+
+<section>
+  <h2>Try It — Interactive REPL</h2>
+  <p>The <code>qf</code> REPL lets you build circuits incrementally, draw them as ASCII diagrams, run and measure them, and run variational algorithms (VQE, QML training).</p>
+  <pre><span class="prompt">qf&gt;</span> qubits 3
+<span class="prompt">qf&gt;</span> add H[0]
+<span class="prompt">qf&gt;</span> add CNOT[0,1]
+<span class="prompt">qf&gt;</span> add Ry[Pi/4,2]
+<span class="prompt">qf&gt;</span> draw
+<span class="output">q0 ───H──────•──────────
+q1 ──────────⊕──────────
+q2 ──────────────Ry0.79─
+legend: ─ wire  • control  ⊕ target(X)  │ span  x swap  M measure</span>
+<span class="prompt">qf&gt;</span> run
+<span class="prompt">qf&gt;</span> measure</pre>
+</section>
+
+<section>
+  <h2>Five Models of Quantum Computation</h2>
+  <table class="paradigm-table">
+    <tr><th>Paradigm</th><th>What it is</th><th><code>qf</code> command</th></tr>
+    <tr><td>Circuit / gate model</td><td>Standard qubits-and-gates</td><td><code>add</code>, <code>run</code>, <code>draw</code>, <code>shots</code></td></tr>
+    <tr><td>Variational (VQE / QML)</td><td>Parameterized circuits optimized classically</td><td><code>vqe</code>, <code>train</code>, <code>qnn</code>, <code>gradient</code></td></tr>
+    <tr><td>Measurement-based (MBQC)</td><td>One-way model — cluster states measured adaptively</td><td><code>mbqc</code></td></tr>
+    <tr><td>Adiabatic (AQC)</td><td>Evolve ground state from driver to problem Hamiltonian</td><td><code>anneal</code></td></tr>
+    <tr><td>Quantum Turing machine</td><td>Reversible transition unitaries on configuration superpositions</td><td><code>qtm</code></td></tr>
+  </table>
+</section>
+
+<section>
+  <h2>Features</h2>
+  <div class="features">
+    <div class="feature-card">
+      <h3>Exact-Rational Core</h3>
+      <p><code>PauliSum</code> / <code>ExactComplex</code> / <code>Rational</code> do exact rational arithmetic — VQE converges to the exact ground-state energy to machine precision.</p>
+    </div>
+    <div class="feature-card">
+      <h3>Interactive REPL</h3>
+      <p>Live state, <code>draw</code> renders real circuit diagrams with vertical connectors, <code>measure</code> gives seeded reproducible shots.</p>
+    </div>
+    <div class="feature-card">
+      <h3>Density Matrices</h3>
+      <p>Noise channels (depolarizing / amplitude / phase damping), partial trace, purity tracking, maximally-mixed states.</p>
+    </div>
+    <div class="feature-card">
+      <h3>Variational / QML</h3>
+      <p><code>ParameterizedCircuit</code> with data encoding, adjoint + parameter-shift gradients, Adam trainers for regression and classification.</p>
+    </div>
+    <div class="feature-card">
+      <h3>CUDA Backend</h3>
+      <p>NVRTC device-resident state vectors, density matrices, batched shots — validated against the Rust reference.</p>
+    </div>
+    <div class="feature-card">
+      <h3>LLVM JIT</h3>
+      <p>Lower scalar expressions to LLVM IR and runtime-JIT for fast exact evaluation.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Library Usage</h2>
+  <pre><code>use quantumforge::{Circuit, StateVector, parse_circuit};
+
+// Build from a Wolfram-style expression, or the builder API.
+let circuit = parse_circuit(<span class="output">"Circuit[H[0], CNOT[0,1], Measure[0,0]]"</span>).unwrap();
+let initial = StateVector::zero(2).unwrap();
+let result = circuit.run_shots(&amp;initial, 1000, 42).unwrap();
+println!(<span class="output">"{:?}"</span>, result.counts);</code></pre>
+</section>
+
+<section>
+  <h2>CI</h2>
+  <p>Every push and PR runs GitHub Actions: <code>cargo fmt --check</code>, <code>cargo clippy --all-targets -- -D warnings</code>, <code>cargo build</code>, and <code>cargo test</code>.</p>
+</section>
+
+<footer>
+  <p>QuantumForge &middot; GPL-3.0 &middot; <a href="https://github.com/Junshenhuang-571/QuantumForge" style="color:var(--accent)">GitHub</a> &middot; <a href="https://crates.io/crates/quantumforge" style="color:var(--accent)">crates.io</a> &middot; <a href="https://docs.rs/quantumforge" style="color:var(--accent)">docs.rs</a></p>
+</footer>
+
+</div>
+</body>
+</html>

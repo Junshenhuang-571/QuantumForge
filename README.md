@@ -22,8 +22,52 @@ problem Hamiltonian, or tape size rather than running a fixed demo. The headline
 feature is the `qf` REPL: build circuits incrementally, draw them as ASCII
 diagrams, run and measure them, and run variational algorithms (VQE, QML
 training) with results cross-checked against exact ground-state energies.
-129 tests back the semantics in the default build (incl. 23 property-based /
+136 tests back the semantics in the default build (incl. 23 property-based /
 robustness tests and REPL end-to-end).
+
+## Quickstart
+
+Install and run the interactive REPL:
+
+```bash
+cargo install quantumforge
+qf
+```
+
+Or build from source:
+
+```bash
+git clone https://github.com/Junshenhuang-571/QuantumForge.git
+cd QuantumForge
+cargo run --bin qf
+```
+
+Then build and draw a circuit:
+
+```
+qf> qubits 3
+qf> add H[0]
+qf> add CNOT[0,1]
+qf> add Ry[Pi/4,2]
+qf> draw
+q0 ───H──────•──────────
+q1 ──────────⊕──────────
+q2 ──────────────Ry0.79─
+legend: ─ wire  • control  ⊕ target(X)  │ span  x swap  M measure
+qf> run
+qf> measure
+```
+
+Or use it as a library:
+
+```rust
+use quantumforge::{Circuit, StateVector, parse_circuit};
+
+let circuit = parse_circuit("Circuit[H[0], CNOT[0,1], Measure[0,0]]").unwrap();
+let initial = StateVector::zero(2).unwrap();
+let result = circuit.run_shots(&initial, 1000, 42).unwrap();
+println!("{:?}", result.counts);
+```
 
 ## Highlights
 
