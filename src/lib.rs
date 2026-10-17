@@ -12,6 +12,7 @@ pub mod llvm_backend;
 pub mod mbqc;
 pub mod numeric_ir;
 pub mod parser;
+pub mod qasm;
 pub mod qtm;
 pub mod quantum;
 
