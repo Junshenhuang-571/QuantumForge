@@ -1,0 +1,240 @@
+//! Quantum algorithms library.
+//!
+//! Provides high-level implementations of standard quantum algorithms:
+//! - Grover's search algorithm
+//! - Quantum Phase Estimation (QPE)
+//! - Quantum Approximate Optimization Algorithm (QAOA)
+//! - Variational Quantum Eigensolver (VQE) ansatz templates
+
+use crate::{Circuit, Gate};
+use std::f64::consts::PI;
+
+/// Build a Grover's search circuit for a given oracle.
+pub fn grover_circuit(num_qubits: usize, oracle: Circuit, iterations: usize) -> Circuit {
+    let mut circuit = Circuit::new();
+
+    for i in 0..num_qubits {
+        circuit.push(Gate::H, i);
+    }
+
+    for _ in 0..iterations {
+        for op in oracle.operations() {
+            match op {
+                crate::CircuitOp::SingleQubit { gate, target } => circuit.push(*gate, *target),
+                crate::CircuitOp::Cnot { control, target } => circuit.cnot(*control, *target),
+                crate::CircuitOp::Cz { first, second } => circuit.cz(*first, *second),
+                crate::CircuitOp::Swap { first, second } => circuit.swap(*first, *second),
+                _ => {}
+            }
+        }
+
+        for i in 0..num_qubits {
+            circuit.push(Gate::H, i);
+            circuit.push(Gate::X, i);
+        }
+        if num_qubits == 2 {
+            circuit.cz(0, 1);
+        } else if num_qubits == 3 {
+            circuit.push(Gate::H, 2);
+            circuit.cnot(1, 2);
+            circuit.push(Gate::Tdg, 2);
+            circuit.cnot(0, 2);
+            circuit.push(Gate::T, 2);
+            circuit.cnot(1, 2);
+            circuit.push(Gate::Tdg, 2);
+            circuit.cnot(0, 2);
+            circuit.push(Gate::T, 1);
+            circuit.push(Gate::T, 2);
+            circuit.cnot(0, 1);
+            circuit.push(Gate::H, 2);
+        }
+        for i in 0..num_qubits {
+            circuit.push(Gate::X, i);
+            circuit.push(Gate::H, i);
+        }
+    }
+
+    circuit
+}
+
+/// Build a QAOA circuit for MaxCut on a given graph.
+pub fn qaoa_maxcut(
+    num_qubits: usize,
+    edges: &[(usize, usize, f64)],
+    p: usize,
+    betas: &[f64],
+    gammas: &[f64],
+) -> Circuit {
+    let mut circuit = Circuit::new();
+
+    for i in 0..num_qubits {
+        circuit.push(Gate::H, i);
+    }
+
+    for layer in 0..p {
+        for &(u, v, w) in edges {
+            circuit.cnot(u, v);
+            circuit.push(Gate::Rz(2.0 * gammas[layer] * w), v);
+            circuit.cnot(u, v);
+        }
+
+        for i in 0..num_qubits {
+            circuit.push(Gate::Rx(2.0 * betas[layer]), i);
+        }
+    }
+
+    circuit
+}
+
+/// Build a QPE circuit.
+pub fn qpe_circuit(unitary: Circuit, precision_qubits: usize) -> Circuit {
+    let mut circuit = Circuit::new();
+
+    for i in 0..precision_qubits {
+        circuit.push(Gate::H, i);
+    }
+
+    for j in 0..precision_qubits {
+        let reps = 1 << j;
+        for _ in 0..reps {
+            for op in unitary.operations() {
+                match op {
+                    crate::CircuitOp::SingleQubit { gate, target } => {
+                        circuit.push(*gate, target + precision_qubits);
+                    }
+                    crate::CircuitOp::Cnot { control, target } => {
+                        circuit.cnot(control + precision_qubits, target + precision_qubits);
+                    }
+                    crate::CircuitOp::Cz { first, second } => {
+                        circuit.cz(first + precision_qubits, second + precision_qubits);
+                    }
+                    crate::CircuitOp::Swap { first, second } => {
+                        circuit.swap(first + precision_qubits, second + precision_qubits);
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    for i in 0..precision_qubits {
+        for j in 0..i {
+            let angle = -PI / 2_f64.powi((i - j) as i32);
+            circuit.push(Gate::Rz(angle), j);
+            circuit.cnot(i, j);
+        }
+        circuit.push(Gate::H, i);
+    }
+    for i in 0..precision_qubits / 2 {
+        circuit.swap(i, precision_qubits - 1 - i);
+    }
+
+    circuit
+}
+
+/// Hardware-efficient ansatz for VQE.
+pub fn hea_ansatz(num_qubits: usize, layers: usize, params: &[f64]) -> Circuit {
+    let mut circuit = Circuit::new();
+    let mut param_idx = 0;
+
+    for _layer in 0..layers {
+        for i in 0..num_qubits {
+            if param_idx < params.len() {
+                circuit.push(Gate::Ry(params[param_idx]), i);
+                param_idx += 1;
+            }
+            if param_idx < params.len() {
+                circuit.push(Gate::Rz(params[param_idx]), i);
+                param_idx += 1;
+            }
+        }
+
+        if _layer % 2 == 0 {
+            for i in 0..num_qubits - 1 {
+                circuit.cnot(i, i + 1);
+            }
+        } else {
+            for i in 0..num_qubits - 1 {
+                circuit.cnot(i + 1, i);
+            }
+        }
+    }
+
+    circuit
+}
+
+/// QAOA-style ansatz for VQE.
+pub fn qaoa_ansatz(
+    num_qubits: usize,
+    edges: &[(usize, usize)],
+    layers: usize,
+    params: &[f64],
+) -> Circuit {
+    let mut circuit = Circuit::new();
+    let mut param_idx = 0;
+
+    for i in 0..num_qubits {
+        circuit.push(Gate::H, i);
+    }
+
+    for _layer in 0..layers {
+        if param_idx < params.len() {
+            let gamma = params[param_idx];
+            for &(u, v) in edges {
+                circuit.cnot(u, v);
+                circuit.push(Gate::Rz(2.0 * gamma), v);
+                circuit.cnot(u, v);
+            }
+            param_idx += 1;
+        }
+
+        if param_idx < params.len() {
+            let beta = params[param_idx];
+            for i in 0..num_qubits {
+                circuit.push(Gate::Rx(2.0 * beta), i);
+            }
+            param_idx += 1;
+        }
+    }
+
+    circuit
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_grover_circuit() {
+        let mut oracle = Circuit::new();
+        oracle.cnot(0, 1);
+
+        let circuit = grover_circuit(2, oracle, 1);
+        assert!(!circuit.operations().is_empty());
+    }
+
+    #[test]
+    fn test_qaoa_maxcut() {
+        let edges = vec![(0, 1, 1.0), (1, 2, 1.0), (2, 0, 1.0)];
+        let betas = vec![0.5, 0.3];
+        let gammas = vec![0.7, 0.2];
+
+        let circuit = qaoa_maxcut(3, &edges, 2, &betas, &gammas);
+        assert!(!circuit.operations().is_empty());
+    }
+
+    #[test]
+    fn test_hea_ansatz() {
+        let params = vec![0.1, 0.2, 0.3, 0.4, 0.5, 0.6];
+        let circuit = hea_ansatz(3, 2, &params);
+        assert!(!circuit.operations().is_empty());
+    }
+
+    #[test]
+    fn test_qaoa_ansatz() {
+        let edges = vec![(0, 1), (1, 2)];
+        let params = vec![0.5, 0.3, 0.7, 0.2];
+        let circuit = qaoa_ansatz(3, &edges, 2, &params);
+        assert!(!circuit.operations().is_empty());
+    }
+}

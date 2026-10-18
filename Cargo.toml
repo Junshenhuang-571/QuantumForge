@@ -11,6 +11,9 @@ readme = "README.md"
 keywords = ["quantum", "simulation", "quantum-computing", "vqe", "cuda"]
 categories = ["science", "simulation", "hardware-support"]
 
+[lib]
+crate-type = ["lib", "cdylib"]
+
 [workspace]
 members = ["."]
 resolver = "2"
@@ -19,6 +22,7 @@ resolver = "2"
 default = []
 llvm = []
 cuda = []
+python = ["pyo3"]
 
 [[bench]]
 name = "cuda_batch"
@@ -29,6 +33,9 @@ required-features = ["cuda"]
 [dev-dependencies]
 criterion = "0.5"
 proptest = "1"
+
+[dependencies]
+pyo3 = { version = "0.23", optional = true, features = ["extension-module", "abi3-py38"] }
 
 [[bench]]
 name = "core"

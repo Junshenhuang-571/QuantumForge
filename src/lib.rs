@@ -12,6 +12,10 @@ pub mod llvm_backend;
 pub mod mbqc;
 pub mod numeric_ir;
 pub mod parser;
+pub use parser::parse_circuit;
+pub mod algorithms;
+#[cfg(feature = "python")]
+pub mod python;
 pub mod qasm;
 pub mod qtm;
 pub mod quantum;
