@@ -121,7 +121,7 @@ fn is_identity_op(op: &CircuitOp) -> bool {
 /// Cancel adjacent inverse gate pairs on the same qubit.
 /// Examples: H·H, X·X, Y·Y, Z·Z, S·S†, T·T†, Rx(a)·Rx(-a), etc.
 fn cancel_inverse_pairs(circuit: &mut Circuit) -> usize {
-    let mut ops = circuit.operations_mut();
+    let ops = circuit.operations_mut();
     let mut cancellations = 0;
     let mut i = 0;
 
@@ -133,7 +133,7 @@ fn cancel_inverse_pairs(circuit: &mut Circuit) -> usize {
             cancellations += 1;
             // Don't increment i - check if new pair forms with previous
             if i > 0 {
-                i -= 1;
+                i = i.saturating_sub(1);
             }
             continue;
         }
@@ -198,7 +198,7 @@ fn are_inverses(g1: Gate, g2: Gate) -> bool {
 /// Rx(a)·Rx(b) = Rx(a+b), same for Ry, Rz.
 /// Also fuses Rz into adjacent rotations where possible.
 fn fuse_rotations(circuit: &mut Circuit) -> usize {
-    let mut ops = circuit.operations_mut();
+    let ops = circuit.operations_mut();
     let mut fusions = 0;
     let mut i = 0;
 
@@ -215,6 +215,7 @@ fn fuse_rotations(circuit: &mut Circuit) -> usize {
             },
         ) = (&ops[i], &ops[i + 1])
         {
+            #[allow(clippy::collapsible_if)]
             if t1 == t2 {
                 if let Some(fused) = try_fuse_gates(*g1, *g2) {
                     ops[i] = CircuitOp::SingleQubit {
@@ -225,7 +226,7 @@ fn fuse_rotations(circuit: &mut Circuit) -> usize {
                     fusions += 1;
                     // Check if we can fuse further back
                     if i > 0 {
-                        i -= 1;
+                        i = i.saturating_sub(1);
                     }
                     continue;
                 }
@@ -240,6 +241,11 @@ fn fuse_rotations(circuit: &mut Circuit) -> usize {
 fn try_fuse_gates(g1: Gate, g2: Gate) -> Option<Gate> {
     use Gate::*;
     match (g1, g2) {
+        // Pauli rotations that combine to identity (sum ≈ 0)
+        (Rx(a), Rx(b)) if (a + b).abs() < 1e-10 => Some(I),
+        (Ry(a), Ry(b)) if (a + b).abs() < 1e-10 => Some(I),
+        (Rz(a), Rz(b)) if (a + b).abs() < 1e-10 => Some(I),
+
         // Same-axis rotations add angles
         (Rx(a), Rx(b)) => Some(Rx(normalize_angle(a + b))),
         (Ry(a), Ry(b)) => Some(Ry(normalize_angle(a + b))),
@@ -251,11 +257,6 @@ fn try_fuse_gates(g1: Gate, g2: Gate) -> Option<Gate> {
         (Sdg, Sdg) => Some(Rz(-std::f64::consts::PI)),
         (T, T) => Some(S),
         (Tdg, Tdg) => Some(Sdg),
-
-        // Pauli rotations that combine to known gates
-        (Rx(a), Rx(b)) if (a + b).abs() < 1e-10 => Some(I),
-        (Ry(a), Ry(b)) if (a + b).abs() < 1e-10 => Some(I),
-        (Rz(a), Rz(b)) if (a + b).abs() < 1e-10 => Some(I),
 
         _ => None,
     }
@@ -276,7 +277,7 @@ fn normalize_angle(angle: f64) -> f64 {
 /// Single-qubit gates on different qubits commute.
 /// Single-qubit gates commute through CNOT if they act on the other qubit.
 fn commute_for_cancellation(circuit: &mut Circuit) {
-    let mut ops = circuit.operations_mut();
+    let ops = circuit.operations_mut();
     let mut changed = true;
     let max_passes = 5;
 

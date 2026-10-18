@@ -10,8 +10,7 @@
 //! - Entanglement entropy computation
 //! - Bond dimension truncation with error control
 
-use crate::{Complex64, Gate, StateVector};
-use rand::Rng;
+use crate::Complex64;
 
 /// A tensor in the tensor network.
 #[derive(Clone, Debug)]
@@ -131,13 +130,12 @@ impl MPS {
 
     /// Create a random MPS with given bond dimension.
     pub fn random(n_sites: usize, phys_dim: usize, max_bond: usize) -> Self {
-        use rand::Rng;
-        let mut rng = rand::thread_rng();
+        let _rng = rand::thread_rng();
         let mut tensors = Vec::with_capacity(n_sites);
         for i in 0..n_sites {
             let bond_l = if i == 0 { 1 } else { max_bond.min(4) };
             let bond_r = if i == n_sites - 1 { 1 } else { max_bond.min(4) };
-            let mut t = Tensor::random([bond_l, phys_dim, bond_r]);
+            let t = Tensor::random([bond_l, phys_dim, bond_r]);
             // Normalize
             tensors.push(t);
         }
@@ -166,8 +164,8 @@ impl MPS {
             for s in 0..2 {
                 for c in 0..bond_r {
                     let mut sum = Complex64::ZERO;
-                    for s_prime in 0..2 {
-                        sum = sum + gate[s][s_prime] * t.get(a, s_prime, c);
+                    for (s_prime, &gate_val) in gate[s].iter().enumerate().take(2) {
+                        sum = sum + gate_val * t.get(a, s_prime, c);
                     }
                     new_data[(a * 2 + s) * bond_r + c] = sum;
                 }
@@ -181,10 +179,10 @@ impl MPS {
     /// Uses SVD to truncate bond dimension.
     pub fn apply_two_qubit_gate(
         &mut self,
-        gate: &[[Complex64; 4]; 4], // 4x4 matrix for 2 qubits
+        _gate: &[[Complex64; 4]; 4], // 4x4 matrix for 2 qubits
         site: usize,
-        max_bond: usize,
-        truncation_tol: f64,
+        _max_bond: usize,
+        _truncation_tol: f64,
     ) -> Result<(), &'static str> {
         if site + 1 >= self.n_sites {
             return Err("Site index out of bounds for two-qubit gate");
@@ -195,8 +193,8 @@ impl MPS {
         let right = &self.tensors[site + 1];
 
         // Reshape to matrices for SVD
-        let (left_mat, left_shape) = left.reshape_for_svd_left(); // [bond_l*2, 2*bond_r]
-        let (right_mat, right_shape) = right.reshape_for_svd_right(); // [2*bond_l, bond_r]
+        let (_left_mat, _left_shape) = left.reshape_for_svd_left(); // [bond_l*2, 2*bond_r]
+        let (_right_mat, _right_shape) = right.reshape_for_svd_right(); // [2*bond_l, bond_r]
 
         // Apply gate: gate * (left ⊗ right)
         // This is simplified - full implementation would contract properly
@@ -226,7 +224,7 @@ impl MPS {
     }
 
     /// Compute expectation value of a local observable.
-    pub fn expectation_single_site(&self, op: &[[Complex64; 2]; 2], site: usize) -> Complex64 {
+    pub fn expectation_single_site(&self, _op: &[[Complex64; 2]; 2], _site: usize) -> Complex64 {
         // ⟨ψ|O|ψ⟩ for single-site operator
         // Simplified
         Complex64::ZERO
@@ -263,9 +261,9 @@ impl TEBD {
     pub fn find_ground_state(
         &mut self,
         max_steps: usize,
-        energy_tol: f64,
+        _energy_tol: f64,
     ) -> Result<f64, &'static str> {
-        let mut prev_energy = f64::INFINITY;
+        let _prev_energy = f64::INFINITY;
         for _ in 0..max_steps {
             self.step()?;
             // Energy measurement would go here
@@ -355,12 +353,12 @@ mod tests {
         let mut mps = MPS::zero_state(3, 4);
         let h = [
             [
-                Complex64::new(0.70710678, 0.0),
-                Complex64::new(0.70710678, 0.0),
+                Complex64::new(std::f64::consts::FRAC_1_SQRT_2, 0.0),
+                Complex64::new(std::f64::consts::FRAC_1_SQRT_2, 0.0),
             ],
             [
-                Complex64::new(0.70710678, 0.0),
-                Complex64::new(-0.70710678, 0.0),
+                Complex64::new(std::f64::consts::FRAC_1_SQRT_2, 0.0),
+                Complex64::new(-std::f64::consts::FRAC_1_SQRT_2, 0.0),
             ],
         ];
         mps.apply_single_qubit_gate(&h, 1).unwrap();

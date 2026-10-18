@@ -10,6 +10,7 @@
 
 use crate::{Circuit, Gate, StateVector};
 use std::collections::HashMap;
+use std::fmt;
 
 /// A quantum error correction code.
 #[derive(Clone, Debug)]
@@ -51,19 +52,21 @@ impl PauliString {
     pub fn weight(&self) -> usize {
         self.paulis.iter().filter(|&&p| p != 0).count()
     }
+}
 
-    pub fn to_string(&self) -> String {
-        let mut s = String::new();
+impl fmt::Display for PauliString {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for &p in &self.paulis {
-            s.push(match p {
+            let c = match p {
                 0 => 'I',
                 1 => 'X',
                 2 => 'Y',
                 3 => 'Z',
                 _ => '?',
-            });
+            };
+            write!(f, "{c}")?;
         }
-        s
+        Ok(())
     }
 }
 
@@ -250,7 +253,7 @@ pub fn surface_code_planar(d: usize) -> QecCode {
     let n_ancilla = d * d - 1;
     let n = n_data + n_ancilla;
 
-    let mut stabilizers = Vec::new();
+    let stabilizers = Vec::new();
 
     // This is a simplified representation
     // Full surface code needs lattice layout
@@ -290,7 +293,7 @@ pub fn surface_code_rotated(d: usize) -> QecCode {
 fn build_repetition_syndrome(n: usize, bitflip: bool) -> Circuit {
     let mut circuit = Circuit::new();
     let n_ancilla = n - 1;
-    let total = n + n_ancilla;
+    let _total = n + n_ancilla;
 
     if bitflip {
         // Z-stabilizers: CNOT from data to ancilla (for ZZ measurement)
@@ -315,7 +318,7 @@ fn build_repetition_recovery(n: usize, bitflip: bool) -> HashMap<u32, Circuit> {
     let n_syndromes = 1 << (n - 1);
 
     for syndrome in 0..n_syndromes {
-        let mut circuit = Circuit::new();
+        let circuit = Circuit::new();
         // Syndrome bits indicate which pair has the error
         // This is a simplified lookup-table recovery
         if bitflip {
@@ -354,11 +357,11 @@ pub fn encode_repetition_bitflip(
 /// Decode a repetition code with majority vote.
 pub fn decode_repetition_bitflip(
     state: &StateVector,
-    n: usize,
+    _n: usize,
 ) -> Result<StateVector, crate::QuantumError> {
     // Syndrome measurement + recovery would go here
     // For now, just return the logical qubit (first qubit)
-    let mut circuit = Circuit::new();
+    let circuit = Circuit::new();
     // Majority vote decoding would be implemented here
     circuit.run(state.clone())
 }

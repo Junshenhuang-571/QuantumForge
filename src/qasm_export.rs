@@ -2,7 +2,7 @@
 //!
 //! Complements the QASM parser by exporting circuits to standard OpenQASM 2.0 format.
 
-use crate::{Circuit, CircuitOp, Gate};
+use crate::{Circuit, Gate};
 use std::collections::HashMap;
 
 /// Export a circuit to OpenQASM 2.0 format.
@@ -298,8 +298,8 @@ measure q[1] -> c[1];
         let mut circuit = Circuit::new();
         circuit.push(Gate::H, 0);
         circuit.push(Gate::X, 0);
-        circuit.push(Gate::Rx(1.57079632679), 0); // pi/2
-        circuit.push(Gate::Rz(3.14159265359), 0); // pi
+        circuit.push(Gate::Rx(std::f64::consts::FRAC_PI_2), 0);
+        circuit.push(Gate::Rz(std::f64::consts::PI), 0);
 
         let exported = export_qasm(&circuit);
         assert!(exported.contains("h q[0]"));
