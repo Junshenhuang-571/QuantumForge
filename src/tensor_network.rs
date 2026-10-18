@@ -10,9 +10,8 @@
 //! - Entanglement entropy computation
 //! - Bond dimension truncation with error control
 
-use crate::{Circuit, Gate, StateVector, Complex64};
+use crate::{Complex64, Gate, StateVector};
 use rand::Rng;
-use std::collections::HashMap;
 
 /// A tensor in the tensor network.
 #[derive(Clone, Debug)]
@@ -49,7 +48,10 @@ impl Tensor {
         let size = shape[0] * shape[1] * shape[2];
         let mut data = Vec::with_capacity(size);
         for _ in 0..size {
-            data.push(Complex64::new(rng.r#gen::<f64>() - 0.5, rng.r#gen::<f64>() - 0.5));
+            data.push(Complex64::new(
+                rng.r#gen::<f64>() - 0.5,
+                rng.r#gen::<f64>() - 0.5,
+            ));
         }
         Self { shape, data }
     }
@@ -148,7 +150,11 @@ impl MPS {
     }
 
     /// Apply a single-qubit gate to site i.
-    pub fn apply_single_qubit_gate(&mut self, gate: &[[Complex64; 2]; 2], site: usize) -> Result<(), &'static str> {
+    pub fn apply_single_qubit_gate(
+        &mut self,
+        gate: &[[Complex64; 2]; 2],
+        site: usize,
+    ) -> Result<(), &'static str> {
         if site >= self.n_sites {
             return Err("Site index out of bounds");
         }
@@ -194,7 +200,7 @@ impl MPS {
 
         // Apply gate: gate * (left ⊗ right)
         // This is simplified - full implementation would contract properly
-        
+
         // For now, just return error to indicate not fully implemented
         Err("Two-qubit gate application not fully implemented - requires SVD truncation")
     }
@@ -207,7 +213,7 @@ impl MPS {
         // Compute Schmidt values from the bond at cut
         let t = &self.tensors[cut];
         let bond_dim = t.shape[2].min(t.shape[0] * t.shape[1]);
-        
+
         // Extract the bond matrix and compute SVD
         // Simplified: return log of bond dimension as upper bound
         (bond_dim as f64).ln()
@@ -237,7 +243,12 @@ pub struct TEBD {
 
 impl TEBD {
     pub fn new(mps: MPS, dt: f64, max_bond: usize, truncation_tol: f64) -> Self {
-        Self { mps, dt, max_bond, truncation_tol }
+        Self {
+            mps,
+            dt,
+            max_bond,
+            truncation_tol,
+        }
     }
 
     /// Apply one step of imaginary time evolution: exp(-H*dt)
@@ -249,7 +260,11 @@ impl TEBD {
     }
 
     /// Run imaginary time evolution to find ground state.
-    pub fn find_ground_state(&mut self, max_steps: usize, energy_tol: f64) -> Result<f64, &'static str> {
+    pub fn find_ground_state(
+        &mut self,
+        max_steps: usize,
+        energy_tol: f64,
+    ) -> Result<f64, &'static str> {
         let mut prev_energy = f64::INFINITY;
         for _ in 0..max_steps {
             self.step()?;
@@ -269,7 +284,12 @@ pub struct DMRG {
 
 impl DMRG {
     pub fn new(mps: MPS, max_bond: usize, truncation_tol: f64, max_sweeps: usize) -> Self {
-        Self { mps, max_bond, truncation_tol, max_sweeps }
+        Self {
+            mps,
+            max_bond,
+            truncation_tol,
+            max_sweeps,
+        }
     }
 
     /// Run DMRG sweeps to find ground state of a Hamiltonian.
@@ -333,11 +353,16 @@ mod tests {
     #[test]
     fn test_single_qubit_gate() {
         let mut mps = MPS::zero_state(3, 4);
-        let h = [[
-            Complex64::new(0.70710678, 0.0), Complex64::new(0.70710678, 0.0)
-        ], [
-            Complex64::new(0.70710678, 0.0), Complex64::new(-0.70710678, 0.0)
-        ]];
+        let h = [
+            [
+                Complex64::new(0.70710678, 0.0),
+                Complex64::new(0.70710678, 0.0),
+            ],
+            [
+                Complex64::new(0.70710678, 0.0),
+                Complex64::new(-0.70710678, 0.0),
+            ],
+        ];
         mps.apply_single_qubit_gate(&h, 1).unwrap();
         // Should succeed without error
     }

@@ -164,9 +164,13 @@ pub fn shor_code() -> QecCode {
     }
     // Between blocks
     let mut p = PauliString::new(n);
-    p.set(2, 1); p.set(3, 1); stabilizers.push(p.clone());
+    p.set(2, 1);
+    p.set(3, 1);
+    stabilizers.push(p.clone());
     p = PauliString::new(n);
-    p.set(5, 1); p.set(6, 1); stabilizers.push(p);
+    p.set(5, 1);
+    p.set(6, 1);
+    stabilizers.push(p);
 
     // Bit-flip stabilizers (Z checks)
     for i in 0..8 {
@@ -203,7 +207,9 @@ pub fn steane_code() -> QecCode {
     for row in h_rows {
         let mut pauli = PauliString::new(n);
         for (i, &bit) in row.iter().enumerate() {
-            if bit == 1 { pauli.set(i, 1); }
+            if bit == 1 {
+                pauli.set(i, 1);
+            }
         }
         stabilizers.push(pauli);
     }
@@ -212,7 +218,9 @@ pub fn steane_code() -> QecCode {
     for row in h_rows {
         let mut pauli = PauliString::new(n);
         for (i, &bit) in row.iter().enumerate() {
-            if bit == 1 { pauli.set(i, 3); }
+            if bit == 1 {
+                pauli.set(i, 3);
+            }
         }
         stabilizers.push(pauli);
     }
@@ -237,7 +245,7 @@ pub fn steane_code() -> QecCode {
 /// 2d² - 2d + 1 data qubits, d² - 1 ancilla qubits.
 pub fn surface_code_planar(d: usize) -> QecCode {
     assert!(d >= 3 && d % 2 == 1, "distance must be odd and >= 3");
-    
+
     let n_data = 2 * d * d - 2 * d + 1;
     let n_ancilla = d * d - 1;
     let n = n_data + n_ancilla;
@@ -261,7 +269,7 @@ pub fn surface_code_planar(d: usize) -> QecCode {
 /// d² data qubits, (d² - 1)/2 ancillas each for X and Z.
 pub fn surface_code_rotated(d: usize) -> QecCode {
     assert!(d >= 3 && d % 2 == 1);
-    
+
     let n_data = d * d;
     let n_ancilla = (d * d - 1) / 2 * 2;
     let n = n_data + n_ancilla;
@@ -287,8 +295,8 @@ fn build_repetition_syndrome(n: usize, bitflip: bool) -> Circuit {
     if bitflip {
         // Z-stabilizers: CNOT from data to ancilla (for ZZ measurement)
         for i in 0..n - 1 {
-            circuit.cnot(i, n + i);        // data i → ancilla i
-            circuit.cnot(i + 1, n + i);    // data i+1 → ancilla i
+            circuit.cnot(i, n + i); // data i → ancilla i
+            circuit.cnot(i + 1, n + i); // data i+1 → ancilla i
         }
     } else {
         // X-stabilizers: Hadamard + CNOT + Hadamard (for XX measurement)
@@ -320,7 +328,10 @@ fn build_repetition_recovery(n: usize, bitflip: bool) -> HashMap<u32, Circuit> {
 }
 
 /// Encode a logical state into a repetition code.
-pub fn encode_repetition_bitflip(state: &StateVector, n: usize) -> Result<StateVector, crate::QuantumError> {
+pub fn encode_repetition_bitflip(
+    state: &StateVector,
+    n: usize,
+) -> Result<StateVector, crate::QuantumError> {
     // Input state should be 1-qubit (logical qubit)
     // We create an n-qubit state by tensoring with |0⟩^{n-1} then applying CNOTs
     let mut full_state = StateVector::zero(n)?;
@@ -331,7 +342,7 @@ pub fn encode_repetition_bitflip(state: &StateVector, n: usize) -> Result<StateV
         full_state.amplitudes_mut()[0] = input_amps[0];
         full_state.amplitudes_mut()[1 << (n - 1)] = input_amps[1]; // |10...0⟩
     }
-    
+
     // Apply CNOTs from qubit 0 to all others
     let mut circuit = Circuit::new();
     for i in 1..n {
@@ -341,7 +352,10 @@ pub fn encode_repetition_bitflip(state: &StateVector, n: usize) -> Result<StateV
 }
 
 /// Decode a repetition code with majority vote.
-pub fn decode_repetition_bitflip(state: &StateVector, n: usize) -> Result<StateVector, crate::QuantumError> {
+pub fn decode_repetition_bitflip(
+    state: &StateVector,
+    n: usize,
+) -> Result<StateVector, crate::QuantumError> {
     // Syndrome measurement + recovery would go here
     // For now, just return the logical qubit (first qubit)
     let mut circuit = Circuit::new();
@@ -398,7 +412,8 @@ mod tests {
     #[test]
     fn test_pauli_string() {
         let mut p = PauliString::new(3);
-        p.set(0, 1); p.set(1, 3);
+        p.set(0, 1);
+        p.set(1, 3);
         assert_eq!(p.to_string(), "XZI");
         assert_eq!(p.weight(), 2);
     }

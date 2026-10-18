@@ -79,12 +79,19 @@ impl<'a> QasmExporter<'a> {
                 crate::CircuitOp::Swap { first, second } => {
                     max_qubit = max_qubit.max(*first).max(*second);
                 }
-                crate::CircuitOp::Measure { target, classical_bit } => {
+                crate::CircuitOp::Measure {
+                    target,
+                    classical_bit,
+                } => {
                     max_qubit = max_qubit.max(*target);
                     max_cbit = max_cbit.max(*classical_bit);
                     self.has_measurements = true;
                 }
-                crate::CircuitOp::ConditionalSingleQubit { classical_bit, target, .. } => {
+                crate::CircuitOp::ConditionalSingleQubit {
+                    classical_bit,
+                    target,
+                    ..
+                } => {
                     max_qubit = max_qubit.max(*target);
                     max_cbit = max_cbit.max(*classical_bit);
                 }
@@ -163,16 +170,30 @@ impl<'a> QasmExporter<'a> {
                 let s = self.format_qubit(*second)?;
                 Some(format!("swap {}, {};", f, s))
             }
-            Measure { target, classical_bit } => {
+            Measure {
+                target,
+                classical_bit,
+            } => {
                 let q = self.format_qubit(*target)?;
                 let c = self.format_cbit(*classical_bit)?;
                 Some(format!("measure {} -> {};", q, c))
             }
-            ConditionalSingleQubit { classical_bit, value, gate, target } => {
+            ConditionalSingleQubit {
+                classical_bit,
+                value,
+                gate,
+                target,
+            } => {
                 // QASM 2.0 uses `if (c == val) gate q;`
                 let c = self.format_cbit(*classical_bit)?;
                 let q = self.format_qubit(*target)?;
-                Some(format!("if ({} == {}) {} {};", c, value, self.gate_to_qasm(*gate)?, q))
+                Some(format!(
+                    "if ({} == {}) {} {};",
+                    c,
+                    value,
+                    self.gate_to_qasm(*gate)?,
+                    q
+                ))
             }
             Channel { .. } => {
                 // Noise channels not representable in standard QASM 2.0
@@ -182,11 +203,15 @@ impl<'a> QasmExporter<'a> {
     }
 
     fn format_qubit(&self, idx: usize) -> Option<String> {
-        self.qubit_map.get(&idx).map(|(reg, idx)| format!("{}[{}]", reg, idx))
+        self.qubit_map
+            .get(&idx)
+            .map(|(reg, idx)| format!("{}[{}]", reg, idx))
     }
 
     fn format_cbit(&self, idx: usize) -> Option<String> {
-        self.cbit_map.get(&idx).map(|(reg, idx)| format!("{}[{}]", reg, idx))
+        self.cbit_map
+            .get(&idx)
+            .map(|(reg, idx)| format!("{}[{}]", reg, idx))
     }
 
     fn gate_to_qasm(&self, gate: Gate) -> Option<String> {
@@ -214,7 +239,7 @@ fn format_angle(angle: f64) -> String {
     if angle.abs() < 1e-12 {
         return "0".to_string();
     }
-    
+
     // Check if it's a simple fraction of pi
     let ratio = angle / pi;
     if ratio.abs() > 1e-10 {
@@ -231,16 +256,19 @@ fn format_angle(angle: f64) -> String {
             }
         }
     }
-    
+
     // Default to decimal
-    format!("{:.10}", angle).trim_end_matches('0').trim_end_matches('.').to_string()
+    format!("{:.10}", angle)
+        .trim_end_matches('0')
+        .trim_end_matches('.')
+        .to_string()
 }
 
 /// Round-trip test: parse QASM, export, parse again, compare operations.
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{qasm::parse_qasm, Circuit, Gate};
+    use crate::{Circuit, Gate, qasm::parse_qasm};
 
     #[test]
     fn test_export_simple_bell() {
@@ -256,7 +284,7 @@ measure q[1] -> c[1];
 "#;
         let circuit = parse_qasm(qasm).unwrap();
         let exported = export_qasm(&circuit);
-        
+
         assert!(exported.contains("OPENQASM 2.0"));
         assert!(exported.contains("qreg q[2]"));
         assert!(exported.contains("creg c[2]"));
@@ -295,7 +323,7 @@ measure q[1] -> c[1];
         let circuit1 = parse_qasm(qasm).unwrap();
         let exported = export_qasm(&circuit1);
         let circuit2 = parse_qasm(&exported).unwrap();
-        
+
         // Operations should be equivalent (order may differ due to commutation)
         assert_eq!(circuit1.operations().len(), circuit2.operations().len());
     }

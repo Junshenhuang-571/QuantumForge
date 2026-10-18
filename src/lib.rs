@@ -21,8 +21,8 @@ pub mod qasm;
 pub mod qasm_export;
 pub mod qec;
 pub mod qtm;
-pub mod tensor_network;
 pub mod quantum;
+pub mod tensor_network;
 
 use std::collections::BTreeMap;
 use std::error::Error;

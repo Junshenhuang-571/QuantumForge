@@ -145,8 +145,17 @@ fn cancel_inverse_pairs(circuit: &mut Circuit) -> usize {
 
 /// Check if two adjacent operations are cancellable inverse pairs.
 fn can_cancel_pair(op1: &CircuitOp, op2: &CircuitOp) -> bool {
-    if let (CircuitOp::SingleQubit { gate: g1, target: t1 },
-            CircuitOp::SingleQubit { gate: g2, target: t2 }) = (op1, op2) {
+    if let (
+        CircuitOp::SingleQubit {
+            gate: g1,
+            target: t1,
+        },
+        CircuitOp::SingleQubit {
+            gate: g2,
+            target: t2,
+        },
+    ) = (op1, op2)
+    {
         t1 == t2 && are_inverses(*g1, *g2)
     } else {
         false
