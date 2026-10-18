@@ -18,6 +18,7 @@ pub mod optimizer;
 #[cfg(feature = "python")]
 pub mod python;
 pub mod qasm;
+pub mod qasm_export;
 pub mod qtm;
 pub mod quantum;
 
