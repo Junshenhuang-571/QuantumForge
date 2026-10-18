@@ -14,6 +14,7 @@ pub mod numeric_ir;
 pub mod parser;
 pub use parser::parse_circuit;
 pub mod algorithms;
+pub mod optimizer;
 #[cfg(feature = "python")]
 pub mod python;
 pub mod qasm;
@@ -1191,6 +1192,9 @@ impl Circuit {
     }
     pub fn operations(&self) -> &[CircuitOp] {
         &self.operations
+    }
+    pub fn operations_mut(&mut self) -> &mut Vec<CircuitOp> {
+        &mut self.operations
     }
     pub fn run(&self, mut state: StateVector) -> Result<StateVector, QuantumError> {
         for op in &self.operations {
