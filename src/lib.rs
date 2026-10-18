@@ -21,6 +21,7 @@ pub mod qasm;
 pub mod qasm_export;
 pub mod qec;
 pub mod qtm;
+pub mod tensor_network;
 pub mod quantum;
 
 use std::collections::BTreeMap;
