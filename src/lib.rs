@@ -19,6 +19,7 @@ pub mod optimizer;
 pub mod python;
 pub mod qasm;
 pub mod qasm_export;
+pub mod qec;
 pub mod qtm;
 pub mod quantum;
 
@@ -196,6 +197,9 @@ impl StateVector {
     }
     pub fn amplitudes(&self) -> &[Complex64] {
         &self.amplitudes
+    }
+    pub fn amplitudes_mut(&mut self) -> &mut [Complex64] {
+        &mut self.amplitudes
     }
     pub fn norm_sqr(&self) -> f64 {
         self.amplitudes.iter().map(|a| a.norm_sqr()).sum()
