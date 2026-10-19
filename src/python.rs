@@ -1,9 +1,9 @@
 //! Python bindings for QuantumForge using PyO3.
 //!
-//! Enable with `--features python`. Provides a `quantumforge` Python module
+//! Enable with `--features pyo3`. Provides a `quantumforge` Python module
 //! with classes for Circuit, StateVector, DensityMatrix, and the REPL commands.
 
-#[cfg(feature = "python")]
+#[cfg(feature = "pyo3")]
 pub mod python_bindings {
     use crate::{Circuit, DensityMatrix, Gate, StateVector, parse_circuit, qasm::parse_qasm};
     use pyo3::prelude::*;

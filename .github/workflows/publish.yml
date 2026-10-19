@@ -1,0 +1,119 @@
+name: Build & Publish Wheels
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-wheels:
+    name: Build wheels on ${{ matrix.os }} (${{ matrix.feature }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux wheels
+          - os: ubuntu-latest
+            feature: default
+            target: x86_64-unknown-linux-gnu
+            artifact: linux-cpu
+          - os: ubuntu-latest
+            feature: cuda
+            target: x86_64-unknown-linux-gnu
+            artifact: linux-cuda
+          - os: ubuntu-latest
+            feature: llvm
+            target: x86_64-unknown-linux-gnu
+            artifact: linux-llvm
+          - os: ubuntu-latest
+            feature: full
+            target: x86_64-unknown-linux-gnu
+            artifact: linux-full
+          # macOS wheels
+          - os: macos-latest
+            feature: default
+            target: x86_64-apple-darwin
+            artifact: macos-cpu
+          - os: macos-latest
+            feature: default
+            target: aarch64-apple-darwin
+            artifact: macos-arm64
+          # Windows wheels
+          - os: windows-latest
+            feature: default
+            target: x86_64-pc-windows-msvc
+            artifact: windows-cpu
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          target: ${{ matrix.target }}
+          components: rustfmt, clippy
+
+      - name: Install CUDA toolkit
+        if: matrix.feature == 'cuda' || matrix.feature == 'full'
+        uses: jimmycuadra/rust-cuda@v1
+        with:
+          cuda-version: '12.4'
+
+      - name: Install LLVM
+        if: matrix.feature == 'llvm' || matrix.feature == 'full'
+        run: |
+          if [ "${{ runner.os }}" == "Linux" ]; then
+            sudo apt-get update && sudo apt-get install -y llvm-17-dev clang-17
+          elif [ "${{ runner.os }}" == "macOS" ]; then
+            brew install llvm@17
+          fi
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ matrix.feature }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-${{ matrix.feature }}-
+
+      - name: Build wheel
+        uses: pypa/maturin-action@v1
+        with:
+          command: build
+          args: --release --features ${{ matrix.feature }} --target ${{ matrix.target }} -o dist
+          manylinux: auto
+
+      - name: Upload wheels
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/*.whl
+          retention-days: 7
+
+  publish:
+    name: Publish to PyPI
+    needs: build-wheels
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all wheels
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          user: __token__
+          password: ${{ secrets.PYPI_API_TOKEN }}
+          packages_dir: dist
+          skip_existing: true

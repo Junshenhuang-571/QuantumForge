@@ -15,7 +15,7 @@ pub mod parser;
 pub use parser::parse_circuit;
 pub mod algorithms;
 pub mod optimizer;
-#[cfg(feature = "python")]
+#[cfg(feature = "pyo3")]
 pub mod python;
 pub mod qasm;
 pub mod qasm_export;

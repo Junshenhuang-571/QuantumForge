@@ -43,3 +43,11 @@ name = "core"
 path = "benches/core.rs"
 harness = false
 
+
+# Python package config
+[package.metadata.maturin]
+# Build separate wheels for each feature combination
+# maturin build --features default     -> quantumforge (CPU only)
+# maturin build --features cuda        -> quantumforge (with CUDA)
+# maturin build --features llvm        -> quantumforge (with LLVM)
+# maturin build --features full        -> quantumforge (all)
