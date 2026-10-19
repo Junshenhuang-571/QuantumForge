@@ -42,7 +42,7 @@ impl Grover {
         for _ in 0..self.iterations {
             // Oracle
             for op in self.oracle.operations() {
-                Self::push_op_to_circuit(&mut circuit, op.clone());
+                Self::push_op_to_circuit(&mut circuit, *op);
             }
 
             // Diffusion operator (inversion about mean)
@@ -228,7 +228,7 @@ impl HEABuilder {
         let mut circuit = Circuit::new();
         let mut idx = 0;
 
-        for layer in 0..self.layers {
+        for _layer in 0..self.layers {
             // Single-qubit rotations
             for i in 0..self.num_qubits {
                 if idx < params.len() {
@@ -307,7 +307,7 @@ impl QAOAAnsatzBuilder {
             circuit.push(Gate::H, i);
         }
 
-        for layer in 0..self.layers {
+        for _layer in 0..self.layers {
             // Cost Hamiltonian
             if idx < params.len() {
                 let gamma = params[idx];
@@ -349,7 +349,7 @@ mod tests {
 
         let grover = Grover::new(oracle, 2).iterations(1);
         let circuit = grover.build();
-        assert!(circuit.operations().len() > 0);
+        assert!(!circuit.operations().is_empty());
     }
 
     #[test]
@@ -357,7 +357,7 @@ mod tests {
         let edges = vec![(0, 1, 1.0), (1, 2, 1.0), (2, 0, 1.0)];
         let qaoa = QAOABuilder::maxcut(3, edges).layers(2);
         let circuit = qaoa.build();
-        assert!(circuit.operations().len() > 0);
+        assert!(!circuit.operations().is_empty());
     }
 
     #[test]
@@ -365,7 +365,7 @@ mod tests {
         let hea = HEABuilder::new(4, 2).entanglement(EntanglementPattern::Linear);
         let params = vec![0.1; hea.num_params()];
         let circuit = hea.build(&params);
-        assert!(circuit.operations().len() > 0);
+        assert!(!circuit.operations().is_empty());
     }
 
     #[test]
@@ -374,6 +374,6 @@ mod tests {
         let qaoa = QAOAAnsatzBuilder::new(3, edges).layers(2);
         let params = vec![0.5, 0.3, 0.7, 0.2];
         let circuit = qaoa.build(&params);
-        assert!(circuit.operations().len() > 0);
+        assert!(!circuit.operations().is_empty());
     }
 }

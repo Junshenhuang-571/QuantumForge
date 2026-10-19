@@ -24,11 +24,6 @@ llvm = []
 cuda = []
 python = ["pyo3"]
 
-[[bench]]
-name = "cuda_batch"
-path = "benches/cuda_batch.rs"
-harness = false
-required-features = ["cuda"]
 
 [dev-dependencies]
 criterion = "0.5"
@@ -41,10 +36,15 @@ serde_json = "1.0"
 pyo3 = { version = "0.23", optional = true, features = ["extension-module", "abi3-py38"] }
 
 [[bench]]
+name = "cuda_batch"
+path = "benches/cuda_batch.rs"
+harness = false
+required-features = ["cuda"]
+
+[[bench]]
 name = "core"
 path = "benches/core.rs"
 harness = false
-
 
 # Python package config
 [package.metadata.maturin]

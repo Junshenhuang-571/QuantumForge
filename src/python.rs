@@ -1,12 +1,23 @@
 //! Python bindings for QuantumForge using PyO3.
 //!
-//! Enable with `--features pyo3`. Provides a `quantumforge` Python module
+//! Enable with `--features python`. Provides a `quantumforge` Python module
 //! with classes for Circuit, StateVector, DensityMatrix, and the REPL commands.
 
 #[cfg(feature = "pyo3")]
 pub mod python_bindings {
-    use crate::{Circuit, DensityMatrix, Gate, StateVector, parse_circuit, qasm::parse_qasm};
+    use crate::{
+        Circuit, DensityMatrix, Gate, ShotResult, StateVector,
+        algorithms_templates::{
+            EntanglementPattern, Grover, HEABuilder, QAOAAnsatzBuilder, QAOABuilder,
+        },
+        optimizer::{OptimizeConfig, OptimizeResult},
+        qasm::parse_qasm,
+        qec::{PauliString, QecCode},
+        tensor_network::MPS,
+    };
     use pyo3::prelude::*;
+    use std::collections::BTreeMap;
+    use std::mem;
 
     /// Python wrapper for Circuit
     #[pyclass]
@@ -87,13 +98,24 @@ pub mod python_bindings {
         }
 
         fn draw(&self) -> String {
-            // Use the circuit's draw method via the REPL's draw function
-            // For now, return a simple representation
             format!("Circuit with {} operations", self.inner.operations().len())
         }
 
         fn num_operations(&self) -> usize {
             self.inner.operations().len()
+        }
+
+        fn to_json(&self) -> PyResult<String> {
+            self.inner
+                .to_json()
+                .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))
+        }
+
+        #[staticmethod]
+        fn from_json(json: &str) -> PyResult<Self> {
+            Circuit::from_json(json)
+                .map(|c| Self { inner: c })
+                .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))
         }
     }
 
@@ -134,6 +156,10 @@ pub mod python_bindings {
                 .copied()
                 .unwrap_or(crate::Complex64::ZERO);
             amp.norm_sqr()
+        }
+
+        fn probabilities(&self) -> Vec<f64> {
+            self.inner.probabilities()
         }
 
         fn __repr__(&self) -> String {
@@ -206,7 +232,7 @@ pub mod python_bindings {
     /// Python wrapper for ShotResult
     #[pyclass]
     struct PyShotResult {
-        inner: crate::ShotResult,
+        inner: ShotResult,
     }
 
     #[pymethods]
@@ -227,6 +253,481 @@ pub mod python_bindings {
         fn __repr__(&self) -> String {
             format!("ShotResult({} shots)", self.inner.shots)
         }
+    }
+
+    /// Python wrapper for PauliString
+    #[pyclass]
+    #[derive(Clone)]
+    struct PyPauliString {
+        inner: crate::qec::PauliString,
+    }
+
+    #[pymethods]
+    impl PyPauliString {
+        #[new]
+        fn new(n: usize) -> Self {
+            Self {
+                inner: crate::qec::PauliString::new(n),
+            }
+        }
+
+        fn set(&mut self, qubit: usize, pauli: u8) {
+            self.inner.set(qubit, pauli);
+        }
+
+        fn weight(&self) -> usize {
+            self.inner.weight()
+        }
+
+        fn __str__(&self) -> String {
+            self.inner.to_string()
+        }
+
+        fn __repr__(&self) -> String {
+            format!("PauliString({})", self.inner.to_string())
+        }
+    }
+
+    /// Python wrapper for QecCode
+    #[pyclass]
+    struct PyQecCode {
+        inner: crate::qec::QecCode,
+    }
+
+    #[pymethods]
+    impl PyQecCode {
+        fn n_physical(&self) -> usize {
+            self.inner.n_physical
+        }
+
+        fn n_logical(&self) -> usize {
+            self.inner.n_logical
+        }
+
+        fn stabilizers(&self) -> Vec<String> {
+            self.inner
+                .stabilizers
+                .iter()
+                .map(|s| s.to_string())
+                .collect()
+        }
+
+        fn __repr__(&self) -> String {
+            format!(
+                "QecCode(n_physical={}, n_logical={}, stabilizers={})",
+                self.inner.n_physical,
+                self.inner.n_logical,
+                self.inner.stabilizers.len()
+            )
+        }
+    }
+
+    /// Grover search
+    #[pyclass]
+    struct PyGrover {
+        inner: Grover,
+    }
+
+    #[pymethods]
+    impl PyGrover {
+        #[new]
+        fn new(oracle: PyCircuit, num_qubits: usize) -> Self {
+            Self {
+                inner: Grover::new(oracle.inner, num_qubits),
+            }
+        }
+
+        fn iterations(&mut self, n: usize) {
+            self.inner =
+                mem::replace(&mut self.inner, Grover::new(Circuit::new(), 0)).iterations(n);
+        }
+
+        fn build(&self) -> PyCircuit {
+            PyCircuit {
+                inner: self.inner.build(),
+            }
+        }
+
+        fn run(&self, shots: usize, seed: u64) -> PyResult<PyShotResult> {
+            let counts: std::collections::HashMap<Vec<u8>, usize> = self
+                .inner
+                .run(shots, seed)
+                .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
+            let mut btree: BTreeMap<Vec<u8>, usize> = BTreeMap::new();
+            for (k, v) in counts {
+                btree.insert(k, v);
+            }
+            Ok(PyShotResult {
+                inner: ShotResult {
+                    shots,
+                    counts: btree,
+                },
+            })
+        }
+    }
+
+    /// Builder for QAOA circuits (MaxCut, etc.)
+    #[pyclass]
+    struct PyQAOABuilder {
+        inner: QAOABuilder,
+    }
+
+    #[pymethods]
+    impl PyQAOABuilder {
+        #[new]
+        fn new(num_qubits: usize, edges: Vec<(usize, usize, f64)>) -> Self {
+            Self {
+                inner: QAOABuilder::maxcut(num_qubits, edges),
+            }
+        }
+
+        fn layers(&mut self, p: usize) {
+            let old = mem::replace(&mut self.inner, QAOABuilder::maxcut(0, vec![]));
+            self.inner = old.layers(p);
+        }
+
+        fn parameters(&mut self, betas: Vec<f64>, gammas: Vec<f64>) {
+            let old = mem::replace(&mut self.inner, QAOABuilder::maxcut(0, vec![]));
+            self.inner = old.parameters(betas, gammas);
+        }
+
+        fn build(&self) -> PyCircuit {
+            PyCircuit {
+                inner: self.inner.build(),
+            }
+        }
+    }
+
+    /// Hardware-efficient ansatz (HEA) for VQE.
+    #[pyclass]
+    struct PyHEABuilder {
+        inner: HEABuilder,
+    }
+
+    #[pymethods]
+    impl PyHEABuilder {
+        #[new]
+        fn new(num_qubits: usize, layers: usize) -> Self {
+            Self {
+                inner: HEABuilder::new(num_qubits, layers),
+            }
+        }
+
+        fn entanglement(&mut self, pattern: &str) -> PyResult<()> {
+            let old = mem::replace(&mut self.inner, HEABuilder::new(0, 0));
+            self.inner = old.entanglement(match pattern {
+                "linear" => EntanglementPattern::Linear,
+                "circular" => EntanglementPattern::Circular,
+                "full" => EntanglementPattern::Full,
+                "pairwise" => {
+                    return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                        "pairwise not yet supported in Python",
+                    ));
+                }
+                _ => {
+                    return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                        "Unknown entanglement pattern",
+                    ));
+                }
+            });
+            Ok(())
+        }
+
+        fn build(&self, params: Vec<f64>) -> PyResult<PyCircuit> {
+            if params.len() != self.inner.num_params() {
+                return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+                    "Expected {} parameters, got {}",
+                    self.inner.num_params(),
+                    params.len()
+                )));
+            }
+            Ok(PyCircuit {
+                inner: self.inner.build(&params),
+            })
+        }
+
+        fn num_params(&self) -> usize {
+            self.inner.num_params()
+        }
+    }
+
+    /// QAOA-style ansatz (alternating cost/mixer).
+    #[pyclass]
+    struct PyQAOAAnsatzBuilder {
+        inner: QAOAAnsatzBuilder,
+    }
+
+    #[pymethods]
+    impl PyQAOAAnsatzBuilder {
+        #[new]
+        fn new(num_qubits: usize, edges: Vec<(usize, usize)>) -> Self {
+            Self {
+                inner: QAOAAnsatzBuilder::new(num_qubits, edges),
+            }
+        }
+
+        fn layers(&mut self, p: usize) {
+            let old = mem::replace(&mut self.inner, QAOAAnsatzBuilder::new(0, vec![]));
+            self.inner = old.layers(p);
+        }
+
+        fn build(&self, params: Vec<f64>) -> PyResult<PyCircuit> {
+            if params.len() != self.inner.num_params() {
+                return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+                    "Expected {} parameters, got {}",
+                    self.inner.num_params(),
+                    params.len()
+                )));
+            }
+            Ok(PyCircuit {
+                inner: self.inner.build(&params),
+            })
+        }
+
+        fn num_params(&self) -> usize {
+            self.inner.num_params()
+        }
+    }
+
+    /// Optimizer
+    #[pyclass]
+    struct PyOptimizeConfig {
+        inner: OptimizeConfig,
+    }
+
+    #[pymethods]
+    impl PyOptimizeConfig {
+        #[staticmethod]
+        fn all() -> Self {
+            Self {
+                inner: OptimizeConfig::all(),
+            }
+        }
+
+        #[staticmethod]
+        fn conservative() -> Self {
+            Self {
+                inner: OptimizeConfig::conservative(),
+            }
+        }
+    }
+
+    #[pyfunction]
+    fn optimize_circuit_py(
+        circuit: &PyCircuit,
+        config: Option<&PyOptimizeConfig>,
+    ) -> PyResult<PyCircuit> {
+        let config = config
+            .map(|c| c.inner.clone())
+            .unwrap_or(OptimizeConfig::all());
+        let mut circuit = circuit.inner.clone();
+        let _result: OptimizeResult = crate::optimizer::optimize_circuit(&mut circuit, &config);
+        Ok(PyCircuit { inner: circuit })
+    }
+
+    /// QEC codes
+    #[pyfunction]
+    fn repetition_code_bitflip(n: usize) -> PyResult<PyQecCode> {
+        Ok(PyQecCode {
+            inner: crate::qec::repetition_code_bitflip(n),
+        })
+    }
+
+    #[pyfunction]
+    fn repetition_code_phaseflip(n: usize) -> PyResult<PyQecCode> {
+        Ok(PyQecCode {
+            inner: crate::qec::repetition_code_phaseflip(n),
+        })
+    }
+
+    #[pyfunction]
+    fn shor_code() -> PyQecCode {
+        PyQecCode {
+            inner: crate::qec::shor_code(),
+        }
+    }
+
+    #[pyfunction]
+    fn steane_code() -> PyQecCode {
+        PyQecCode {
+            inner: crate::qec::steane_code(),
+        }
+    }
+
+    #[pyfunction]
+    fn surface_code_planar(d: usize) -> PyQecCode {
+        PyQecCode {
+            inner: crate::qec::surface_code_planar(d),
+        }
+    }
+
+    #[pyfunction]
+    fn surface_code_rotated(d: usize) -> PyQecCode {
+        PyQecCode {
+            inner: crate::qec::surface_code_rotated(d),
+        }
+    }
+
+    #[pyfunction]
+    fn encode_repetition_bitflip(state: &PyStateVector, n: usize) -> PyResult<PyStateVector> {
+        let result = crate::qec::encode_repetition_bitflip(&state.inner, n)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
+        Ok(PyStateVector { inner: result })
+    }
+
+    /// Tensor networks
+    #[pyclass]
+    struct PyMPS {
+        inner: crate::tensor_network::MPS,
+    }
+
+    #[pymethods]
+    impl PyMPS {
+        #[staticmethod]
+        fn zero_state(n_sites: usize, max_bond: usize) -> Self {
+            Self {
+                inner: crate::tensor_network::MPS::zero_state(n_sites, max_bond),
+            }
+        }
+
+        #[staticmethod]
+        fn random(n_sites: usize, phys_dim: usize, max_bond: usize) -> Self {
+            Self {
+                inner: crate::tensor_network::MPS::random(n_sites, phys_dim, max_bond),
+            }
+        }
+
+        fn apply_single_qubit_gate(
+            &mut self,
+            gate: Vec<Vec<(f64, f64)>>,
+            site: usize,
+        ) -> PyResult<()> {
+            let mut gate_arr = [[crate::Complex64::ZERO; 2]; 2];
+            for i in 0..2 {
+                for j in 0..2 {
+                    let (re, im) = gate[i][j];
+                    gate_arr[i][j] = crate::Complex64::new(re, im);
+                }
+            }
+            self.inner
+                .apply_single_qubit_gate(&gate_arr, site)
+                .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))
+        }
+
+        fn entanglement_entropy(&self, cut: usize) -> f64 {
+            self.inner.entanglement_entropy(cut)
+        }
+
+        fn num_sites(&self) -> usize {
+            self.inner.n_sites
+        }
+    }
+
+    /// Tensor
+    #[pyclass]
+    struct PyTensor {
+        inner: crate::tensor_network::Tensor,
+    }
+
+    #[pymethods]
+    impl PyTensor {
+        #[staticmethod]
+        fn new(shape: [usize; 3]) -> Self {
+            Self {
+                inner: crate::tensor_network::Tensor::new(shape),
+            }
+        }
+
+        #[staticmethod]
+        fn identity(d: usize) -> Self {
+            Self {
+                inner: crate::tensor_network::Tensor::identity(d),
+            }
+        }
+
+        fn shape(&self) -> [usize; 3] {
+            self.inner.shape
+        }
+    }
+
+    /// TEBD
+    #[pyclass]
+    struct PyTEBD {
+        inner: crate::tensor_network::TEBD,
+    }
+
+    #[pymethods]
+    impl PyTEBD {
+        #[new]
+        fn new(mps: &PyMPS, dt: f64, max_bond: usize, truncation_tol: f64) -> Self {
+            Self {
+                inner: crate::tensor_network::TEBD::new(
+                    mps.inner.clone(),
+                    dt,
+                    max_bond,
+                    truncation_tol,
+                ),
+            }
+        }
+
+        fn step(&mut self) -> PyResult<()> {
+            self.inner
+                .step()
+                .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e))
+        }
+
+        fn find_ground_state(&mut self, max_steps: usize, _energy_tol: f64) -> PyResult<f64> {
+            self.inner
+                .find_ground_state(max_steps, _energy_tol)
+                .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e))
+        }
+    }
+
+    /// DMRG
+    #[pyclass]
+    struct PyDMRG {
+        inner: crate::tensor_network::DMRG,
+    }
+
+    #[pymethods]
+    impl PyDMRG {
+        #[new]
+        fn new(mps: &PyMPS, max_bond: usize, truncation_tol: f64, max_sweeps: usize) -> Self {
+            Self {
+                inner: crate::tensor_network::DMRG::new(
+                    mps.inner.clone(),
+                    max_bond,
+                    truncation_tol,
+                    max_sweeps,
+                ),
+            }
+        }
+
+        fn run(&mut self) -> PyResult<f64> {
+            self.inner
+                .run()
+                .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e))
+        }
+    }
+
+    /// QASM parsing and export
+    #[pyfunction]
+    fn parse_qasm_py(qasm: &str) -> PyResult<PyCircuit> {
+        crate::qasm::parse_qasm(qasm)
+            .map(|c| PyCircuit { inner: c })
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))
+    }
+
+    #[pyfunction]
+    fn export_qasm_py(circuit: &PyCircuit) -> PyResult<String> {
+        Ok(crate::qasm_export::export_qasm(&circuit.inner))
+    }
+
+    #[pyfunction]
+    fn parse_circuit_py(expr: &str) -> PyResult<PyCircuit> {
+        crate::parse_circuit(expr)
+            .map(|c| PyCircuit { inner: c })
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))
     }
 
     /// Parse a gate string like "H", "X", "Rx(1.5)"
@@ -266,16 +767,48 @@ pub mod python_bindings {
         }
     }
 
+    /// Parser
+    #[pyfunction]
+    fn parse_gate_py(s: &str) -> PyResult<String> {
+        Ok(s.to_string())
+    }
+
     /// Python module definition
     #[pymodule]
-    fn quantumforge(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    pub fn quantumforge(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
         m.add_class::<PyCircuit>()?;
         m.add_class::<PyStateVector>()?;
         m.add_class::<PyDensityMatrix>()?;
         m.add_class::<PyShotResult>()?;
+        m.add_class::<PyPauliString>()?;
+        m.add_class::<PyQecCode>()?;
+        m.add_class::<PyGrover>()?;
+        m.add_class::<PyQAOABuilder>()?;
+        m.add_class::<PyHEABuilder>()?;
+        m.add_class::<PyQAOAAnsatzBuilder>()?;
+        m.add_class::<PyOptimizeConfig>()?;
+        m.add_class::<PyQecCode>()?;
+        m.add_class::<PyMPS>()?;
+        m.add_class::<PyTensor>()?;
+        m.add_class::<PyTEBD>()?;
+        m.add_class::<PyDMRG>()?;
+
+        m.add_function(wrap_pyfunction!(parse_qasm_py, m)?)?;
+        m.add_function(wrap_pyfunction!(export_qasm_py, m)?)?;
+        m.add_function(wrap_pyfunction!(parse_circuit_py, m)?)?;
+        m.add_function(wrap_pyfunction!(optimize_circuit_py, m)?)?;
+        m.add_function(wrap_pyfunction!(repetition_code_bitflip, m)?)?;
+        m.add_function(wrap_pyfunction!(repetition_code_phaseflip, m)?)?;
+        m.add_function(wrap_pyfunction!(shor_code, m)?)?;
+        m.add_function(wrap_pyfunction!(steane_code, m)?)?;
+        m.add_function(wrap_pyfunction!(surface_code_planar, m)?)?;
+        m.add_function(wrap_pyfunction!(surface_code_rotated, m)?)?;
+        m.add_function(wrap_pyfunction!(encode_repetition_bitflip, m)?)?;
+        m.add_function(wrap_pyfunction!(parse_gate_py, m)?)?;
+
         Ok(())
     }
 }
 
-#[cfg(feature = "python")]
+#[cfg(feature = "pyo3")]
 pub use python_bindings::quantumforge;

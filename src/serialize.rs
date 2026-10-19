@@ -4,7 +4,6 @@
 
 use crate::{Circuit, CircuitOp, Gate};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 /// Serialized circuit format (JSON-compatible).
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -133,16 +132,16 @@ impl Circuit {
 impl SerializedCircuit {
     /// Convert back to Circuit.
     pub fn to_circuit(&self) -> Result<Circuit, serde_json::Error> {
-        let mut circuit = Circuit::new();
+        let circuit = Circuit::new();
 
         for op in &self.operations {
             match op {
                 SerializedOp::SingleQubit {
-                    gate,
-                    target,
+                    gate: _gate,
+                    target: _,
                     params,
                 } => {
-                    let gate = deserialize_gate(gate, params)?;
+                    let _gate = deserialize_gate(_gate, params)?;
                     // Note: This requires Circuit to have a method to add ops directly
                     // For now, we'll use the builder pattern
                     return Err(serde_json::Error::io(std::io::Error::new(
@@ -150,21 +149,22 @@ impl SerializedCircuit {
                         "Circuit reconstruction needs builder",
                     )));
                 }
-                SerializedOp::Cnot { control, target } => {
-                    // circuit.cnot(*control, *target);
-                }
-                SerializedOp::Cz { first, second } => {
-                    // circuit.cz(*first, *second);
-                }
-                SerializedOp::Swap { first, second } => {
-                    // circuit.swap(*first, *second);
-                }
+                SerializedOp::Cnot {
+                    control: _,
+                    target: _,
+                } => {}
+                SerializedOp::Cz {
+                    first: _,
+                    second: _,
+                } => {}
+                SerializedOp::Swap {
+                    first: _,
+                    second: _,
+                } => {}
                 SerializedOp::Measure {
-                    target,
-                    classical_bit,
-                } => {
-                    // circuit.measure(*target, *classical_bit);
-                }
+                    target: _,
+                    classical_bit: _,
+                } => {}
                 _ => {}
             }
         }
@@ -272,9 +272,9 @@ fn deserialize_gate(name: &str, params: &[f64]) -> Result<Gate, serde_json::Erro
         "Sdg" => Sdg,
         "T" => T,
         "Tdg" => Tdg,
-        "Rx" => Rx(params.get(0).copied().unwrap_or(0.0)),
-        "Ry" => Ry(params.get(0).copied().unwrap_or(0.0)),
-        "Rz" => Rz(params.get(0).copied().unwrap_or(0.0)),
+        "Rx" => Rx(*params.first().unwrap_or(&0.0)),
+        "Ry" => Ry(*params.first().unwrap_or(&0.0)),
+        "Rz" => Rz(*params.first().unwrap_or(&0.0)),
         _ => {
             return Err(serde_json::Error::io(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
