@@ -22,7 +22,7 @@ problem Hamiltonian, or tape size rather than running a fixed demo. The headline
 feature is the `qf` REPL: build circuits incrementally, draw them as ASCII
 diagrams, run and measure them, and run variational algorithms (VQE, QML
 training) with results cross-checked against exact ground-state energies.
-136 tests back the semantics in the default build (incl. 23 property-based /
+179 tests back the semantics in the default build (incl. 23 property-based /
 robustness tests and REPL end-to-end).
 
 ## Quickstart
@@ -102,7 +102,7 @@ println!("{:?}", result.counts);
 
 ```bash
 cargo build            # default (CPU-only) build
-cargo test             # 151 tests (default build; llvm/cuda tests need feature flags)
+cargo test             # 179 tests (default build; llvm/cuda tests need feature flags)
 ```
 
 Run the interactive REPL:
