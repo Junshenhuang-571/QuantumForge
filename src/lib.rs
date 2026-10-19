@@ -14,6 +14,7 @@ pub mod numeric_ir;
 pub mod parser;
 pub use parser::parse_circuit;
 pub mod algorithms;
+pub mod algorithms_templates;
 pub mod optimizer;
 #[cfg(feature = "pyo3")]
 pub mod python;
