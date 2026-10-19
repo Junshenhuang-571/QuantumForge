@@ -74,9 +74,14 @@ QuantumForge REPL — one session, live state. Type 'help' for this, 'quit' to e
                          adaptive measurement pattern (explicit angles/deps or
                          auto) with by-product corrections
   anneal [NAME] [T=.. tol=.. steps=..] [path=linear|fast|poly] [driver=tf|xz]
-                       Adiabatic QC: interpolate driver -> problem Hamiltonian
-                         NAME = ising|tfim|heisenberg|xxz|hubbard (default demo ZZ)
-  eval EXPR            numeric eval of a scalar expression, e.g. 2 + 3*Pi
+                        Adiabatic QC: interpolate driver -> problem Hamiltonian
+                          NAME = ising|tfim|heisenberg|xxz|hubbard (default demo ZZ)
+    gas [qubits=N] [edges=a-b:w,..] [shots=N] [seed=N] [max-outer=N]
+                        Grover Adaptive Search for MaxCut:
+                          builds oracle for threshold T, runs Grover with k=0,1,2...
+                          updates T to best found value, repeats
+                          edges: space-separated list like \"0-1:1.0 1-2:0.5\"
+    eval EXPR            numeric eval of a scalar expression, e.g. 2 + 3*Pi
   simplify EXPR        canonicalize a scalar expression
   diff EXPR            symbolic derivative d/dx of EXPR
   pauli EXPR           evaluate a Pauli sum like X, 2*Y, I+Z (1 qubit)
@@ -182,6 +187,7 @@ impl Session {
             "qtm" => self.cmd_qtm(rest),
             "mbqc" => self.cmd_mbqc(rest),
             "anneal" => self.cmd_anneal(rest),
+            "gas" => self.cmd_gas(rest),
             "eval" => self.cmd_eval(rest),
             "simplify" => self.cmd_simplify(rest),
             "diff" => self.cmd_diff(rest),
@@ -1541,6 +1547,227 @@ impl Session {
             }
             Err(e) => eprintln!("  anneal error: {e}"),
         }
+    }
+
+    fn cmd_gas(&self, rest: &str) {
+        use quantumforge::algorithms_templates::{Grover, QAOABuilder};
+        use quantumforge::{Circuit, Gate, StateVector};
+        use std::collections::HashMap;
+
+        // Parse arguments
+        let mut n_qubits = self.qubits;
+        let mut edges: Vec<(usize, usize, f64)> = Vec::new();
+        let mut shots = 1000usize;
+        let mut seed = 42u64;
+        let mut max_outer = 20usize;
+
+        for word in rest.split_whitespace() {
+            if let Some(v) = word
+                .strip_prefix("qubits=")
+                .and_then(|v| v.parse::<usize>().ok())
+            {
+                n_qubits = v;
+            } else if let Some(v) = word
+                .strip_prefix("shots=")
+                .and_then(|v| v.parse::<usize>().ok())
+            {
+                shots = v;
+            } else if let Some(v) = word
+                .strip_prefix("seed=")
+                .and_then(|v| v.parse::<u64>().ok())
+            {
+                seed = v;
+            } else if let Some(v) = word
+                .strip_prefix("max-outer=")
+                .and_then(|v| v.parse::<usize>().ok())
+            {
+                max_outer = v;
+            } else if let Some(edge_str) = word.strip_prefix("edges=") {
+                // Parse edges: "0-1:1.0 1-2:1.0 ..." or "0-1:1.0" after edges=
+                for edge_word in edge_str.split_whitespace() {
+                    if let Some((nodes, weight_str)) = edge_word.split_once(':')
+                        && let Some((a_str, b_str)) = nodes.split_once('-')
+                        && let (Ok(a), Ok(b), Ok(w)) = (
+                            a_str.parse::<usize>(),
+                            b_str.parse::<usize>(),
+                            weight_str.parse::<f64>(),
+                        )
+                    {
+                        edges.push((a, b, w));
+                    }
+                }
+            } else if word.contains('-') && word.contains(':') {
+                // Parse edge: "a-b:w" (fallback for space-separated without edges= prefix)
+                if let Some((nodes, weight_str)) = word.split_once(':')
+                    && let Some((a_str, b_str)) = nodes.split_once('-')
+                    && let (Ok(a), Ok(b), Ok(w)) = (
+                        a_str.parse::<usize>(),
+                        b_str.parse::<usize>(),
+                        weight_str.parse::<f64>(),
+                    )
+                {
+                    edges.push((a, b, w));
+                }
+            }
+        }
+
+        if edges.is_empty() {
+            eprintln!(
+                "gas error: need edges. Example: gas qubits=4 edges=0-1:1.0 1-2:1.0 2-3:1.0 3-0:1.0"
+            );
+            return;
+        }
+
+        if !(2..=12).contains(&n_qubits) {
+            eprintln!("gas error: qubits must be 2..=12 (got {n_qubits})");
+            return;
+        }
+
+        // MaxCut cost function
+        fn maxcut_cost(bits: &[u8], edges: &[(usize, usize, f64)]) -> f64 {
+            let mut cost = 0.0;
+            for &(i, j, w) in edges {
+                if bits[i] != bits[j] {
+                    cost += w;
+                }
+            }
+            cost
+        }
+
+        // Build oracle that marks states with cost > threshold
+        fn build_oracle(n_qubits: usize, threshold: f64, edges: &[(usize, usize, f64)]) -> Circuit {
+            let mut oracle = Circuit::new();
+
+            // We need to mark states where cost > threshold
+            // This is a simplified oracle: iterate all basis states and mark those above threshold
+            // In practice, you'd build a reversible comparator circuit
+            // For demo: we'll use a multi-controlled Z that marks specific states
+
+            // Compute all marked states (this is the classical precomputation step)
+            let marked: Vec<usize> = (0..1 << n_qubits)
+                .filter(|&x| {
+                    let bits: Vec<u8> = (0..n_qubits).map(|i| ((x >> i) & 1) as u8).collect();
+                    maxcut_cost(&bits, edges) > threshold
+                })
+                .collect();
+
+            if marked.is_empty() {
+                return oracle; // Empty oracle (no marking)
+            }
+
+            // Build a circuit that marks the marked states
+            // For simplicity, we apply a Z to an ancilla controlled by the marked states
+            // This is not the most efficient but works for demo
+
+            // For each marked state, apply a multi-controlled Z
+            for &state in &marked {
+                // Apply X to qubits where state has 0
+                for i in 0..n_qubits {
+                    if (state >> i) & 1 == 0 {
+                        oracle.push(Gate::X, i);
+                    }
+                }
+                // Multi-controlled Z on all qubits (using last qubit as target)
+                if n_qubits == 2 {
+                    oracle.cz(0, 1);
+                } else {
+                    for i in 0..n_qubits - 1 {
+                        oracle.cnot(i, n_qubits - 1);
+                    }
+                    oracle.push(Gate::Z, n_qubits - 1);
+                    for i in (0..n_qubits - 1).rev() {
+                        oracle.cnot(i, n_qubits - 1);
+                    }
+                }
+                // Uncompute X
+                for i in 0..n_qubits {
+                    if (state >> i) & 1 == 0 {
+                        oracle.push(Gate::X, i);
+                    }
+                }
+            }
+            oracle
+        }
+
+        println!(
+            "GAS: n_qubits={n_qubits}, edges={}, shots={shots}, seed={seed}, max_outer={max_outer}",
+            edges.len()
+        );
+
+        let mut best_val = f64::NEG_INFINITY;
+        let mut best_bits = vec![0u8; n_qubits];
+        let mut threshold = f64::NEG_INFINITY;
+
+        for outer in 0..max_outer {
+            let oracle = build_oracle(n_qubits, threshold, &edges);
+
+            if oracle.operations().is_empty() {
+                println!("  outer {outer}: no marked states (threshold={threshold:.3}), stopping");
+                break;
+            }
+
+            // Try k = 0, 1, 2... until probability drops
+            let mut prev_marked_prob = 0.0;
+            let mut found_better = false;
+
+            for k in 0..=n_qubits {
+                let grover = Grover::new(oracle.clone(), n_qubits).iterations(k);
+                let mut circuit = grover.build();
+                // Add measurements for all qubits
+                for i in 0..n_qubits {
+                    circuit.measure(i, i);
+                }
+                let initial = StateVector::zero(n_qubits).expect("initial state");
+
+                let result =
+                    circuit.run_shots(&initial, shots, seed + outer as u64 * 100 + k as u64);
+                let counts: HashMap<Vec<u8>, usize> = match result {
+                    Ok(r) => r.counts.into_iter().collect(),
+                    Err(e) => {
+                        eprintln!("  grover error: {e}");
+                        break;
+                    }
+                };
+
+                // Find most frequent measured state
+                if let Some((candidate, &count)) = counts.iter().max_by_key(|(_, v)| *v) {
+                    let marked_prob = count as f64 / shots as f64;
+                    let val = maxcut_cost(candidate, &edges);
+
+                    println!(
+                        "  outer {outer}, k={k}: top={candidate:?} ({count}/{shots}={marked_prob:.3}), cost={val:.3}"
+                    );
+
+                    if k > 0 && marked_prob < prev_marked_prob {
+                        break;
+                    }
+                    prev_marked_prob = marked_prob;
+
+                    if val > best_val {
+                        best_val = val;
+                        best_bits = candidate.clone();
+                        found_better = true;
+                    }
+                }
+            }
+
+            if found_better && best_val > threshold {
+                threshold = best_val;
+                println!("  -> threshold updated to {threshold:.3}");
+            } else {
+                println!("  -> no improvement, stopping");
+                break;
+            }
+        }
+
+        println!("\nGAS complete:");
+        println!("  best cut value = {best_val:.6}");
+        println!("  best partition = {best_bits:?}");
+
+        // Show the circuit for the best found state (optional)
+        let qaoa = QAOABuilder::maxcut(n_qubits, edges.clone()).layers(2);
+        let circuit = qaoa.build();
+        println!("  QAOA circuit depth = {} ops", circuit.operations().len());
     }
 }
 

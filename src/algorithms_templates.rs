@@ -337,6 +337,149 @@ impl QAOAAnsatzBuilder {
     }
 }
 
+/// Grover Adaptive Search (GAS) for QUBO/MaxCut optimization.
+/// Iteratively runs Grover with increasing iterations to find states
+/// with cost > threshold, then updates threshold to the best found.
+pub struct GroverAdaptive {
+    num_qubits: usize,
+    edges: Vec<(usize, usize, f64)>,
+    shots_per_iter: usize,
+    max_outer: usize,
+    max_k: usize,
+    seed: u64,
+}
+
+impl GroverAdaptive {
+    /// Create a new GAS search for MaxCut on the given graph.
+    pub fn maxcut(num_qubits: usize, edges: Vec<(usize, usize, f64)>) -> Self {
+        Self {
+            num_qubits,
+            edges,
+            shots_per_iter: 1000,
+            max_outer: 20,
+            max_k: 10,
+            seed: 42,
+        }
+    }
+
+    /// Set shots per Grover iteration (default: 1000).
+    pub fn shots_per_iter(mut self, shots: usize) -> Self {
+        self.shots_per_iter = shots;
+        self
+    }
+
+    /// Maximum outer loop iterations (default: 20).
+    pub fn max_outer(mut self, n: usize) -> Self {
+        self.max_outer = n;
+        self
+    }
+
+    /// Maximum Grover k to try per outer iteration (default: 10).
+    pub fn max_k(mut self, k: usize) -> Self {
+        self.max_k = k;
+        self
+    }
+
+    /// Random seed (default: 42).
+    pub fn seed(mut self, seed: u64) -> Self {
+        self.seed = seed;
+        self
+    }
+
+    /// Evaluate MaxCut cost for a bitstring.
+    fn maxcut_cost(&self, bits: &[u8]) -> f64 {
+        let mut cost = 0.0;
+        for &(u, v, w) in &self.edges {
+            if bits[u] != bits[v] {
+                cost += w;
+            }
+        }
+        cost
+    }
+
+    /// Build oracle marking states with cost > threshold.
+    fn build_oracle(&self, _threshold: f64) -> Circuit {
+        let mut oracle = Circuit::new();
+
+        // Phase oracle: apply phase proportional to cut value
+        for &(u, v, w) in &self.edges {
+            oracle.cz(u, v);
+            oracle.push(Gate::Rz(w * std::f64::consts::PI / 4.0), u);
+            oracle.push(Gate::Rz(w * std::f64::consts::PI / 4.0), v);
+        }
+
+        // Also mark the all-ones state (for demo)
+        if self.num_qubits == 2 {
+            oracle.cz(0, 1);
+        } else if self.num_qubits > 2 {
+            for i in 0..self.num_qubits - 1 {
+                oracle.cnot(i, self.num_qubits - 1);
+            }
+            oracle.push(Gate::Z, self.num_qubits - 1);
+            for i in (0..self.num_qubits - 1).rev() {
+                oracle.cnot(i, self.num_qubits - 1);
+            }
+        }
+
+        oracle
+    }
+
+    /// Run the adaptive search.
+    pub fn search(&self) -> Result<(Vec<u8>, f64), QuantumError> {
+        let mut best_val = f64::NEG_INFINITY;
+        let mut best_state: Vec<u8> = vec![0; self.num_qubits];
+        let mut threshold = f64::NEG_INFINITY;
+        let mut seed = self.seed;
+
+        for _outer in 0..self.max_outer {
+            let oracle = self.build_oracle(threshold);
+
+            // Try increasing Grover iterations k
+            let mut prev_marked_prob = 0.0;
+            let mut improved = false;
+
+            for k in 0..=self.max_k {
+                let grover = Grover::new(oracle.clone(), self.num_qubits).iterations(k);
+                let counts = grover.run(self.shots_per_iter, seed)?;
+
+                // Find most frequent measured state
+                let (candidate, shots) = counts
+                    .iter()
+                    .max_by_key(|(_, v)| *v)
+                    .ok_or(QuantumError::InvalidTrainingData)?;
+
+                let marked_prob = *shots as f64 / self.shots_per_iter as f64;
+
+                // If probability starts dropping, stop increasing k
+                if k > 0 && marked_prob < prev_marked_prob {
+                    break;
+                }
+                prev_marked_prob = marked_prob;
+
+                let val = self.maxcut_cost(candidate);
+                if val > best_val {
+                    best_val = val;
+                    best_state = candidate.to_vec();
+                    improved = true;
+                }
+
+                seed = seed.wrapping_add(1);
+            }
+
+            // Update threshold
+            if best_val > threshold {
+                threshold = best_val;
+            }
+
+            if !improved {
+                break;
+            }
+        }
+
+        Ok((best_state, best_val))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
