@@ -586,6 +586,12 @@ impl DensityMatrix {
     pub fn qubits(&self) -> usize {
         self.qubits
     }
+
+    /// Matrix dimension (2^n for n qubits).
+    pub fn dimension(&self) -> usize {
+        self.dimension
+    }
+
     pub fn entries(&self) -> &[Complex64] {
         &self.entries
     }

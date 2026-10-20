@@ -1797,18 +1797,19 @@ impl Session {
         };
 
         // Check for unsupported operations
-        for operation in circuit.operations() {
-            match operation {
-                CircuitOp::Channel { .. } => {
-                    return eprintln!("CUDA error: noise channels not supported; use CPU `noisy`");
-                }
-                CircuitOp::Measure { .. } | CircuitOp::ConditionalSingleQubit { .. } => {
-                    return eprintln!(
-                        "CUDA error: measurements not supported; use CPU `run` or `shots`"
-                    );
-                }
-                _ => {}
-            }
+        let has_channels = circuit
+            .operations()
+            .iter()
+            .any(|op| matches!(op, CircuitOp::Channel { .. }));
+        let has_measurements = circuit.operations().iter().any(|op| {
+            matches!(
+                op,
+                CircuitOp::Measure { .. } | CircuitOp::ConditionalSingleQubit { .. }
+            )
+        });
+
+        if has_measurements {
+            return eprintln!("CUDA error: measurements not supported; use CPU `run` or `shots`");
         }
 
         // Initialize CUDA backend
@@ -1817,29 +1818,47 @@ impl Session {
             Err(e) => return eprintln!("CUDA backend init error: {e}"),
         };
 
-        // Use current live state as initial state
-        let initial_state = if let Some(_d) = &self.density {
-            // If we have a density matrix, we can't use it directly on CUDA
-            // Fall back to the pure state
-            eprintln!("CUDA warning: density matrix not supported, using pure state from `state`");
-            self.state.clone()
-        } else {
-            self.state.clone()
-        };
-
         // Run circuit on GPU
         println!(
             "CUDA: running circuit on device {device} ({} qubits)",
             self.qubits
         );
-        match backend.run_circuit(initial_state, &circuit) {
-            Ok(result_state) => {
-                self.state = result_state;
-                self.density = None;
-                println!("CUDA: circuit completed, state updated");
-                self.cmd_state();
+
+        if has_channels {
+            // Density matrix simulation for noise channels
+            let initial_density = if let Some(d) = &self.density {
+                d.clone()
+            } else {
+                DensityMatrix::from_state(&self.state)
+            };
+            match backend.run_density_circuit(&initial_density, &circuit) {
+                Ok(result_density) => {
+                    self.density = Some(result_density);
+                    // Extract pure state from density matrix diagonal
+                    let dm = self.density.as_ref().unwrap();
+                    let dim = dm.dimension();
+                    let mut amps = vec![Complex64::ZERO; dim];
+                    for i in 0..dim {
+                        amps[i] = dm.entries()[i * dim + i];
+                    }
+                    self.state = StateVector::from_amplitudes(amps).unwrap();
+                    println!("CUDA: density matrix circuit completed, state updated");
+                    self.cmd_state();
+                }
+                Err(e) => eprintln!("CUDA execution error: {e}"),
             }
-            Err(e) => eprintln!("CUDA execution error: {e}"),
+        } else {
+            // Pure state simulation
+            let initial_state = self.state.clone();
+            match backend.run_circuit(initial_state, &circuit) {
+                Ok(result_state) => {
+                    self.state = result_state;
+                    self.density = None;
+                    println!("CUDA: circuit completed, state updated");
+                    self.cmd_state();
+                }
+                Err(e) => eprintln!("CUDA execution error: {e}"),
+            }
         }
     }
 

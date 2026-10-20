@@ -215,7 +215,7 @@ impl CircuitParser<'_> {
                 self.close_operation()?;
                 circuit.if_classical_bit(classical_bit, value as u8, gate, target);
             }
-            "Depolarize" => {
+            "Depolarize" | "Depolarizing" => {
                 let target = self.read_index()?;
                 self.comma()?;
                 let probability = self.read_real()?;
