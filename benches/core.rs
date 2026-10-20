@@ -66,7 +66,8 @@ fn bench_exact_rational(c: &mut Criterion) {
     c.bench_function("rational_add_chain", |b| {
         b.iter(|| {
             let mut acc = Rational::new(1, 3).unwrap();
-            for k in 1..200 {
+            for k in 1..50 {
+                // Reduced from 200 to avoid i128 overflow
                 let r = Rational::new(k, k + 7).unwrap();
                 acc = acc.checked_add(black_box(r)).unwrap();
             }
@@ -76,7 +77,8 @@ fn bench_exact_rational(c: &mut Criterion) {
     c.bench_function("rational_mul_reduce", |b| {
         b.iter(|| {
             let mut acc = Rational::new(6, 35).unwrap();
-            for k in 1..200 {
+            for k in 1..50 {
+                // Reduced from 200 to avoid i128 overflow
                 let r = Rational::new(k + 1, k + 3).unwrap();
                 acc = acc.checked_mul(black_box(r)).unwrap();
             }
@@ -86,7 +88,8 @@ fn bench_exact_rational(c: &mut Criterion) {
     c.bench_function("exact_complex_add_chain", |b| {
         b.iter(|| {
             let mut acc = ExactComplex::real(Rational::new(2, 5).unwrap());
-            for k in 1..200 {
+            for k in 1..50 {
+                // Reduced from 200 to avoid i128 overflow
                 let r = ExactComplex::real(Rational::new(k, k + 11).unwrap());
                 acc = acc.checked_add(black_box(r)).unwrap();
             }

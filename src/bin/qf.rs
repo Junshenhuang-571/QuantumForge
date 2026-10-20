@@ -77,11 +77,14 @@ QuantumForge REPL — one session, live state. Type 'help' for this, 'quit' to e
                         Adiabatic QC: interpolate driver -> problem Hamiltonian
                           NAME = ising|tfim|heisenberg|xxz|hubbard (default demo ZZ)
     gas [qubits=N] [edges=a-b:w,..] [shots=N] [seed=N] [max-outer=N]
-                        Grover Adaptive Search for MaxCut:
-                          builds oracle for threshold T, runs Grover with k=0,1,2...
-                          updates T to best found value, repeats
-                          edges: space-separated list like \"0-1:1.0 1-2:0.5\"
-    eval EXPR            numeric eval of a scalar expression, e.g. 2 + 3*Pi
+                            Grover Adaptive Search for MaxCut:
+                              builds oracle for threshold T, runs Grover with k=0,1,2...
+                              updates T to best found value, repeats
+                              edges: space-separated list like \\\"0-1:1.0 1-2:0.5\\\"
+        cuda [device=N]         run the current circuit on CUDA GPU:
+                              uploads live state, executes circuit, downloads result
+                              requires `--features cuda` at compile time
+        eval EXPR            numeric eval of a scalar expression, e.g. 2 + 3*Pi
   simplify EXPR        canonicalize a scalar expression
   diff EXPR            symbolic derivative d/dx of EXPR
   pauli EXPR           evaluate a Pauli sum like X, 2*Y, I+Z (1 qubit)
@@ -188,6 +191,7 @@ impl Session {
             "mbqc" => self.cmd_mbqc(rest),
             "anneal" => self.cmd_anneal(rest),
             "gas" => self.cmd_gas(rest),
+            "cuda" => self.cmd_cuda(rest),
             "eval" => self.cmd_eval(rest),
             "simplify" => self.cmd_simplify(rest),
             "diff" => self.cmd_diff(rest),
@@ -1768,6 +1772,81 @@ impl Session {
         let qaoa = QAOABuilder::maxcut(n_qubits, edges.clone()).layers(2);
         let circuit = qaoa.build();
         println!("  QAOA circuit depth = {} ops", circuit.operations().len());
+    }
+
+    /// Run the current circuit on CUDA GPU.
+    #[cfg(feature = "cuda")]
+    fn cmd_cuda(&mut self, rest: &str) {
+        use quantumforge::cuda::CudaBackend;
+
+        // Parse device option
+        let mut device = 0;
+        for word in rest.split_whitespace() {
+            if let Some(v) = word
+                .strip_prefix("device=")
+                .and_then(|v| v.parse::<i32>().ok())
+            {
+                device = v;
+            }
+        }
+
+        // Parse the circuit
+        let circuit = match parse_circuit(&self.full_circuit_source()) {
+            Ok(c) => c,
+            Err(e) => return eprintln!("circuit parse error: {e}"),
+        };
+
+        // Check for unsupported operations
+        for operation in circuit.operations() {
+            match operation {
+                CircuitOp::Channel { .. } => {
+                    return eprintln!("CUDA error: noise channels not supported; use CPU `noisy`");
+                }
+                CircuitOp::Measure { .. } | CircuitOp::ConditionalSingleQubit { .. } => {
+                    return eprintln!(
+                        "CUDA error: measurements not supported; use CPU `run` or `shots`"
+                    );
+                }
+                _ => {}
+            }
+        }
+
+        // Initialize CUDA backend
+        let backend = match CudaBackend::new(device) {
+            Ok(b) => b,
+            Err(e) => return eprintln!("CUDA backend init error: {e}"),
+        };
+
+        // Use current live state as initial state
+        let initial_state = if let Some(_d) = &self.density {
+            // If we have a density matrix, we can't use it directly on CUDA
+            // Fall back to the pure state
+            eprintln!("CUDA warning: density matrix not supported, using pure state from `state`");
+            self.state.clone()
+        } else {
+            self.state.clone()
+        };
+
+        // Run circuit on GPU
+        println!(
+            "CUDA: running circuit on device {device} ({} qubits)",
+            self.qubits
+        );
+        match backend.run_circuit(initial_state, &circuit) {
+            Ok(result_state) => {
+                self.state = result_state;
+                self.density = None;
+                println!("CUDA: circuit completed, state updated");
+                self.cmd_state();
+            }
+            Err(e) => eprintln!("CUDA execution error: {e}"),
+        }
+    }
+
+    /// Run the current circuit on CUDA GPU (stub when CUDA feature disabled).
+    #[cfg(not(feature = "cuda"))]
+    fn cmd_cuda(&mut self, _rest: &str) {
+        eprintln!("CUDA command requires `--features cuda` at compile time");
     }
 }
 
