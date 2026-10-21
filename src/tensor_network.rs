@@ -862,6 +862,8 @@ impl TEBD {
         let mut prev_energy = f64::INFINITY;
         for _step in 0..max_steps {
             self.step()?;
+            // Normalize to left-canonical form for accurate expectation values
+            self.mps.normalize_left_canonical();
             let energy = self.measure_energy()?;
             if (energy - prev_energy).abs() < energy_tol {
                 return Ok(energy);
