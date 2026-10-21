@@ -393,36 +393,7 @@ pub mod local {
         }
 
         fn list_devices(&self) -> Result<Vec<DeviceInfo>> {
-            #[cfg(feature = "cuda")]
             let mut devices = vec![DeviceInfo {
-                id: "cpu".to_string(),
-                name: "Local CPU Simulator".to_string(),
-                provider: "local".to_string(),
-                num_qubits: 30,
-                topology: vec![],
-                basis_gates: vec![
-                    "H".into(),
-                    "X".into(),
-                    "Y".into(),
-                    "Z".into(),
-                    "RX".into(),
-                    "RY".into(),
-                    "RZ".into(),
-                    "CNOT".into(),
-                    "CZ".into(),
-                    "SWAP".into(),
-                ],
-                max_shots: 1_000_000,
-                max_experiments: 1,
-                simulator: true,
-                operational: true,
-                avg_readout_error: None,
-                avg_cnot_error: None,
-                avg_single_qubit_error: None,
-            }];
-
-            #[cfg(not(feature = "cuda"))]
-            let devices = vec![DeviceInfo {
                 id: "cpu".to_string(),
                 name: "Local CPU Simulator".to_string(),
                 provider: "local".to_string(),
@@ -479,6 +450,9 @@ pub mod local {
                     avg_single_qubit_error: None,
                 });
             }
+
+            #[cfg(not(feature = "cuda"))]
+            let _ = &mut devices; // suppress unused_mut without cuda
 
             Ok(devices)
         }
