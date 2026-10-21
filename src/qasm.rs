@@ -513,16 +513,16 @@ impl<'a> QasmParser<'a> {
         let (_call_name, _call_qargs) = self.parse_gate_call(line)?;
         // Extract numeric params from the call line.
         let mut call_params: Vec<f64> = Vec::new();
-        if let Some(paren_start) = line.find('(') {
-            if let Some(paren_end) = line.find(')') {
-                let params_str = &line[paren_start + 1..paren_end];
-                for p in params_str.split(',') {
-                    let p = p.trim();
-                    if !p.is_empty() {
-                        if let Ok(v) = p.parse::<f64>() {
-                            call_params.push(v);
-                        }
-                    }
+        if let Some(paren_start) = line.find('(')
+            && let Some(paren_end) = line.find(')')
+        {
+            let params_str = &line[paren_start + 1..paren_end];
+            for p in params_str.split(',') {
+                let p = p.trim();
+                if !p.is_empty()
+                    && let Ok(v) = p.parse::<f64>()
+                {
+                    call_params.push(v);
                 }
             }
         }

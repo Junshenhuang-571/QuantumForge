@@ -516,29 +516,135 @@ impl MPS {
     }
 
     /// Compute expectation value of a local observable.
+    /// Uses left/right environment contraction for exact <ψ|O|ψ>.
     pub fn expectation_single_site(&self, op: &[[Complex64; 2]; 2], site: usize) -> Complex64 {
         if site >= self.n_sites {
             return Complex64::ZERO;
         }
+
+        // Compute left environment: contract sites 0..site-1
+        let left_env = self.compute_left_environment(site);
+        // Compute right environment: contract sites site+1..n-1
+        let right_env = self.compute_right_environment(site);
+
+        // Contract: <ψ|O|ψ> = sum_{a,b,i,j} L[a,b] * conj(A[a,i,c]) * O[i,j] * A[b,j,c] * R[c,c]
         let t = &self.tensors[site];
         let bond_l = t.shape[0];
-        let phys = t.shape[1];
         let bond_r = t.shape[2];
+        let phys = t.shape[1];
+
         let mut expect = Complex64::ZERO;
         for a in 0..bond_l {
-            for m in 0..bond_r {
-                for (i, op_row) in op.iter().enumerate().take(phys) {
-                    for (j, &op_val) in op_row.iter().enumerate().take(phys) {
-                        expect = expect + t.get(a, i, m).conj() * op_val * t.get(a, j, m);
+            for b in 0..bond_l {
+                let l_env = left_env[a * bond_l + b];
+                for c in 0..bond_r {
+                    let r_env = right_env[c * bond_r + c];
+                    for (i, op_row) in op.iter().enumerate().take(phys) {
+                        for (j, &op_val) in op_row.iter().enumerate().take(phys) {
+                            let a_i = t.get(a, i, c).conj();
+                            let b_j = t.get(b, j, c);
+                            expect = expect + l_env * r_env * a_i * op_val * b_j;
+                        }
                     }
                 }
             }
         }
+
         expect
     }
 
+    /// Compute left environment matrix for site i.
+    /// Returns [bond_l * bond_l] matrix where bond_l is the right bond of site-1 (or 1 for site=0).
+    fn compute_left_environment(&self, site: usize) -> Vec<Complex64> {
+        if site == 0 {
+            return vec![Complex64::ONE]; // 1x1 identity
+        }
+
+        // Start with 1x1 identity for the left boundary
+        let mut env = vec![Complex64::ONE];
+        let mut bond_dim = 1;
+
+        for s in 0..site {
+            let t = &self.tensors[s];
+            let _new_bond_l = t.shape[0];
+            let phys = t.shape[1];
+            let new_bond_r = t.shape[2];
+
+            // Contract env with tensor: env'[a',b'] = sum_{a,b,i} env[a,b] * conj(t[a,i,a']) * t[b,i,b']
+            // Result is [new_bond_r, new_bond_r]
+            let mut new_env = vec![Complex64::ZERO; new_bond_r * new_bond_r];
+            for a in 0..bond_dim {
+                for b in 0..bond_dim {
+                    let env_val = env[a * bond_dim + b];
+                    if env_val.norm_sqr() < 1e-30 {
+                        continue;
+                    }
+                    for i in 0..phys {
+                        for a_prime in 0..new_bond_r {
+                            let t1 = t.get(a, i, a_prime).conj();
+                            for b_prime in 0..new_bond_r {
+                                let t2 = t.get(b, i, b_prime);
+                                new_env[a_prime * new_bond_r + b_prime] =
+                                    new_env[a_prime * new_bond_r + b_prime] + env_val * t1 * t2;
+                            }
+                        }
+                    }
+                }
+            }
+            env = new_env;
+            bond_dim = new_bond_r;
+        }
+
+        env
+    }
+
+    /// Compute right environment matrix for site i.
+    /// Returns [bond_r * bond_r] matrix where bond_r is the left bond of site+1 (or 1 for site=n-1).
+    fn compute_right_environment(&self, site: usize) -> Vec<Complex64> {
+        if site == self.n_sites - 1 {
+            return vec![Complex64::ONE]; // 1x1 identity
+        }
+
+        // Start with 1x1 identity for the right boundary
+        let mut env = vec![Complex64::ONE];
+        let mut bond_dim = 1;
+
+        for s in (site + 1..self.n_sites).rev() {
+            let t = &self.tensors[s];
+            let bond_l = t.shape[0];
+            let phys = t.shape[1];
+            let _bond_r = t.shape[2];
+
+            // Contract env with tensor: env'[a',b'] = sum_{c,d,i} conj(t[a',i,c]) * env[c,d] * t[b',i,d]
+            // Result is [bond_l, bond_l]
+            let mut new_env = vec![Complex64::ZERO; bond_l * bond_l];
+            for c in 0..bond_dim {
+                for d in 0..bond_dim {
+                    let env_val = env[c * bond_dim + d];
+                    if env_val.norm_sqr() < 1e-30 {
+                        continue;
+                    }
+                    for i in 0..phys {
+                        for a_prime in 0..bond_l {
+                            let t1 = t.get(a_prime, i, c).conj();
+                            for b_prime in 0..bond_l {
+                                let t2 = t.get(b_prime, i, d);
+                                new_env[a_prime * bond_l + b_prime] =
+                                    new_env[a_prime * bond_l + b_prime] + t1 * env_val * t2;
+                            }
+                        }
+                    }
+                }
+            }
+            env = new_env;
+            bond_dim = bond_l;
+        }
+
+        env
+    }
+
     /// Compute expectation value <ψ|O|ψ> for a two-site operator O on sites (site, site+1).
-    /// Contracts the MPS with the operator inserted at the two sites.
+    /// Uses left/right environment contraction for exact expectation value.
     pub fn expectation_two_site(
         &self,
         op: &[[Complex64; 4]; 4],
@@ -547,31 +653,48 @@ impl MPS {
         if site + 1 >= self.n_sites {
             return Err("Site index out of bounds for two-site expectation");
         }
+
+        // Compute left environment for site
+        let left_env = self.compute_left_environment(site);
+        // Compute right environment for site+1
+        let right_env = self.compute_right_environment(site + 1);
+
         let left = &self.tensors[site];
         let right = &self.tensors[site + 1];
+
         let bond_l = left.shape[0];
-        let phys = left.shape[1]; // 2
+        let phys = left.shape[1];
         let bond_mid = left.shape[2];
         let bond_r = right.shape[2];
 
         let mut expect = Complex64::ZERO;
+
+        // Contract: <ψ|O|ψ> = sum L[a,b] * conj(A[a,i,m]) * conj(B[m,j,c]) * O[(i,j),(k,l)] * A[b,k,m] * B[m,l,c] * R[c,c]
         for a in 0..bond_l {
-            for d in 0..bond_r {
-                for m in 0..bond_mid {
-                    for mp in 0..bond_mid {
-                        for p in 0..phys {
-                            for q in 0..phys {
-                                for k in 0..phys {
-                                    for l in 0..phys {
-                                        let row = p * phys + q;
-                                        let col = k * phys + l;
-                                        let op_val = op[row][col];
-                                        let term = left.get(a, p, m).conj()
-                                            * right.get(m, q, d).conj()
-                                            * op_val
-                                            * left.get(a, k, mp)
-                                            * right.get(mp, l, d);
-                                        expect = expect + term;
+            for b in 0..bond_l {
+                let l_env = left_env[a * bond_l + b];
+                for i in 0..phys {
+                    for j in 0..phys {
+                        for k in 0..phys {
+                            for l in 0..phys {
+                                let row = i * phys + j;
+                                let col = k * phys + l;
+                                let op_val = op[row][col];
+                                for m in 0..bond_mid {
+                                    let left1 = left.get(a, i, m).conj();
+                                    let left2 = left.get(b, k, m);
+                                    for c in 0..bond_r {
+                                        let r_env = right_env[c * bond_r + c];
+                                        let right1 = right.get(m, j, c).conj();
+                                        let right2 = right.get(m, l, c);
+                                        expect = expect
+                                            + l_env
+                                                * r_env
+                                                * left1
+                                                * left2
+                                                * op_val
+                                                * right1
+                                                * right2;
                                     }
                                 }
                             }
@@ -580,6 +703,7 @@ impl MPS {
                 }
             }
         }
+
         Ok(expect.re)
     }
 }
