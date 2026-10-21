@@ -92,10 +92,10 @@ fn svd_jacobi(
         for col in 0..cols {
             let top = ata[p * cols + col];
             let bottom = ata[q * cols + col];
-            ata[p * cols + col] = top * Complex64::new(cosine, 0.0)
-                + (phase * Complex64::new(-sine, 0.0)) * bottom;
-            ata[q * cols + col] = top * Complex64::new(sine, 0.0)
-                + (phase * Complex64::new(cosine, 0.0)) * bottom;
+            ata[p * cols + col] =
+                top * Complex64::new(cosine, 0.0) + (phase * Complex64::new(-sine, 0.0)) * bottom;
+            ata[q * cols + col] =
+                top * Complex64::new(sine, 0.0) + (phase * Complex64::new(cosine, 0.0)) * bottom;
         }
         ata[p * cols + q] = Complex64::ZERO;
         ata[q * cols + p] = Complex64::ZERO;
@@ -110,9 +110,7 @@ fn svd_jacobi(
     }
 
     let mut indices: Vec<usize> = (0..cols).collect();
-    indices.sort_by(|&i, &j| {
-        s[j].partial_cmp(&s[i]).unwrap_or(std::cmp::Ordering::Equal)
-    });
+    indices.sort_by(|&i, &j| s[j].partial_cmp(&s[i]).unwrap_or(std::cmp::Ordering::Equal));
 
     let mut s_sorted = vec![0.0f64; cols];
     let mut v_sorted = vec![Complex64::ZERO; cols * cols];
@@ -142,7 +140,6 @@ fn svd_jacobi(
 
     (u, s_sorted, v_sorted)
 }
-
 
 /// Complex QR decomposition via modified Gram-Schmidt.
 /// Returns (Q, R) with A = Q R, Q has orthonormal columns.
@@ -496,7 +493,7 @@ impl MPS {
                 let next_bond_l = next.shape[0];
                 let next_phys = next.shape[1];
                 let next_bond_r = next.shape[2];
-                // R is [new_bond_r, bond_r]; but next expects [bond_r, ...]. R maps old bond_r? 
+                // R is [new_bond_r, bond_r]; but next expects [bond_r, ...]. R maps old bond_r?
                 // We treat R as [new_bond_r, bond_r] and contract with next's left bond bond_r -> new_bond_r.
                 // Only valid if bond_r == next_bond_l.
                 if bond_r == next_bond_l {
@@ -532,8 +529,7 @@ impl MPS {
             for m in 0..bond_r {
                 for (i, op_row) in op.iter().enumerate().take(phys) {
                     for (j, &op_val) in op_row.iter().enumerate().take(phys) {
-                        expect = expect
-                            + t.get(a, i, m).conj() * op_val * t.get(a, j, m);
+                        expect = expect + t.get(a, i, m).conj() * op_val * t.get(a, j, m);
                     }
                 }
             }

@@ -527,7 +527,8 @@ impl<'a> QasmParser<'a> {
             }
         }
         // Map formal param names to values.
-        let mut param_map: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
+        let mut param_map: std::collections::HashMap<String, f64> =
+            std::collections::HashMap::new();
         for (i, pname) in def.params.iter().enumerate() {
             if let Some(v) = call_params.get(i) {
                 param_map.insert(pname.clone(), *v);
