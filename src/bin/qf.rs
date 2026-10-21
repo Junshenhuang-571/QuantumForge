@@ -2926,13 +2926,11 @@ fn split_qnn_config(tail: &str) -> (String, QnnConfig) {
                 data_start = Some(i);
             }
             depth += 1;
-        } else if ch == '}' {
-            if depth > 0 {
-                depth -= 1;
-                if depth == 0 {
-                    data_end = Some(i + 1);
-                    break;
-                }
+        } else if ch == '}' && depth > 0 {
+            depth -= 1;
+            if depth == 0 {
+                data_end = Some(i + 1);
+                break;
             }
         }
     }
