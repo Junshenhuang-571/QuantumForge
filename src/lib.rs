@@ -3459,7 +3459,7 @@ impl Adam {
         self.step = self.step.saturating_add(1);
         let correction1 = 1.0 - self.beta1.powf(self.step as f64);
         let correction2 = 1.0 - self.beta2.powf(self.step as f64);
-        let rate = learning_rate * correction2.sqrt() / correction1;
+        let rate = learning_rate * correction2.max(0.0).sqrt() / correction1;
         for i in 0..parameters.len() {
             self.first_moment[i] =
                 self.beta1 * self.first_moment[i] + (1.0 - self.beta1) * gradients[i];

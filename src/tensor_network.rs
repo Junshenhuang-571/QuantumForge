@@ -19,7 +19,7 @@ fn svd_jacobi(
     rows: usize,
     cols: usize,
 ) -> (Vec<Complex64>, Vec<f64>, Vec<Complex64>) {
-    // Compute A^H * A (cols x cols)
+    // Compute A^H * A (cols x cols), kept as a complex Hermitian matrix.
     let mut ata = vec![Complex64::ZERO; cols * cols];
     for i in 0..cols {
         for j in 0..cols {
@@ -33,28 +33,18 @@ fn svd_jacobi(
         }
     }
 
-    // Jacobi eigenvalue decomposition on A^H A (real symmetric)
-    // Convert to real matrix since A^H A is Hermitian positive semidefinite
-    let mut ata_real = vec![0.0; cols * cols];
+    let mut v = vec![Complex64::ZERO; cols * cols];
     for i in 0..cols {
-        for j in 0..cols {
-            ata_real[i * cols + j] = ata[i * cols + j].re;
-        }
+        v[i * cols + i] = Complex64::ONE;
     }
 
-    let mut v = vec![0.0; cols * cols];
-    for i in 0..cols {
-        v[i * cols + i] = 1.0;
-    }
-
-    // Jacobi iterations
     for _ in 0..100 {
-        let mut max_off = 0.0;
-        let mut p = 0;
-        let mut q = 1;
+        let mut max_off = 0.0f64;
+        let mut p = 0usize;
+        let mut q = 1usize;
         for i in 0..cols {
             for j in (i + 1)..cols {
-                let val = ata_real[i * cols + j].abs();
+                let val = ata[i * cols + j].abs();
                 if val > max_off {
                     max_off = val;
                     p = i;
@@ -62,66 +52,77 @@ fn svd_jacobi(
                 }
             }
         }
-        if max_off < 1e-12 {
+        if max_off < 1e-12 || cols < 2 {
             break;
         }
 
-        let app = ata_real[p * cols + p];
-        let aqq = ata_real[q * cols + q];
-        let apq = ata_real[p * cols + q];
-
-        let phi = 0.5 * (aqq - app).atan2(2.0 * apq);
-        let c = phi.cos();
-        let s = phi.sin();
-
-        // Update A
-        for j in 0..cols {
-            if j != p && j != q {
-                let ajp = ata_real[j * cols + p];
-                let ajq = ata_real[j * cols + q];
-                ata_real[j * cols + p] = c * ajp + s * ajq;
-                ata_real[p * cols + j] = ata_real[j * cols + p];
-                ata_real[j * cols + q] = -s * ajp + c * ajq;
-                ata_real[q * cols + j] = ata_real[j * cols + q];
-            }
+        let off_diagonal = ata[p * cols + q];
+        let magnitude = off_diagonal.abs();
+        if magnitude <= 1e-30 {
+            continue;
         }
-        let app_new = c * c * app + 2.0 * c * s * apq + s * s * aqq;
-        let aqq_new = s * s * app - 2.0 * c * s * apq + c * c * aqq;
-        ata_real[p * cols + p] = app_new;
-        ata_real[q * cols + q] = aqq_new;
-        ata_real[p * cols + q] = 0.0;
-        ata_real[q * cols + p] = 0.0;
+        let a_pp = ata[p * cols + p].re;
+        let a_qq = ata[q * cols + q].re;
+        let tau = (a_qq - a_pp) / (2.0 * magnitude);
+        let t = if tau >= 0.0 {
+            1.0 / (tau + (1.0 + tau * tau).sqrt())
+        } else {
+            -1.0 / (-tau + (1.0 + tau * tau).sqrt())
+        };
+        let cosine = 1.0 / (1.0 + t * t).sqrt();
+        let sine = t * cosine;
+        let phase = off_diagonal / magnitude;
+        let phase_conj = phase.conj();
 
-        // Update V
-        for i in 0..cols {
-            let vip = v[i * cols + p];
-            let viq = v[i * cols + q];
-            v[i * cols + p] = c * vip + s * viq;
-            v[i * cols + q] = -s * vip + c * viq;
+        for row in 0..cols {
+            let left = ata[row * cols + p];
+            let right = ata[row * cols + q];
+            ata[row * cols + p] = left * Complex64::new(cosine, 0.0)
+                + right * (phase_conj * Complex64::new(-sine, 0.0));
+            ata[row * cols + q] = left * Complex64::new(sine, 0.0)
+                + right * (phase_conj * Complex64::new(cosine, 0.0));
+
+            let left = v[row * cols + p];
+            let right = v[row * cols + q];
+            v[row * cols + p] = left * Complex64::new(cosine, 0.0)
+                + right * (phase_conj * Complex64::new(-sine, 0.0));
+            v[row * cols + q] = left * Complex64::new(sine, 0.0)
+                + right * (phase_conj * Complex64::new(cosine, 0.0));
         }
+        for col in 0..cols {
+            let top = ata[p * cols + col];
+            let bottom = ata[q * cols + col];
+            ata[p * cols + col] = top * Complex64::new(cosine, 0.0)
+                + (phase * Complex64::new(-sine, 0.0)) * bottom;
+            ata[q * cols + col] = top * Complex64::new(sine, 0.0)
+                + (phase * Complex64::new(cosine, 0.0)) * bottom;
+        }
+        ata[p * cols + q] = Complex64::ZERO;
+        ata[q * cols + p] = Complex64::ZERO;
+        ata[p * cols + p].im = 0.0;
+        ata[q * cols + q].im = 0.0;
     }
 
-    // Extract singular values (sqrt of eigenvalues)
-    let mut s = vec![0.0; cols];
+    let mut s = vec![0.0f64; cols];
     for i in 0..cols {
-        let val = ata_real[i * cols + i].max(0.0);
+        let val = ata[i * cols + i].re.max(0.0);
         s[i] = val.sqrt();
     }
 
-    // Sort singular values and vectors in descending order
     let mut indices: Vec<usize> = (0..cols).collect();
-    indices.sort_by(|&i, &j| s[j].partial_cmp(&s[i]).unwrap());
+    indices.sort_by(|&i, &j| {
+        s[j].partial_cmp(&s[i]).unwrap_or(std::cmp::Ordering::Equal)
+    });
 
-    let mut s_sorted = vec![0.0; cols];
+    let mut s_sorted = vec![0.0f64; cols];
     let mut v_sorted = vec![Complex64::ZERO; cols * cols];
     for (new_idx, &old_idx) in indices.iter().enumerate() {
         s_sorted[new_idx] = s[old_idx];
         for i in 0..cols {
-            v_sorted[i * cols + new_idx] = Complex64::new(v[i * cols + old_idx], 0.0);
+            v_sorted[i * cols + new_idx] = v[i * cols + old_idx];
         }
     }
 
-    // Compute U = A * V * S^{-1} (for non-zero singular values)
     let mut u = vec![Complex64::ZERO; rows * cols];
     for i in 0..rows {
         for j in 0..cols {
@@ -140,6 +141,48 @@ fn svd_jacobi(
     }
 
     (u, s_sorted, v_sorted)
+}
+
+
+/// Complex QR decomposition via modified Gram-Schmidt.
+/// Returns (Q, R) with A = Q R, Q has orthonormal columns.
+fn qr_complex(a: &[Complex64], rows: usize, cols: usize) -> (Vec<Complex64>, Vec<Complex64>) {
+    let mut q = vec![Complex64::ZERO; rows * cols];
+    let mut r = vec![Complex64::ZERO; cols * cols];
+    // Work on a mutable copy.
+    let mut v = a.to_vec();
+    for j in 0..cols {
+        // norm of column j of current V
+        let mut norm_sq = 0.0f64;
+        for i in 0..rows {
+            norm_sq += v[i * cols + j].norm_sqr();
+        }
+        let norm = norm_sq.sqrt();
+        if norm < 1e-14 {
+            // zero column
+            for i in 0..rows {
+                q[i * cols + j] = Complex64::ZERO;
+            }
+            r[j * cols + j] = Complex64::ZERO;
+            continue;
+        }
+        for i in 0..rows {
+            q[i * cols + j] = v[i * cols + j] / norm;
+        }
+        r[j * cols + j] = Complex64::new(norm, 0.0);
+        // orthogonalize later columns
+        for k in (j + 1)..cols {
+            let mut dot = Complex64::ZERO;
+            for i in 0..rows {
+                dot = dot + q[i * cols + j].conj() * v[i * cols + k];
+            }
+            r[j * cols + k] = dot;
+            for i in 0..rows {
+                v[i * cols + k] = v[i * cols + k] - dot * q[i * cols + j];
+            }
+        }
+    }
+    (q, r)
 }
 
 /// A tensor in the tensor network.
@@ -426,13 +469,76 @@ impl MPS {
 
     /// Normalize the MPS (left-canonical or right-canonical form).
     pub fn normalize_left_canonical(&mut self) {
-        // QR decomposition from left to right
-        // Simplified - full implementation would use QR
+        // Left-canonicalize via QR sweep left to right.
+        for i in 0..self.n_sites.saturating_sub(1) {
+            let t = &self.tensors[i];
+            let bond_l = t.shape[0];
+            let phys = t.shape[1];
+            let bond_r = t.shape[2];
+            let (mat, _) = t.reshape_for_svd_left();
+            let (q, r) = qr_complex(&mat, bond_l * phys, bond_r);
+            // New tensor from Q: shape [bond_l, phys, bond_r'] (bond_r' = min(rows,cols) but keep bond_r for isometry? use cols)
+            let new_bond_r = bond_r.min(bond_l * phys);
+            let mut new_t = Tensor::new([bond_l, phys, new_bond_r]);
+            for a in 0..bond_l {
+                for ss in 0..phys {
+                    let row = a * phys + ss;
+                    for b in 0..new_bond_r {
+                        new_t.set(a, ss, b, q[row * bond_r + b]);
+                    }
+                }
+            }
+            self.tensors[i] = new_t;
+
+            // Absorb R into next tensor: next' = R * next (contract bond)
+            if i + 1 < self.n_sites {
+                let next = &self.tensors[i + 1];
+                let next_bond_l = next.shape[0];
+                let next_phys = next.shape[1];
+                let next_bond_r = next.shape[2];
+                // R is [new_bond_r, bond_r]; but next expects [bond_r, ...]. R maps old bond_r? 
+                // We treat R as [new_bond_r, bond_r] and contract with next's left bond bond_r -> new_bond_r.
+                // Only valid if bond_r == next_bond_l.
+                if bond_r == next_bond_l {
+                    let mut new_next = Tensor::new([new_bond_r, next_phys, next_bond_r]);
+                    for a in 0..new_bond_r {
+                        for ss in 0..next_phys {
+                            for c in 0..next_bond_r {
+                                let mut sum = Complex64::ZERO;
+                                for b in 0..bond_r {
+                                    sum = sum + r[a * bond_r + b] * next.get(b, ss, c);
+                                }
+                                new_next.set(a, ss, c, sum);
+                            }
+                        }
+                    }
+                    self.tensors[i + 1] = new_next;
+                }
+            }
+        }
     }
 
     /// Compute expectation value of a local observable.
-    pub fn expectation_single_site(&self, _op: &[[Complex64; 2]; 2], _site: usize) -> Complex64 {
-        Complex64::ZERO
+    pub fn expectation_single_site(&self, op: &[[Complex64; 2]; 2], site: usize) -> Complex64 {
+        if site >= self.n_sites {
+            return Complex64::ZERO;
+        }
+        let t = &self.tensors[site];
+        let bond_l = t.shape[0];
+        let phys = t.shape[1];
+        let bond_r = t.shape[2];
+        let mut expect = Complex64::ZERO;
+        for a in 0..bond_l {
+            for m in 0..bond_r {
+                for (i, op_row) in op.iter().enumerate().take(phys) {
+                    for (j, &op_val) in op_row.iter().enumerate().take(phys) {
+                        expect = expect
+                            + t.get(a, i, m).conj() * op_val * t.get(a, j, m);
+                    }
+                }
+            }
+        }
+        expect
     }
 
     /// Compute expectation value <ψ|O|ψ> for a two-site operator O on sites (site, site+1).
@@ -445,43 +551,31 @@ impl MPS {
         if site + 1 >= self.n_sites {
             return Err("Site index out of bounds for two-site expectation");
         }
-
-        // For simplicity, compute expectation by contracting the two-site
-        // reduced density matrix with the operator.
-        // This is a simplified implementation - full version would use left/right environments.
-        // For now, return a placeholder that computes <O> assuming product state
-
         let left = &self.tensors[site];
         let right = &self.tensors[site + 1];
-
         let bond_l = left.shape[0];
-        let phys = left.shape[1];
+        let phys = left.shape[1]; // 2
         let bond_mid = left.shape[2];
-        let _bond_r = right.shape[2];
+        let bond_r = right.shape[2];
 
-        // Contract: <ψ|O|ψ> = sum over all indices of conj(ψ) O ψ
-        // For MPS with small bond dimension, we can directly compute
         let mut expect = Complex64::ZERO;
-
-        // Indices: site phys i,j; site+1 phys k,l; bond m,n
         for a in 0..bond_l {
-            for b in 0..bond_l {
-                for i in 0..phys {
-                    for j in 0..phys {
-                        for k in 0..phys {
-                            for l in 0..phys {
-                                for m in 0..bond_mid {
-                                    for n in 0..bond_mid {
-                                        let row = i * phys + j; // 0..3
-                                        let col = k * phys + l; // 0..3
+            for d in 0..bond_r {
+                for m in 0..bond_mid {
+                    for mp in 0..bond_mid {
+                        for p in 0..phys {
+                            for q in 0..phys {
+                                for k in 0..phys {
+                                    for l in 0..phys {
+                                        let row = p * phys + q;
+                                        let col = k * phys + l;
                                         let op_val = op[row][col];
-
-                                        let left1 = left.get(a, i, m).conj();
-                                        let right1 = right.get(m, j, n).conj();
-                                        let left2 = left.get(b, k, m);
-                                        let right2 = right.get(n, l, n); // Note: this is approximate
-
-                                        expect = expect + left1 * right1 * op_val * left2 * right2;
+                                        let term = left.get(a, p, m).conj()
+                                            * right.get(m, q, d).conj()
+                                            * op_val
+                                            * left.get(a, k, mp)
+                                            * right.get(mp, l, d);
+                                        expect = expect + term;
                                     }
                                 }
                             }
@@ -490,7 +584,6 @@ impl MPS {
                 }
             }
         }
-
         Ok(expect.re)
     }
 }

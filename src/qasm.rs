@@ -106,7 +106,7 @@ struct GateDef {
     #[allow(dead_code)] // TODO: wire parameter substitution when applying user gates
     params: Vec<String>,
     qargs: Vec<String>,
-    body: Vec<(String, Vec<String>)>, // (gate_name, qarg_names)
+    body: Vec<(String, Vec<String>, Vec<String>)>, // (gate_name, param_names, qarg_names)
 }
 
 impl<'a> QasmParser<'a> {
@@ -370,10 +370,19 @@ impl<'a> QasmParser<'a> {
                 .next()
                 .unwrap_or("")
                 .to_string();
-            let qargs_str = if let Some(_paren_start) = stmt.find('(') {
+            // Extract params if present
+            let mut body_params: Vec<String> = Vec::new();
+            let qargs_str = if let Some(paren_start) = stmt.find('(') {
                 let paren_end = stmt.find(')').ok_or_else(|| {
                     QasmError::new(self.position, "unclosed parenthesis in gate body")
                 })?;
+                let params_str = &stmt[paren_start + 1..paren_end];
+                for p in params_str.split(',') {
+                    let p = p.trim();
+                    if !p.is_empty() {
+                        body_params.push(p.to_string());
+                    }
+                }
                 &stmt[paren_end + 1..]
             } else {
                 &stmt[gate_name.len()..]
@@ -383,7 +392,7 @@ impl<'a> QasmParser<'a> {
                 .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty())
                 .collect();
-            body.push((gate_name, gate_qargs));
+            body.push((gate_name, body_params, gate_qargs));
         }
 
         self.gate_defs.insert(
@@ -500,13 +509,53 @@ impl<'a> QasmParser<'a> {
             arg_map.insert(qarg_name.clone(), actual_idx);
         }
 
+        // Parse call-site params (if any) for this user gate instance.
+        let (_call_name, _call_qargs) = self.parse_gate_call(line)?;
+        // Extract numeric params from the call line.
+        let mut call_params: Vec<f64> = Vec::new();
+        if let Some(paren_start) = line.find('(') {
+            if let Some(paren_end) = line.find(')') {
+                let params_str = &line[paren_start + 1..paren_end];
+                for p in params_str.split(',') {
+                    let p = p.trim();
+                    if !p.is_empty() {
+                        if let Ok(v) = p.parse::<f64>() {
+                            call_params.push(v);
+                        }
+                    }
+                }
+            }
+        }
+        // Map formal param names to values.
+        let mut param_map: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
+        for (i, pname) in def.params.iter().enumerate() {
+            if let Some(v) = call_params.get(i) {
+                param_map.insert(pname.clone(), *v);
+            }
+        }
+
         // Expand body
-        for (body_gate, body_qargs) in &def.body {
+        for (body_gate, body_params, body_qargs) in &def.body {
             let resolved: Vec<usize> = body_qargs
                 .iter()
                 .map(|qa| *arg_map.get(qa).unwrap_or(&0))
                 .collect();
-            self.apply_builtin_gate_on_qubits(body_gate, &resolved)?;
+            // Resolve body params.
+            let mut resolved_params: Vec<f64> = Vec::new();
+            for bp in body_params {
+                if let Some(v) = param_map.get(bp) {
+                    resolved_params.push(*v);
+                } else if let Ok(v) = bp.parse::<f64>() {
+                    resolved_params.push(v);
+                } else {
+                    resolved_params.push(0.0);
+                }
+            }
+            if is_parameterized_gate(body_gate) {
+                self.apply_parameterized_gate(body_gate, &resolved_params, &resolved)?;
+            } else {
+                self.apply_builtin_gate_on_qubits(body_gate, &resolved)?;
+            }
         }
 
         Ok(())
