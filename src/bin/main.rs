@@ -439,24 +439,24 @@ fn run_demo() {
     );
 
     let qnn = VariationalQnn::new(2, 2);
-        let target_weights: Vec<f64> = vec![0.7; 4]; // 2 qubits * 2 layers = 4 params
-        let data: Vec<(f64, f64)> = [-1.0, -0.5, 0.0, 0.5, 1.0]
-            .into_iter()
-            .map(|x| (x, (x + target_weights[0]).cos()))
-            .collect();
-        let initial_weights = vec![-1.2; 4];
-        let (initial_loss, _) = qnn
-            .loss_and_gradient(&data, &initial_weights)
-            .expect("valid data");
-        let learned_weights = qnn
-                    .train_adam(&data, initial_weights.clone(), 0.05, 100, 2, 42)
-                    .expect("training succeeds");
-        let (final_loss, _) = qnn
-            .loss_and_gradient(&data, &learned_weights)
-            .expect("valid data");
-        println!("QNN target weights = {target_weights:?}");
-        println!("QNN trained weights = {learned_weights:?}");
-        println!("QNN Adam mini-batch loss: {initial_loss:.6} -> {final_loss:.6}");
+    let target_weights: Vec<f64> = vec![0.7; 4]; // 2 qubits * 2 layers = 4 params
+    let data: Vec<(f64, f64)> = [-1.0, -0.5, 0.0, 0.5, 1.0]
+        .into_iter()
+        .map(|x| (x, (x + target_weights[0]).cos()))
+        .collect();
+    let initial_weights = vec![-1.2; 4];
+    let (initial_loss, _) = qnn
+        .loss_and_gradient(&data, &initial_weights)
+        .expect("valid data");
+    let learned_weights = qnn
+        .train_adam(&data, initial_weights.clone(), 0.05, 100, 2, 42)
+        .expect("training succeeds");
+    let (final_loss, _) = qnn
+        .loss_and_gradient(&data, &learned_weights)
+        .expect("valid data");
+    println!("QNN target weights = {target_weights:?}");
+    println!("QNN trained weights = {learned_weights:?}");
+    println!("QNN Adam mini-batch loss: {initial_loss:.6} -> {final_loss:.6}");
 
     let mut variational = ParameterizedCircuit::new(2);
     variational.rotation(RotationAxis::Y, 0, 0);

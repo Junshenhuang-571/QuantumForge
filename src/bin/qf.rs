@@ -2365,10 +2365,10 @@ impl Session {
 
             // Get current density matrix and pad with ancilla qubits
             let density: DensityMatrix = if let Some(ref d) = self.density {
-                                            (*d).clone()
-                                        } else {
-                                            DensityMatrix::from_state(&self.state)
-                                        };
+                (*d).clone()
+            } else {
+                DensityMatrix::from_state(&self.state)
+            };
 
             // Pad density matrix with ancilla qubits in |0><0| state
             let padded_density = Self::pad_density_with_ancillas(density, n_data, n_total);
@@ -2434,10 +2434,10 @@ impl Session {
         if let Some(code) = &self.qec_code {
             if let Some(recovery) = code.recovery.get(&syndrome) {
                 let density = if let Some(d) = &self.density {
-                                d.clone()
-                            } else {
-                                DensityMatrix::from_state(&self.state)
-                            };
+                    d.clone()
+                } else {
+                    DensityMatrix::from_state(&self.state)
+                };
                 match recovery.run_density(density) {
                     Ok(result) => {
                         self.density = Some(result);
@@ -2915,7 +2915,7 @@ impl Default for QnnConfig {
 fn split_qnn_config(tail: &str) -> (String, QnnConfig) {
     let mut cfg = QnnConfig::default();
     let trimmed = tail.trim();
-    
+
     // Find the data part: the first brace-enclosed list `{...}`
     let mut data_start = None;
     let mut data_end = None;
@@ -2936,7 +2936,7 @@ fn split_qnn_config(tail: &str) -> (String, QnnConfig) {
             }
         }
     }
-    
+
     let (data_part, config_part) = if let (Some(start), Some(end)) = (data_start, data_end) {
         let config = format!("{} {}", &trimmed[..start], &trimmed[end..]);
         (trimmed[start..end].to_string(), config.trim().to_string())
@@ -2944,7 +2944,7 @@ fn split_qnn_config(tail: &str) -> (String, QnnConfig) {
         // No brace-enclosed data
         (trimmed.to_string(), String::new())
     };
-    
+
     // Parse config options from the config part
     for word in config_part.split_whitespace() {
         if let Some(v) = word
@@ -2975,7 +2975,7 @@ fn split_qnn_config(tail: &str) -> (String, QnnConfig) {
             cfg.adam = false;
         }
     }
-    
+
     (data_part, cfg)
 }
 
@@ -3007,7 +3007,10 @@ fn run_qnn(qnn: &VariationalQnn, data: &[(f64, f64)], cfg: &QnnConfig) {
     let opt = if cfg.adam { "Adam" } else { "GD" };
     println!(
         "qnn ({}-qubit, {} layer, {} params, Ry-encode + CNOT ring + Ry, <Z> readout, {opt}, {} samples):",
-        qnn.num_qubits, qnn.layers, n_params, data.len()
+        qnn.num_qubits,
+        qnn.layers,
+        n_params,
+        data.len()
     );
     println!(
         "  mse: {l0:.6} -> {l1:.6}   weights = {trained:?}  (lr={}, steps={})",

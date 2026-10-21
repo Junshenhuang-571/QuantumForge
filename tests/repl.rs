@@ -647,5 +647,4 @@ fn anneal_named_schedule_and_errors() {
     );
     let bad_edge = run_qf(&["mbqc edges=0-9 qubits=3", "quit"]);
     assert!(bad_edge.contains("bad edge"), "bad edge:\\n{bad_edge}");
-
 }

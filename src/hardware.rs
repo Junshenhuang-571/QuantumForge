@@ -393,7 +393,7 @@ pub mod local {
         }
 
         fn list_devices(&self) -> Result<Vec<DeviceInfo>> {
-                    let mut devices = vec![DeviceInfo {
+            let mut devices = vec![DeviceInfo {
                 id: "cpu".to_string(),
                 name: "Local CPU Simulator".to_string(),
                 provider: "local".to_string(),
