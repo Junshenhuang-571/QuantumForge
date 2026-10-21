@@ -23,7 +23,9 @@ default = []
 llvm = []
 cuda = []
 python = ["pyo3"]
-
+ibm = ["reqwest"]
+ionq = ["reqwest"]
+rigetti = ["reqwest"]
 
 [dev-dependencies]
 criterion = "0.5"
@@ -34,6 +36,7 @@ rand = "0.8"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 pyo3 = { version = "0.23", optional = true, features = ["extension-module", "abi3-py38"] }
+reqwest = { version = "0.12", optional = true, features = ["json", "rustls-tls"] }
 
 [[bench]]
 name = "cuda_batch"

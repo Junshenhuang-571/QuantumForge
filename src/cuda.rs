@@ -8,7 +8,7 @@ use crate::{
 use std::collections::BTreeMap;
 use std::ffi::{CStr, CString, c_char, c_int, c_uint, c_void};
 use std::ptr;
-use std::rc::Rc;
+use std::sync::Arc;
 
 type CuDevice = c_int;
 type CuDevicePtr = u64;
@@ -504,14 +504,18 @@ struct CudaBackendInner {
     density_measure_collapse: CuFunction,
 }
 
+// Safety: CUDA contexts are thread-local, but we ensure proper access patterns
+unsafe impl Send for CudaBackendInner {}
+unsafe impl Sync for CudaBackendInner {}
+
 pub struct CudaBackend {
-    inner: Rc<CudaBackendInner>,
+    inner: Arc<CudaBackendInner>,
 }
 
 /// State vector allocated on the CUDA device. It keeps the backend context and
 /// compiled kernels alive, and repeated operations avoid host/device transfers.
 pub struct CudaDeviceState {
-    backend: Rc<CudaBackendInner>,
+    backend: Arc<CudaBackendInner>,
     pointer: CuDevicePtr,
     qubits: usize,
     amplitudes: usize,
@@ -520,7 +524,7 @@ pub struct CudaDeviceState {
 
 /// A contiguous batch of equal-width state vectors kept resident on the GPU.
 pub struct CudaDeviceStateBatch {
-    backend: Rc<CudaBackendInner>,
+    backend: Arc<CudaBackendInner>,
     pointer: CuDevicePtr,
     qubits: usize,
     amplitudes_per_state: usize,
@@ -533,7 +537,7 @@ pub struct CudaDeviceStateBatch {
 
 /// Device-resident row-major density matrix with reusable transformation scratch.
 pub struct CudaDeviceDensityMatrix {
-    backend: Rc<CudaBackendInner>,
+    backend: Arc<CudaBackendInner>,
     pointer: CuDevicePtr,
     scratch: CuDevicePtr,
     reduction_scratch: CuDevicePtr,
@@ -747,7 +751,7 @@ impl CudaBackend {
                 density_measure_probability,
                 density_measure_collapse,
             )) => Ok(Self {
-                inner: Rc::new(CudaBackendInner {
+                inner: Arc::new(CudaBackendInner {
                     device,
                     context,
                     module,
@@ -842,7 +846,7 @@ impl CudaBackend {
             return Err(error);
         }
         Ok(CudaDeviceState {
-            backend: Rc::clone(&self.inner),
+            backend: Arc::clone(&self.inner),
             pointer,
             qubits: state.qubits(),
             amplitudes: state.amplitudes().len(),
@@ -925,7 +929,7 @@ impl CudaBackend {
             return Err(error);
         }
         Ok(CudaDeviceStateBatch {
-            backend: Rc::clone(&self.inner),
+            backend: Arc::clone(&self.inner),
             pointer,
             qubits,
             amplitudes_per_state,
@@ -994,7 +998,7 @@ impl CudaBackend {
             return Err(error);
         }
         Ok(CudaDeviceDensityMatrix {
-            backend: Rc::clone(&self.inner),
+            backend: Arc::clone(&self.inner),
             pointer,
             scratch,
             reduction_scratch,
@@ -1413,7 +1417,7 @@ impl CudaDeviceState {
     }
 
     fn copy_from_device(&mut self, source: &Self) -> Result<(), CudaError> {
-        if self.amplitudes != source.amplitudes || !Rc::ptr_eq(&self.backend, &source.backend) {
+        if self.amplitudes != source.amplitudes || !Arc::ptr_eq(&self.backend, &source.backend) {
             return Err(CudaError::IncompatibleDeviceState);
         }
         check_driver(unsafe { cuCtxSetCurrent(self.backend.context) })?;
@@ -1758,7 +1762,7 @@ impl CudaDeviceStateBatch {
     pub fn copy_from_device(&mut self, source: &Self) -> Result<(), CudaError> {
         if self.amplitudes_per_state != source.amplitudes_per_state
             || self.batch_size != source.batch_size
-            || !Rc::ptr_eq(&self.backend, &source.backend)
+            || !Arc::ptr_eq(&self.backend, &source.backend)
         {
             return Err(CudaError::IncompatibleDeviceState);
         }

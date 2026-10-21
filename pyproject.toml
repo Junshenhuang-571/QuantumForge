@@ -4,7 +4,7 @@ build-backend = "maturin.BuildBackend"
 
 [project]
 name = "quantumforge"
-version = "0.1.0"
+version = "0.2.0"
 description = "Exact-rational quantum simulation kernel: CPU, CUDA, LLVM backends with circuits, VQE, MBQC, AQC, QTM, QEC, tensor networks"
 readme = "README.md"
 license = {text = "GPL-3.0"}
@@ -23,15 +23,9 @@ classifiers = [
 
 [tool.maturin]
 features = ["pyo3", "extension-module"]
-default-features = []
-
-[tool.maturin.features]
-cuda = ["pyo3", "cuda"]
-llvm = ["pyo3", "llvm"]
-full = ["pyo3", "cuda", "llvm"]
+manylinux = "2014"
 
 [project.optional-dependencies]
 cuda = []
 llvm = []
 
-[tool.maturin.manylinux]

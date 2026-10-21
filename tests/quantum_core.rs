@@ -382,16 +382,16 @@ fn qnn_binary_classifier_training_reduces_cross_entropy() {
 
 #[test]
 fn mini_batch_qnn_training_reduces_loss() {
-    let qnn = VariationalQnn;
-    let target_weight: f64 = 0.7;
+    let qnn = VariationalQnn::new(2, 2); // 2 qubits, 2 layers = 4 params
+    let target_weights: Vec<f64> = vec![0.7; 4];
     let data: Vec<(f64, f64)> = [-1.0, -0.5, 0.0, 0.5, 1.0]
         .into_iter()
-        .map(|x| (x, (x + target_weight).cos()))
+        .map(|x| (x, (x + target_weights[0]).cos()))
         .collect();
-    let initial = -1.2;
-    let initial_loss = qnn.loss_and_gradient(&data, initial).unwrap().0;
+    let initial = vec![-1.2; 4];
+    let initial_loss = qnn.loss_and_gradient(&data, &initial).unwrap().0;
     let trained = qnn.train_adam(&data, initial, 0.05, 100, 2, 42).unwrap();
-    let final_loss = qnn.loss_and_gradient(&data, trained).unwrap().0;
+    let final_loss = qnn.loss_and_gradient(&data, &trained).unwrap().0;
     assert!(
         final_loss < initial_loss,
         "training loss did not improve: {initial_loss} -> {final_loss}"

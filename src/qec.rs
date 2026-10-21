@@ -316,15 +316,62 @@ fn build_repetition_syndrome(n: usize, bitflip: bool) -> Circuit {
 fn build_repetition_recovery(n: usize, bitflip: bool) -> HashMap<u32, Circuit> {
     let mut recovery = HashMap::new();
     let n_syndromes = 1 << (n - 1);
+    let recovery_gate = if bitflip { Gate::X } else { Gate::Z };
 
     for syndrome in 0..n_syndromes {
-        let circuit = Circuit::new();
-        // Syndrome bits indicate which pair has the error
-        // This is a simplified lookup-table recovery
-        if bitflip {
-            // X recovery on the appropriate qubit
-            // In reality, this would use a decoding algorithm
+        let mut circuit = Circuit::new();
+
+        // Decode syndrome to find which qubit has the error
+        // For repetition codes, syndrome bits s_i = z_i XOR z_{i+1} (bitflip)
+        // or s_i = x_i XOR x_{i+1} (phaseflip)
+        // The syndrome pattern tells us which qubit flipped:
+        // - syndrome = 0: no error
+        // - syndrome = 1...0: error on qubit 0
+        // - syndrome = 11...0: error on qubit 1
+        // - syndrome = 0...11...0: error on qubit k (k 1's in middle)
+        // - syndrome = 0...01: error on qubit n-1
+
+        // Find the error position by finding the boundary between 0 and 1
+        // in the syndrome (treating it as bits from LSB to MSB)
+        let mut error_qubit = None;
+
+        if syndrome == 0 {
+            // No error
+        } else {
+            // Find the leftmost 1 (lowest bit position)
+            let mut leftmost = None;
+            let mut rightmost = None;
+            for i in 0..(n - 1) {
+                if (syndrome >> i) & 1 == 1 {
+                    if leftmost.is_none() {
+                        leftmost = Some(i);
+                    }
+                    rightmost = Some(i);
+                }
+            }
+
+            // For repetition code, the error is at the boundary
+            // If syndrome has contiguous 1s, error is at leftmost position
+            // Special case: single 1 at position 0 -> qubit 0
+            // Single 1 at position n-2 -> qubit n-1
+            // Contiguous block from i to j -> qubit i
+            if let (Some(l), Some(r)) = (leftmost, rightmost) {
+                // Check if bits are contiguous
+                let is_contiguous = (l..=r).all(|i| (syndrome >> i) & 1 == 1);
+                if is_contiguous {
+                    error_qubit = Some(l);
+                } else if syndrome & 1 == 1 && syndrome & (1 << (n - 2)) != 0 {
+                    // Error at boundaries - treat as qubit 0 or n-1
+                    // This handles the wrap-around case for periodic boundary
+                    error_qubit = Some(0);
+                }
+            }
         }
+
+        if let Some(qubit) = error_qubit {
+            circuit.push(recovery_gate, qubit);
+        }
+
         recovery.insert(syndrome, circuit);
     }
     recovery
@@ -339,11 +386,11 @@ pub fn encode_repetition_bitflip(
     // We create an n-qubit state by tensoring with |0⟩^{n-1} then applying CNOTs
     let mut full_state = StateVector::zero(n)?;
     // Copy the 1-qubit state amplitudes to the first qubit of the n-qubit state
-    // |ψ⟩|0...0⟩ = (α|0⟩ + β|1⟩)|0...0⟩ = α|0...0⟩ + β|10...0⟩
+    // |ψ⟩|0...0⟩ = (α|0⟩ + β|1⟩)|0...0⟩ = α|0...0⟩ + β|0...01⟩ (qubit 0 = 1)
     let input_amps = state.amplitudes();
     if input_amps.len() >= 2 {
         full_state.amplitudes_mut()[0] = input_amps[0];
-        full_state.amplitudes_mut()[1 << (n - 1)] = input_amps[1]; // |10...0⟩
+        full_state.amplitudes_mut()[1] = input_amps[1]; // |0...01⟩ (qubit 0 = 1)
     }
 
     // Apply CNOTs from qubit 0 to all others

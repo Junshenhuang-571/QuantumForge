@@ -6,6 +6,10 @@
 
 use quantumforge::analytic::{Assumptions, ExactComplex, Rational, ScalarExpr, Simplifier};
 use quantumforge::parser::{parse_circuit, parse_scalar_expr};
+use quantumforge::qec::{
+    QecCode, encode_repetition_bitflip, repetition_code_bitflip, repetition_code_phaseflip,
+};
+use quantumforge::tensor_network::{DMRG, MPS, TEBD};
 use quantumforge::{
     CircuitOp, Complex64, DensityMatrix, Gate, ParameterizedCircuit, QmlTrainingConfig,
     RotationAxis, SingleQubitObservable, StateVector, VariationalQnn,
@@ -19,9 +23,14 @@ struct Session {
     /// When Some, `state`/`probs`/`expect` read from this mixed state instead.
     density: Option<DensityMatrix>,
     assume: Assumptions,
-    qnn: VariationalQnn,
     shots: usize,
     seed: u64,
+    /// TEBD imaginary time evolution state
+    tebd: Option<TEBD>,
+    /// DMRG variational ground state search state
+    dmrg: Option<DMRG>,
+    /// QEC code currently loaded
+    qec_code: Option<QecCode>,
 }
 
 const HELP: &str = "\
@@ -82,9 +91,26 @@ QuantumForge REPL — one session, live state. Type 'help' for this, 'quit' to e
                               updates T to best found value, repeats
                               edges: space-separated list like \\\"0-1:1.0 1-2:0.5\\\"
         cuda [device=N]         run the current circuit on CUDA GPU:
-                              uploads live state, executes circuit, downloads result
-                              requires `--features cuda` at compile time
-        eval EXPR            numeric eval of a scalar expression, e.g. 2 + 3*Pi
+                                      uploads live state, executes circuit, downloads result
+                                      requires `--features cuda` at compile time
+          tebd [qubits=N] [dt=..] [tol=..] [max-bond=..] [steps=N]
+                                    TEBD imaginary time evolution for TFIM ground state:
+                                      H = -Σ Z_i Z_{i+1} - Σ X_i (nearest-neighbor)
+                                      outputs ground state energy, updates live MPS
+          dmrg [qubits=N] [bond=..] [tol=..] [sweeps=N]
+                                    DMRG variational ground state for TFIM:
+                                      same Hamiltonian, sweeps until energy converges
+                                      outputs energy, updates live MPS
+          tebd-correl [site=..]    print <Z_i Z_{i+1}> correlation from live TEBD MPS
+          dmrg-correl [site=..]    print <Z_i Z_{i+1}> correlation from live DMRG MPS
+          qec-code [type=bitflip|phaseflip|shor|steane|surface] [n=..] [d=..]
+                                    build QEC code, print stabilizers + logical ops
+          qec-encode [type=bitflip|phaseflip] [n=..] [state=0|1]
+                                    encode logical |0> or |1> into repetition code,
+                                    updates live state to encoded physical qubits
+          qec-syndrome             measure syndrome on live state using code's circuit
+          qec-recover [syndrome=N] apply recovery circuit for given syndrome bits
+          eval EXPR            numeric eval of a scalar expression, e.g. 2 + 3*Pi
   simplify EXPR        canonicalize a scalar expression
   diff EXPR            symbolic derivative d/dx of EXPR
   pauli EXPR           evaluate a Pauli sum like X, 2*Y, I+Z (1 qubit)
@@ -131,9 +157,11 @@ impl Session {
             state: StateVector::zero(qubits).expect("initial state"),
             density: None,
             assume: Assumptions::default(),
-            qnn: VariationalQnn,
             shots: 256,
             seed: 42,
+            tebd: None,
+            dmrg: None,
+            qec_code: None,
         }
     }
 
@@ -192,6 +220,14 @@ impl Session {
             "anneal" => self.cmd_anneal(rest),
             "gas" => self.cmd_gas(rest),
             "cuda" => self.cmd_cuda(rest),
+            "tebd" => self.cmd_tebd(rest),
+            "dmrg" => self.cmd_dmrg(rest),
+            "tebd-correl" => self.cmd_tebd_correl(rest),
+            "dmrg-correl" => self.cmd_dmrg_correl(rest),
+            "qec-code" => self.cmd_qec_code(rest),
+            "qec-encode" => self.cmd_qec_encode(rest),
+            "qec-syndrome" => self.cmd_qec_syndrome(),
+            "qec-recover" => self.cmd_qec_recover(rest),
             "eval" => self.cmd_eval(rest),
             "simplify" => self.cmd_simplify(rest),
             "diff" => self.cmd_diff(rest),
@@ -1067,8 +1103,9 @@ impl Session {
     /// - `qnn` fit cos(x+0.7) demo (Adam)
     /// - `qnn DATA [opt=...]` fit your own (x,y) pairs
     ///
-    /// DATA is a flat brace list {x0,y0, x1,y1, ...} (one pair per row).
-    /// Config: target=K (demo only), lr=E, steps=N, opt=adam|gd.
+    /// - `qnn [qubits=N] [layers=L] [DATA] [opt=...]` fit your own (x,y) pairs
+    ///   Default: 2 qubits, 2 layers. DATA is a flat brace list {x0,y0, x1,y1, ...}.
+    ///   Config: target=K (demo only), lr=E, steps=N, opt=adam|gd.
     fn cmd_qnn(&mut self, rest: &str) {
         let (data_src, cfg) = split_qnn_config(rest.trim());
         let data: Vec<(f64, f64)> = if data_src.is_empty() {
@@ -1078,12 +1115,15 @@ impl Session {
                 .map(|x| (x, (x + target).cos()))
                 .collect()
         } else {
-            match parse_dataset(data_src, 1) {
+            match parse_dataset(&data_src, 1) {
                 Ok(d) => d.into_iter().map(|(x, y)| (x[0], y)).collect(),
                 Err(e) => return eprintln!("qnn data error: {e}"),
             }
         };
-        run_qnn(&self.qnn, &data, &cfg);
+        let n_qubits = cfg.qubits.unwrap_or(2);
+        let layers = cfg.layers.unwrap_or(2);
+        let qnn = VariationalQnn::new(n_qubits, layers);
+        run_qnn(&qnn, &data, &cfg);
     }
 
     fn cmd_eval(&self, rest: &str) {
@@ -1862,6 +1902,562 @@ impl Session {
         }
     }
 
+    /// TEBD imaginary time evolution for TFIM ground state.
+    fn cmd_tebd(&mut self, rest: &str) {
+        use quantumforge::Complex64;
+        use quantumforge::tensor_network::TEBD;
+
+        let mut n_sites = self.qubits;
+        let mut dt = 0.05;
+        let mut truncation_tol = 1e-10;
+        let mut max_bond = 32;
+        let mut max_steps = 100;
+
+        for word in rest.split_whitespace() {
+            if let Some(v) = word
+                .strip_prefix("qubits=")
+                .and_then(|v| v.parse::<usize>().ok())
+            {
+                n_sites = v;
+            } else if let Some(v) = word.strip_prefix("dt=").and_then(|v| v.parse::<f64>().ok()) {
+                dt = v;
+            } else if let Some(v) = word
+                .strip_prefix("tol=")
+                .and_then(|v| v.parse::<f64>().ok())
+            {
+                truncation_tol = v;
+            } else if let Some(v) = word
+                .strip_prefix("max-bond=")
+                .and_then(|v| v.parse::<usize>().ok())
+            {
+                max_bond = v;
+            } else if let Some(v) = word
+                .strip_prefix("steps=")
+                .and_then(|v| v.parse::<usize>().ok())
+            {
+                max_steps = v;
+            }
+        }
+
+        if n_sites < 2 {
+            eprintln!("TEBD needs at least 2 qubits");
+            return;
+        }
+
+        let mps = MPS::zero_state(n_sites, max_bond);
+        let mut tebd = TEBD::new(mps, dt, max_bond, truncation_tol);
+
+        // Build ZZ Hamiltonian gates for TFIM: H = -Σ Z_i Z_{i+1} - Σ X_i
+        // Z⊗Z = diag(1, -1, -1, 1)
+        let zz = [
+            [
+                Complex64::new(-1.0, 0.0),
+                Complex64::ZERO,
+                Complex64::ZERO,
+                Complex64::ZERO,
+            ],
+            [
+                Complex64::ZERO,
+                Complex64::new(1.0, 0.0),
+                Complex64::ZERO,
+                Complex64::ZERO,
+            ],
+            [
+                Complex64::ZERO,
+                Complex64::ZERO,
+                Complex64::new(1.0, 0.0),
+                Complex64::ZERO,
+            ],
+            [
+                Complex64::ZERO,
+                Complex64::ZERO,
+                Complex64::ZERO,
+                Complex64::new(-1.0, 0.0),
+            ],
+        ];
+        let mut even_gates = Vec::new();
+        let mut odd_gates = Vec::new();
+        let mut even_single_gates = Vec::new();
+        let mut odd_single_gates = Vec::new();
+
+        // ZZ gates for even/odd bonds
+        for _i in 0..n_sites / 2 {
+            even_gates.push(zz);
+        }
+        for _i in 0..(n_sites - 1) / 2 {
+            odd_gates.push(zz);
+        }
+
+        // X gates for transverse field (-Σ X_i)
+        let x_gate = [
+            [Complex64::ZERO, Complex64::new(-1.0, 0.0)],
+            [Complex64::new(-1.0, 0.0), Complex64::ZERO],
+        ];
+        for _i in 0..n_sites.div_ceil(2) {
+            even_single_gates.push(x_gate);
+        }
+        for _i in 0..n_sites / 2 {
+            odd_single_gates.push(x_gate);
+        }
+
+        tebd.set_hamiltonian_gates(even_gates, odd_gates, even_single_gates, odd_single_gates);
+
+        println!(
+            "TEBD: n_sites={}, dt={}, max_bond={}, tol={}, steps={}",
+            n_sites, dt, max_bond, truncation_tol, max_steps
+        );
+        match tebd.find_ground_state(max_steps, 1e-8) {
+            Ok(energy) => {
+                println!("TEBD converged: ground state energy = {:.6}", energy);
+                self.tebd = Some(tebd);
+            }
+            Err(e) => eprintln!("TEBD error: {e}"),
+        }
+    }
+
+    /// DMRG variational ground state search for TFIM.
+    fn cmd_dmrg(&mut self, rest: &str) {
+        use quantumforge::Complex64;
+        use quantumforge::tensor_network::DMRG;
+
+        let mut n_sites = self.qubits;
+        let mut max_bond = 32;
+        let mut truncation_tol = 1e-10;
+        let mut max_sweeps = 20;
+
+        for word in rest.split_whitespace() {
+            if let Some(v) = word
+                .strip_prefix("qubits=")
+                .and_then(|v| v.parse::<usize>().ok())
+            {
+                n_sites = v;
+            } else if let Some(v) = word
+                .strip_prefix("bond=")
+                .and_then(|v| v.parse::<usize>().ok())
+            {
+                max_bond = v;
+            } else if let Some(v) = word
+                .strip_prefix("tol=")
+                .and_then(|v| v.parse::<f64>().ok())
+            {
+                truncation_tol = v;
+            } else if let Some(v) = word
+                .strip_prefix("sweeps=")
+                .and_then(|v| v.parse::<usize>().ok())
+            {
+                max_sweeps = v;
+            }
+        }
+
+        if n_sites < 2 {
+            eprintln!("DMRG needs at least 2 qubits");
+            return;
+        }
+
+        let mps = MPS::zero_state(n_sites, max_bond);
+        let mut dmrg = DMRG::new(mps, max_bond, truncation_tol, max_sweeps);
+
+        let zz = [
+            [
+                Complex64::new(-1.0, 0.0),
+                Complex64::ZERO,
+                Complex64::ZERO,
+                Complex64::ZERO,
+            ],
+            [
+                Complex64::ZERO,
+                Complex64::new(1.0, 0.0),
+                Complex64::ZERO,
+                Complex64::ZERO,
+            ],
+            [
+                Complex64::ZERO,
+                Complex64::ZERO,
+                Complex64::new(1.0, 0.0),
+                Complex64::ZERO,
+            ],
+            [
+                Complex64::ZERO,
+                Complex64::ZERO,
+                Complex64::ZERO,
+                Complex64::new(-1.0, 0.0),
+            ],
+        ];
+        let even_h = zz;
+        let odd_h = zz;
+
+        println!(
+            "DMRG: n_sites={}, max_bond={}, tol={}, sweeps={}",
+            n_sites, max_bond, truncation_tol, max_sweeps
+        );
+        match dmrg.run(&even_h, &odd_h) {
+            Ok(energy) => {
+                println!("DMRG converged: ground state energy = {:.6}", energy);
+                self.dmrg = Some(dmrg);
+            }
+            Err(e) => eprintln!("DMRG error: {e}"),
+        }
+    }
+
+    /// Print two-site correlation <Z_i Z_{i+1}> from live TEBD MPS.
+    fn cmd_tebd_correl(&self, rest: &str) {
+        use quantumforge::Complex64;
+
+        let mut site = 0;
+        for word in rest.split_whitespace() {
+            if let Some(v) = word
+                .strip_prefix("site=")
+                .and_then(|v| v.parse::<usize>().ok())
+            {
+                site = v;
+            }
+        }
+
+        if let Some(tebd) = &self.tebd {
+            let zz = [
+                [
+                    Complex64::new(1.0, 0.0),
+                    Complex64::ZERO,
+                    Complex64::ZERO,
+                    Complex64::ZERO,
+                ],
+                [
+                    Complex64::ZERO,
+                    Complex64::new(-1.0, 0.0),
+                    Complex64::ZERO,
+                    Complex64::ZERO,
+                ],
+                [
+                    Complex64::ZERO,
+                    Complex64::ZERO,
+                    Complex64::new(-1.0, 0.0),
+                    Complex64::ZERO,
+                ],
+                [
+                    Complex64::ZERO,
+                    Complex64::ZERO,
+                    Complex64::ZERO,
+                    Complex64::new(1.0, 0.0),
+                ],
+            ];
+            match tebd.mps.expectation_two_site(&zz, site) {
+                Ok(val) => println!("<Z_{} Z_{}> = {:.6}", site, site + 1, val),
+                Err(e) => eprintln!("correlation error: {e}"),
+            }
+        } else {
+            eprintln!("No TEBD state loaded. Run `tebd` first.");
+        }
+    }
+
+    /// Print two-site correlation <Z_i Z_{i+1}> from live DMRG MPS.
+    fn cmd_dmrg_correl(&self, rest: &str) {
+        use quantumforge::Complex64;
+
+        let mut site = 0;
+        for word in rest.split_whitespace() {
+            if let Some(v) = word
+                .strip_prefix("site=")
+                .and_then(|v| v.parse::<usize>().ok())
+            {
+                site = v;
+            }
+        }
+
+        if let Some(dmrg) = &self.dmrg {
+            let zz = [
+                [
+                    Complex64::new(1.0, 0.0),
+                    Complex64::ZERO,
+                    Complex64::ZERO,
+                    Complex64::ZERO,
+                ],
+                [
+                    Complex64::ZERO,
+                    Complex64::new(-1.0, 0.0),
+                    Complex64::ZERO,
+                    Complex64::ZERO,
+                ],
+                [
+                    Complex64::ZERO,
+                    Complex64::ZERO,
+                    Complex64::new(-1.0, 0.0),
+                    Complex64::ZERO,
+                ],
+                [
+                    Complex64::ZERO,
+                    Complex64::ZERO,
+                    Complex64::ZERO,
+                    Complex64::new(1.0, 0.0),
+                ],
+            ];
+            match dmrg.mps.expectation_two_site(&zz, site) {
+                Ok(val) => println!("<Z_{} Z_{}> = {:.6}", site, site + 1, val),
+                Err(e) => eprintln!("correlation error: {e}"),
+            }
+        } else {
+            eprintln!("No DMRG state loaded. Run `dmrg` first.");
+        }
+    }
+
+    /// Build QEC code and print stabilizers + logical operators.
+    fn cmd_qec_code(&mut self, rest: &str) {
+        use quantumforge::qec::{
+            repetition_code_bitflip, repetition_code_phaseflip, shor_code, steane_code,
+            surface_code_planar, surface_code_rotated,
+        };
+
+        let mut code_type = "bitflip";
+        let mut n = 3;
+        let mut d = 3;
+
+        for word in rest.split_whitespace() {
+            if let Some(v) = word.strip_prefix("type=") {
+                code_type = v;
+            } else if let Some(v) = word
+                .strip_prefix("n=")
+                .and_then(|v| v.parse::<usize>().ok())
+            {
+                n = v;
+            } else if let Some(v) = word
+                .strip_prefix("d=")
+                .and_then(|v| v.parse::<usize>().ok())
+            {
+                d = v;
+            }
+        }
+
+        let code = match code_type {
+            "bitflip" => {
+                if n < 3 || n % 2 == 0 {
+                    eprintln!("bitflip: n must be odd >= 3");
+                    return;
+                }
+                repetition_code_bitflip(n)
+            }
+            "phaseflip" => {
+                if n < 3 || n % 2 == 0 {
+                    eprintln!("phaseflip: n must be odd >= 3");
+                    return;
+                }
+                repetition_code_phaseflip(n)
+            }
+            "shor" => shor_code(),
+            "steane" => steane_code(),
+            "surface" => {
+                if d < 3 || d % 2 == 0 {
+                    eprintln!("surface: d must be odd >= 3");
+                    return;
+                }
+                surface_code_planar(d)
+            }
+            "rotated" => {
+                if d < 3 || d % 2 == 0 {
+                    eprintln!("rotated: d must be odd >= 3");
+                    return;
+                }
+                surface_code_rotated(d)
+            }
+            _ => {
+                eprintln!(
+                    "unknown code type: {} (try bitflip|phaseflip|shor|steane|surface|rotated)",
+                    code_type
+                );
+                return;
+            }
+        };
+
+        println!(
+            "QEC Code: {} (n={}, k={})",
+            code_type, code.n_physical, code.n_logical
+        );
+        println!("Stabilizers ({}):", code.stabilizers.len());
+        for (i, s) in code.stabilizers.iter().enumerate() {
+            println!("  S{} = {}", i, s);
+        }
+        println!("Logical X: {:?}", code.logical_x);
+        println!("Logical Z: {:?}", code.logical_z);
+        println!(
+            "Syndrome circuit: {} ops",
+            code.syndrome_circuit.operations().len()
+        );
+        println!("Recovery entries: {}", code.recovery.len());
+
+        self.qec_code = Some(code);
+    }
+
+    /// Encode logical |0> or |1> into repetition code.
+    fn cmd_qec_encode(&mut self, rest: &str) {
+        let mut code_type = "bitflip";
+        let mut n = 3;
+        let mut state = 0;
+
+        for word in rest.split_whitespace() {
+            if let Some(v) = word.strip_prefix("type=") {
+                code_type = v;
+            } else if let Some(v) = word
+                .strip_prefix("n=")
+                .and_then(|v| v.parse::<usize>().ok())
+            {
+                n = v;
+            } else if let Some(v) = word
+                .strip_prefix("state=")
+                .and_then(|v| v.parse::<u8>().ok())
+            {
+                state = v & 1;
+            }
+        }
+
+        match code_type {
+            "bitflip" => {
+                if n < 3 || n % 2 == 0 {
+                    eprintln!("bitflip: n must be odd >= 3");
+                    return;
+                }
+                repetition_code_bitflip(n)
+            }
+            "phaseflip" => {
+                if n < 3 || n % 2 == 0 {
+                    eprintln!("phaseflip: n must be odd >= 3");
+                    return;
+                }
+                repetition_code_phaseflip(n)
+            }
+            _ => {
+                eprintln!("encode only supports bitflip|phaseflip for now");
+                return;
+            }
+        };
+
+        let logical = if state == 0 {
+            StateVector::zero(1).unwrap()
+        } else {
+            // |1> = X|0>
+            let mut s = StateVector::zero(1).unwrap();
+            s.apply(Gate::X, 0).unwrap();
+            s
+        };
+
+        match encode_repetition_bitflip(&logical, n) {
+            Ok(encoded) => {
+                println!(
+                    "Encoded logical |{}> into {}-qubit repetition code",
+                    state, n
+                );
+                self.state = encoded;
+                self.qubits = n;
+                self.circuit.clear();
+                self.cmd_state();
+            }
+            Err(e) => eprintln!("encode error: {e}"),
+        }
+    }
+
+    /// Measure syndrome on live state using code's syndrome circuit.
+    fn cmd_qec_syndrome(&mut self) {
+        if let Some(code) = &self.qec_code {
+            if code.syndrome_circuit.operations().is_empty() {
+                eprintln!("Code has no syndrome circuit");
+                return;
+            }
+            let n_data = code.n_physical;
+            let n_ancilla = n_data - 1; // for repetition codes
+            let n_total = n_data + n_ancilla;
+
+            // Get current density matrix and pad with ancilla qubits
+            let density: DensityMatrix = if let Some(ref d) = self.density {
+                                            (*d).clone()
+                                        } else {
+                                            DensityMatrix::from_state(&self.state)
+                                        };
+
+            // Pad density matrix with ancilla qubits in |0><0| state
+            let padded_density = Self::pad_density_with_ancillas(density, n_data, n_total);
+
+            match code.syndrome_circuit.run_density(padded_density) {
+                Ok(result) => {
+                    self.density = Some(result);
+                    self.qubits = n_total;
+                    println!(
+                        "Syndrome measurement complete. Ancilla qubits measured. Total qubits: {}",
+                        n_total
+                    );
+                    self.cmd_probs();
+                }
+                Err(e) => eprintln!("syndrome error: {e}"),
+            }
+        } else {
+            eprintln!("No QEC code loaded. Run `qec-code` first.");
+        }
+    }
+
+    /// Pad a density matrix with ancilla qubits initialized to |0><0|.
+    fn pad_density_with_ancillas(
+        density: DensityMatrix,
+        n_data: usize,
+        n_total: usize,
+    ) -> DensityMatrix {
+        use quantumforge::Complex64;
+        if n_total == n_data {
+            return density;
+        }
+        let n_ancilla = n_total - n_data;
+        let dim_data = 1 << n_data;
+        let dim_total = 1 << n_total;
+        let mut entries = vec![Complex64::ZERO; dim_total * dim_total];
+
+        // Copy original density matrix into the top-left block (ancillas in |0>)
+        for i in 0..dim_data {
+            for j in 0..dim_data {
+                let val = density.entries()[i * dim_data + j];
+                // Map data indices to total indices with ancillas=0
+                let idx_i = i << n_ancilla; // i * 2^n_ancilla
+                let idx_j = j << n_ancilla;
+                entries[idx_i * dim_total + idx_j] = val;
+            }
+        }
+
+        DensityMatrix::from_entries(entries, n_total)
+    }
+
+    /// Apply recovery circuit for given syndrome.
+    fn cmd_qec_recover(&mut self, rest: &str) {
+        let mut syndrome = 0u32;
+        for word in rest.split_whitespace() {
+            if let Some(v) = word
+                .strip_prefix("syndrome=")
+                .and_then(|v| v.parse::<u32>().ok())
+            {
+                syndrome = v;
+            }
+        }
+
+        if let Some(code) = &self.qec_code {
+            if let Some(recovery) = code.recovery.get(&syndrome) {
+                let density = if let Some(d) = &self.density {
+                                d.clone()
+                            } else {
+                                DensityMatrix::from_state(&self.state)
+                            };
+                match recovery.run_density(density) {
+                    Ok(result) => {
+                        self.density = Some(result);
+                        println!("Recovery applied for syndrome {}.", syndrome);
+                        self.cmd_probs();
+                    }
+                    Err(e) => eprintln!("recovery error: {e}"),
+                }
+            } else {
+                eprintln!(
+                    "No recovery circuit for syndrome {} (recovery map has {} entries)",
+                    syndrome,
+                    code.recovery.len()
+                );
+            }
+        } else {
+            eprintln!("No QEC code loaded. Run `qec-code` first.");
+        }
+    }
+
     /// Run the current circuit on CUDA GPU (stub when CUDA feature disabled).
     #[cfg(not(feature = "cuda"))]
     fn cmd_cuda(&mut self, _rest: &str) {
@@ -2291,13 +2887,15 @@ fn run_regression(data: &[(Vec<f64>, f64)], label: &str, config: &TrainConfig) {
     }
 }
 
-/// Config for the interactive `qnn` command (target=, lr=, steps=, opt=).
+/// Config for the interactive `qnn` command (target=, lr=, steps=, opt=, qubits=, layers=).
 #[derive(Clone, Copy)]
 struct QnnConfig {
     target: f64,
     lr: f64,
     steps: usize,
     adam: bool,
+    qubits: Option<usize>,
+    layers: Option<usize>,
 }
 impl Default for QnnConfig {
     fn default() -> Self {
@@ -2306,50 +2904,90 @@ impl Default for QnnConfig {
             lr: 0.05,
             steps: 100,
             adam: true,
+            qubits: None,
+            layers: None,
         }
     }
 }
 
 /// Split a `qnn` tail into the DATA expression and trailing `key=value` config.
-fn split_qnn_config(tail: &str) -> (&str, QnnConfig) {
+/// Data is expected to be a brace-enclosed list `{...}` anywhere in the string.
+fn split_qnn_config(tail: &str) -> (String, QnnConfig) {
     let mut cfg = QnnConfig::default();
-    let mut data_end = tail.len();
-    for (i, _) in tail.match_indices(char::is_whitespace) {
-        let word = tail[i..].split_whitespace().next().unwrap_or("");
+    let trimmed = tail.trim();
+    
+    // Find the data part: the first brace-enclosed list `{...}`
+    let mut data_start = None;
+    let mut data_end = None;
+    let mut depth = 0;
+    for (i, ch) in trimmed.char_indices() {
+        if ch == '{' {
+            if depth == 0 {
+                data_start = Some(i);
+            }
+            depth += 1;
+        } else if ch == '}' {
+            if depth > 0 {
+                depth -= 1;
+                if depth == 0 {
+                    data_end = Some(i + 1);
+                    break;
+                }
+            }
+        }
+    }
+    
+    let (data_part, config_part) = if let (Some(start), Some(end)) = (data_start, data_end) {
+        let config = format!("{} {}", &trimmed[..start], &trimmed[end..]);
+        (trimmed[start..end].to_string(), config.trim().to_string())
+    } else {
+        // No brace-enclosed data
+        (trimmed.to_string(), String::new())
+    };
+    
+    // Parse config options from the config part
+    for word in config_part.split_whitespace() {
         if let Some(v) = word
             .strip_prefix("target=")
             .and_then(|v| v.parse::<f64>().ok())
         {
             cfg.target = v;
-            data_end = data_end.min(i);
         } else if let Some(v) = word.strip_prefix("lr=").and_then(|v| v.parse::<f64>().ok()) {
             cfg.lr = v;
-            data_end = data_end.min(i);
         } else if let Some(v) = word
             .strip_prefix("steps=")
             .and_then(|v| v.parse::<usize>().ok())
         {
             cfg.steps = v;
-            data_end = data_end.min(i);
+        } else if let Some(v) = word
+            .strip_prefix("qubits=")
+            .and_then(|v| v.parse::<usize>().ok())
+        {
+            cfg.qubits = Some(v);
+        } else if let Some(v) = word
+            .strip_prefix("layers=")
+            .and_then(|v| v.parse::<usize>().ok())
+        {
+            cfg.layers = Some(v);
         } else if word == "opt=adam" {
             cfg.adam = true;
-            data_end = data_end.min(i);
         } else if word == "opt=gd" {
             cfg.adam = false;
-            data_end = data_end.min(i);
         }
     }
-    (tail[..data_end].trim(), cfg)
+    
+    (data_part, cfg)
 }
 
-/// Fit the 1-parameter VariationalQnn to `data` with the chosen optimizer and
-/// report initial/final MSE and the learned weight.
+/// Fit the multi-parameter VariationalQnn to `data` with the chosen optimizer and
+/// report initial/final MSE and the learned weights.
 fn run_qnn(qnn: &VariationalQnn, data: &[(f64, f64)], cfg: &QnnConfig) {
     if data.is_empty() {
         return eprintln!("qnn: empty dataset");
     }
-    let init = -1.2;
-    let (l0, _) = match qnn.loss_and_gradient(data, init) {
+    let n_params = qnn.num_qubits * qnn.layers;
+    let init = vec![-1.2; n_params];
+    let (l0, _) = match qnn.loss_and_gradient(data, &init) {
         Ok(v) => v,
         Err(e) => return eprintln!("qnn error: {e}"),
     };
@@ -2362,17 +3000,17 @@ fn run_qnn(qnn: &VariationalQnn, data: &[(f64, f64)], cfg: &QnnConfig) {
         Ok(w) => w,
         Err(e) => return eprintln!("qnn error: {e}"),
     };
-    let (l1, _) = match qnn.loss_and_gradient(data, trained) {
+    let (l1, _) = match qnn.loss_and_gradient(data, &trained) {
         Ok(v) => v,
         Err(e) => return eprintln!("qnn error: {e}"),
     };
     let opt = if cfg.adam { "Adam" } else { "GD" };
     println!(
-        "qnn (1-param Ry-encode + trainable Ry, <Z> readout, {opt}, {} samples):",
-        data.len()
+        "qnn ({}-qubit, {} layer, {} params, Ry-encode + CNOT ring + Ry, <Z> readout, {opt}, {} samples):",
+        qnn.num_qubits, qnn.layers, n_params, data.len()
     );
     println!(
-        "  mse: {l0:.6} -> {l1:.6}   weight = {trained:.6}  (lr={}, steps={})",
+        "  mse: {l0:.6} -> {l1:.6}   weights = {trained:?}  (lr={}, steps={})",
         cfg.lr, cfg.steps
     );
 }

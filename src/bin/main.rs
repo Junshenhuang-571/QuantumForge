@@ -438,25 +438,25 @@ fn run_demo() {
         shot_result.counts
     );
 
-    let qnn = VariationalQnn;
-    let target_weight: f64 = 0.7;
-    let data: Vec<(f64, f64)> = [-1.0, -0.5, 0.0, 0.5, 1.0]
-        .into_iter()
-        .map(|x| (x, (x + target_weight).cos()))
-        .collect();
-    let initial_weight = -1.2;
-    let (initial_loss, _) = qnn
-        .loss_and_gradient(&data, initial_weight)
-        .expect("valid data");
-    let learned_weight = qnn
-        .train_adam(&data, initial_weight, 0.05, 100, 2, 42)
-        .expect("training succeeds");
-    let (final_loss, _) = qnn
-        .loss_and_gradient(&data, learned_weight)
-        .expect("valid data");
-    println!("QNN target parameter = {target_weight:.4}");
-    println!("QNN trained parameter = {learned_weight:.4}");
-    println!("QNN Adam mini-batch loss: {initial_loss:.6} -> {final_loss:.6}");
+    let qnn = VariationalQnn::new(2, 2);
+        let target_weights: Vec<f64> = vec![0.7; 4]; // 2 qubits * 2 layers = 4 params
+        let data: Vec<(f64, f64)> = [-1.0, -0.5, 0.0, 0.5, 1.0]
+            .into_iter()
+            .map(|x| (x, (x + target_weights[0]).cos()))
+            .collect();
+        let initial_weights = vec![-1.2; 4];
+        let (initial_loss, _) = qnn
+            .loss_and_gradient(&data, &initial_weights)
+            .expect("valid data");
+        let learned_weights = qnn
+                    .train_adam(&data, initial_weights.clone(), 0.05, 100, 2, 42)
+                    .expect("training succeeds");
+        let (final_loss, _) = qnn
+            .loss_and_gradient(&data, &learned_weights)
+            .expect("valid data");
+        println!("QNN target weights = {target_weights:?}");
+        println!("QNN trained weights = {learned_weights:?}");
+        println!("QNN Adam mini-batch loss: {initial_loss:.6} -> {final_loss:.6}");
 
     let mut variational = ParameterizedCircuit::new(2);
     variational.rotation(RotationAxis::Y, 0, 0);
@@ -502,7 +502,7 @@ fn run_demo() {
     let (general_initial_loss, _) = qnn_model
         .mse_loss_and_gradient(
             &qnn_data,
-            &[initial_weight],
+            &initial_weights,
             1,
             quantumforge::SingleQubitObservable::Z,
             0,
@@ -511,7 +511,7 @@ fn run_demo() {
     let trained_weights = qnn_model
         .train_regression_adam(
             &qnn_data,
-            &[initial_weight],
+            &initial_weights,
             1,
             quantumforge::SingleQubitObservable::Z,
             0,

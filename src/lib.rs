@@ -15,6 +15,7 @@ pub mod parser;
 pub use parser::parse_circuit;
 pub mod algorithms;
 pub mod algorithms_templates;
+pub mod hardware;
 pub mod optimizer;
 #[cfg(feature = "pyo3")]
 pub mod python;
@@ -26,6 +27,7 @@ pub mod quantum;
 pub mod serialize;
 pub mod tensor_network;
 
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt;
@@ -94,8 +96,14 @@ impl std::ops::Div<f64> for Complex64 {
 pub enum QuantumError {
     ZeroQubits,
     StateSizeNotPowerOfTwo(usize),
-    QubitOutOfRange { qubit: usize, qubits: usize },
-    InvalidQubitPair { first: usize, second: usize },
+    QubitOutOfRange {
+        qubit: usize,
+        qubits: usize,
+    },
+    InvalidQubitPair {
+        first: usize,
+        second: usize,
+    },
     InvalidProbability(f64),
     InvalidTrainingData,
     InvalidSubsystemSelection,
@@ -103,10 +111,20 @@ pub enum QuantumError {
     OperationRequiresShotExecution,
     InvalidShotCount,
     ClassicalBitOutOfRange(usize),
-    InvalidParameterCount { expected: usize, actual: usize },
-    InvalidInputCount { expected: usize, actual: usize },
+    InvalidParameterCount {
+        expected: usize,
+        actual: usize,
+    },
+    InvalidInputCount {
+        expected: usize,
+        actual: usize,
+    },
     NonFiniteParameter,
     InvalidOptimizerConfiguration,
+    UnsupportedOperation(String),
+    Timeout,
+    #[cfg(feature = "cuda")]
+    CudaError(String),
 }
 
 impl fmt::Display for QuantumError {
@@ -157,10 +175,21 @@ impl fmt::Display for QuantumError {
                 f,
                 "optimizer learning rate and batch size must be positive and finite"
             ),
+            Self::UnsupportedOperation(msg) => write!(f, "unsupported operation: {msg}"),
+            Self::Timeout => write!(f, "operation timed out"),
+            #[cfg(feature = "cuda")]
+            Self::CudaError(msg) => write!(f, "CUDA error: {msg}"),
         }
     }
 }
 impl Error for QuantumError {}
+
+#[cfg(feature = "cuda")]
+impl From<crate::cuda::CudaError> for QuantumError {
+    fn from(e: crate::cuda::CudaError) -> Self {
+        QuantumError::CudaError(e.to_string())
+    }
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct StateVector {
@@ -532,11 +561,20 @@ pub struct DensityMatrix {
     qubits: usize,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub enum NoiseChannel {
     Depolarizing { probability: f64 },
     AmplitudeDamping { gamma: f64 },
     PhaseDamping { gamma: f64 },
+}
+
+impl NoiseChannel {
+    pub fn params(&self) -> Vec<f64> {
+        match self {
+            Self::Depolarizing { probability } => vec![*probability],
+            Self::AmplitudeDamping { gamma } | Self::PhaseDamping { gamma } => vec![*gamma],
+        }
+    }
 }
 
 impl DensityMatrix {
@@ -581,6 +619,18 @@ impl DensityMatrix {
             dimension,
             qubits,
         })
+    }
+
+    /// Create a density matrix from raw entries and qubit count.
+    /// Useful for constructing custom density matrices (e.g., padded with ancillas).
+    pub fn from_entries(entries: Vec<Complex64>, qubits: usize) -> Self {
+        let dimension = 1usize << qubits;
+        debug_assert_eq!(entries.len(), dimension * dimension);
+        Self {
+            entries,
+            dimension,
+            qubits,
+        }
     }
 
     pub fn qubits(&self) -> usize {
@@ -1016,7 +1066,7 @@ fn validate_probability(probability: f64) -> Result<(), QuantumError> {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Gate {
     I,
     X,
@@ -1099,6 +1149,32 @@ impl Gate {
             }
         }
     }
+
+    pub fn params(&self) -> Vec<f64> {
+        match self {
+            Self::Rx(theta) | Self::Ry(theta) | Self::Rz(theta) => vec![*theta],
+            _ => vec![],
+        }
+    }
+}
+
+impl fmt::Display for Gate {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::I => write!(f, "I"),
+            Self::X => write!(f, "X"),
+            Self::Y => write!(f, "Y"),
+            Self::Z => write!(f, "Z"),
+            Self::H => write!(f, "H"),
+            Self::S => write!(f, "S"),
+            Self::Sdg => write!(f, "Sdg"),
+            Self::T => write!(f, "T"),
+            Self::Tdg => write!(f, "Tdg"),
+            Self::Rx(t) => write!(f, "Rx({})", t),
+            Self::Ry(t) => write!(f, "Ry({})", t),
+            Self::Rz(t) => write!(f, "Rz({})", t),
+        }
+    }
 }
 
 fn rotation_gate(axis: RotationAxis, theta: f64) -> Gate {
@@ -1122,7 +1198,7 @@ fn adjoint_gate(gate: Gate) -> Gate {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub enum CircuitOp {
     SingleQubit {
         gate: Gate,
@@ -1158,15 +1234,15 @@ pub enum CircuitOp {
 
 /// Measurement counts indexed by classical-register bit values, least-significant
 /// classical bit first. Unwritten classical bits are zero.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ShotResult {
     pub shots: usize,
     pub counts: BTreeMap<Vec<u8>, usize>,
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Circuit {
-    operations: Vec<CircuitOp>,
+    pub operations: Vec<CircuitOp>,
 }
 impl Circuit {
     pub fn new() -> Self {
@@ -1209,6 +1285,29 @@ impl Circuit {
     }
     pub fn operations_mut(&mut self) -> &mut Vec<CircuitOp> {
         &mut self.operations
+    }
+    pub fn num_qubits(&self) -> usize {
+        let mut max_qubit = 0;
+        for op in &self.operations {
+            match op {
+                CircuitOp::SingleQubit { target, .. } => max_qubit = max_qubit.max(*target),
+                CircuitOp::Cnot { control, target } => {
+                    max_qubit = max_qubit.max(*control).max(*target);
+                }
+                CircuitOp::Cz { first, second } => {
+                    max_qubit = max_qubit.max(*first).max(*second);
+                }
+                CircuitOp::Swap { first, second } => {
+                    max_qubit = max_qubit.max(*first).max(*second);
+                }
+                CircuitOp::Channel { target, .. } => max_qubit = max_qubit.max(*target),
+                CircuitOp::Measure { target, .. } => max_qubit = max_qubit.max(*target),
+                CircuitOp::ConditionalSingleQubit { target, .. } => {
+                    max_qubit = max_qubit.max(*target);
+                }
+            }
+        }
+        max_qubit + 1
     }
     pub fn run(&self, mut state: StateVector) -> Result<StateVector, QuantumError> {
         for op in &self.operations {
@@ -1342,13 +1441,13 @@ impl Circuit {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RotationAxis {
     X,
     Y,
     Z,
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SingleQubitObservable {
     X,
     Y,
@@ -3167,82 +3266,142 @@ impl SmallRng {
     }
 }
 
-/// A one-qubit variational quantum model: |0> -> Ry(input) -> Ry(weight),
-/// with the Z expectation as its scalar output.
-#[derive(Clone, Copy, Debug, Default)]
-pub struct VariationalQnn;
+/// Variational Quantum Neural Network with configurable depth and width.
+///
+/// Architecture: Ry(input) on all qubits -> CNOT ring -> Ry(weights) on all qubits
+/// Repeated for `layers` times. Final readout: <Z> on qubit 0.
+#[derive(Clone, Debug, Default)]
+pub struct VariationalQnn {
+    pub num_qubits: usize,
+    pub layers: usize,
+}
+
 impl VariationalQnn {
-    pub fn evaluate(&self, input: f64, weight: f64) -> Result<f64, QuantumError> {
+    pub fn new(num_qubits: usize, layers: usize) -> Self {
+        Self { num_qubits, layers }
+    }
+
+    pub fn evaluate(&self, input: f64, weights: &[f64]) -> Result<f64, QuantumError> {
+        if weights.len() != self.num_qubits * self.layers {
+            return Err(QuantumError::InvalidParameterCount {
+                expected: self.num_qubits * self.layers,
+                actual: weights.len(),
+            });
+        }
         let mut circuit = Circuit::new();
-        circuit.push(Gate::Ry(input), 0);
-        circuit.push(Gate::Ry(weight), 0);
-        circuit.run(StateVector::zero(1)?)?.expectation_z(0)
+        for layer in 0..self.layers {
+            // Encoding: Ry(input) on all qubits
+            for q in 0..self.num_qubits {
+                circuit.push(Gate::Ry(input), q);
+            }
+            // Entangling layer: CNOT ring
+            for q in 0..self.num_qubits {
+                circuit.cnot(q, (q + 1) % self.num_qubits);
+            }
+            // Variational: Ry(weight) on all qubits
+            for q in 0..self.num_qubits {
+                let idx = layer * self.num_qubits + q;
+                circuit.push(Gate::Ry(weights[idx]), q);
+            }
+        }
+        let state = circuit.run(StateVector::zero(self.num_qubits)?)?;
+        state.expectation_z(0)
     }
 
-    /// Exact parameter-shift derivative for this model's rotation parameter.
-    pub fn gradient(&self, input: f64, weight: f64) -> Result<f64, QuantumError> {
+    /// Exact parameter-shift derivative for each weight.
+    pub fn gradient(&self, input: f64, weights: &[f64]) -> Result<Vec<f64>, QuantumError> {
         let shift = std::f64::consts::FRAC_PI_2;
-        Ok(0.5 * (self.evaluate(input, weight + shift)? - self.evaluate(input, weight - shift)?))
+        let mut grads = Vec::with_capacity(weights.len());
+        for i in 0..weights.len() {
+            let mut w_plus = weights.to_vec();
+            let mut w_minus = weights.to_vec();
+            w_plus[i] += shift;
+            w_minus[i] -= shift;
+            let val_plus = self.evaluate(input, &w_plus)?;
+            let val_minus = self.evaluate(input, &w_minus)?;
+            grads.push(0.5 * (val_plus - val_minus));
+        }
+        Ok(grads)
     }
 
-    /// Mean squared error and derivative with respect to the single weight.
+    /// Mean squared error and gradients with respect to all weights.
     pub fn loss_and_gradient(
         &self,
         data: &[(f64, f64)],
-        weight: f64,
-    ) -> Result<(f64, f64), QuantumError> {
+        weights: &[f64],
+    ) -> Result<(f64, Vec<f64>), QuantumError> {
         if data.is_empty() || data.iter().any(|(x, y)| !x.is_finite() || !y.is_finite()) {
             return Err(QuantumError::InvalidTrainingData);
         }
+        if weights.len() != self.num_qubits * self.layers {
+            return Err(QuantumError::InvalidParameterCount {
+                expected: self.num_qubits * self.layers,
+                actual: weights.len(),
+            });
+        }
         let mut loss = 0.0;
-        let mut gradient = 0.0;
+        let mut gradient = vec![0.0; weights.len()];
         for &(input, target) in data {
-            let prediction = self.evaluate(input, weight)?;
+            let prediction = self.evaluate(input, weights)?;
             let residual = prediction - target;
             loss += residual * residual;
-            gradient += 2.0 * residual * self.gradient(input, weight)?;
+            let grads = self.gradient(input, weights)?;
+            for (g, &grad) in gradient.iter_mut().zip(grads.iter()) {
+                *g += 2.0 * residual * grad;
+            }
         }
         let n = data.len() as f64;
-        Ok((loss / n, gradient / n))
+        for g in &mut gradient {
+            *g /= n;
+        }
+        Ok((loss / n, gradient))
     }
 
-    /// Perform a fixed number of full-batch gradient-descent steps.
+    /// Gradient descent with full-batch gradients.
     pub fn train(
         &self,
         data: &[(f64, f64)],
-        mut weight: f64,
+        mut weights: Vec<f64>,
         learning_rate: f64,
         steps: usize,
-    ) -> Result<f64, QuantumError> {
+    ) -> Result<Vec<f64>, QuantumError> {
         if !learning_rate.is_finite() || learning_rate <= 0.0 {
             return Err(QuantumError::InvalidTrainingData);
         }
         for _ in 0..steps {
-            let (_, gradient) = self.loss_and_gradient(data, weight)?;
-            weight -= learning_rate * gradient;
+            let (_, gradient) = self.loss_and_gradient(data, &weights)?;
+            for (w, g) in weights.iter_mut().zip(gradient.iter()) {
+                *w -= learning_rate * g;
+            }
         }
-        Ok(weight)
+        Ok(weights)
     }
 
     /// Adam optimization with deterministic shuffling and mini-batch gradients.
     pub fn train_adam(
         &self,
         data: &[(f64, f64)],
-        mut weight: f64,
+        mut weights: Vec<f64>,
         learning_rate: f64,
         epochs: usize,
         batch_size: usize,
         seed: u64,
-    ) -> Result<f64, QuantumError> {
+    ) -> Result<Vec<f64>, QuantumError> {
         if !learning_rate.is_finite() || learning_rate <= 0.0 || batch_size == 0 {
             return Err(QuantumError::InvalidOptimizerConfiguration);
         }
         if data.is_empty() || data.iter().any(|(x, y)| !x.is_finite() || !y.is_finite()) {
             return Err(QuantumError::InvalidTrainingData);
         }
+        if weights.len() != self.num_qubits * self.layers {
+            return Err(QuantumError::InvalidParameterCount {
+                expected: self.num_qubits * self.layers,
+                actual: weights.len(),
+            });
+        }
         let mut order: Vec<usize> = (0..data.len()).collect();
         let mut rng = SmallRng::seeded(seed);
-        let mut optimizer = Adam::new(1);
+        let mut optimizer = Adam::new(weights.len());
         for _ in 0..epochs {
             for i in (1..order.len()).rev() {
                 let j = (rng.next_u64() as usize) % (i + 1);
@@ -3250,13 +3409,11 @@ impl VariationalQnn {
             }
             for batch in order.chunks(batch_size) {
                 let samples: Vec<(f64, f64)> = batch.iter().map(|&i| data[i]).collect();
-                let (_, gradient) = self.loss_and_gradient(&samples, weight)?;
-                let mut params = [weight];
-                optimizer.update(&mut params, &[gradient], learning_rate)?;
-                weight = params[0];
+                let (_, gradient) = self.loss_and_gradient(&samples, &weights)?;
+                optimizer.update(&mut weights, &gradient, learning_rate)?;
             }
         }
-        Ok(weight)
+        Ok(weights)
     }
 }
 

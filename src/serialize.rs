@@ -132,40 +132,51 @@ impl Circuit {
 impl SerializedCircuit {
     /// Convert back to Circuit.
     pub fn to_circuit(&self) -> Result<Circuit, serde_json::Error> {
-        let circuit = Circuit::new();
+        let mut circuit = Circuit::new();
 
         for op in &self.operations {
             match op {
                 SerializedOp::SingleQubit {
-                    gate: _gate,
-                    target: _,
+                    gate: gate_name,
+                    target,
                     params,
                 } => {
-                    let _gate = deserialize_gate(_gate, params)?;
-                    // Note: This requires Circuit to have a method to add ops directly
-                    // For now, we'll use the builder pattern
-                    return Err(serde_json::Error::io(std::io::Error::new(
-                        std::io::ErrorKind::InvalidData,
-                        "Circuit reconstruction needs builder",
-                    )));
+                    let gate = deserialize_gate(gate_name, params)?;
+                    circuit.push(gate, *target);
                 }
-                SerializedOp::Cnot {
-                    control: _,
-                    target: _,
-                } => {}
-                SerializedOp::Cz {
-                    first: _,
-                    second: _,
-                } => {}
-                SerializedOp::Swap {
-                    first: _,
-                    second: _,
-                } => {}
+                SerializedOp::Cnot { control, target } => {
+                    circuit.cnot(*control, *target);
+                }
+                SerializedOp::Cz { first, second } => {
+                    circuit.cz(*first, *second);
+                }
+                SerializedOp::Swap { first, second } => {
+                    circuit.swap(*first, *second);
+                }
                 SerializedOp::Measure {
-                    target: _,
-                    classical_bit: _,
-                } => {}
-                _ => {}
+                    target,
+                    classical_bit,
+                } => {
+                    circuit.measure(*target, *classical_bit);
+                }
+                SerializedOp::ConditionalSingleQubit {
+                    classical_bit,
+                    value,
+                    gate: gate_name,
+                    target,
+                    params,
+                } => {
+                    let gate = deserialize_gate(gate_name, params)?;
+                    circuit.if_classical_bit(*classical_bit, *value, gate, *target);
+                }
+                SerializedOp::Channel {
+                    channel: chan_name,
+                    target,
+                    params,
+                } => {
+                    let channel = deserialize_channel(chan_name, params)?;
+                    circuit.channel(*target, channel);
+                }
             }
         }
 
@@ -284,6 +295,31 @@ fn deserialize_gate(name: &str, params: &[f64]) -> Result<Gate, serde_json::Erro
     })
 }
 
+/// Convert SerializedOp back to NoiseChannel (for deserialization).
+fn deserialize_channel(
+    name: &str,
+    params: &[f64],
+) -> Result<crate::NoiseChannel, serde_json::Error> {
+    use crate::NoiseChannel::*;
+    Ok(match name {
+        "Depolarizing" => Depolarizing {
+            probability: *params.first().unwrap_or(&0.0),
+        },
+        "AmplitudeDamping" => AmplitudeDamping {
+            gamma: *params.first().unwrap_or(&0.0),
+        },
+        "PhaseDamping" => PhaseDamping {
+            gamma: *params.first().unwrap_or(&0.0),
+        },
+        _ => {
+            return Err(serde_json::Error::io(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("Unknown noise channel: {}", name),
+            )));
+        }
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -328,5 +364,27 @@ mod tests {
             channel_to_serialized(&AmplitudeDamping { gamma: 0.2 }),
             ("AmplitudeDamping".to_string(), vec![0.2])
         );
+    }
+
+    #[test]
+    fn test_round_trip_serialization() {
+        let mut circuit = Circuit::new();
+        circuit.push(Gate::H, 0);
+        circuit.push(Gate::Rx(1.57), 0);
+        circuit.cnot(0, 1);
+        circuit.cz(0, 1);
+        circuit.swap(0, 1);
+        circuit.measure(0, 0);
+        circuit.measure(1, 1);
+        circuit.if_classical_bit(0, 1, Gate::X, 1);
+        circuit.channel(0, crate::NoiseChannel::Depolarizing { probability: 0.1 });
+        circuit.channel(1, crate::NoiseChannel::AmplitudeDamping { gamma: 0.05 });
+
+        let json = circuit.to_json().unwrap();
+        let restored = Circuit::from_json(&json).unwrap();
+
+        let orig_json = circuit.to_json().unwrap();
+        let restored_json = restored.to_json().unwrap();
+        assert_eq!(orig_json, restored_json);
     }
 }

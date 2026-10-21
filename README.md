@@ -152,6 +152,51 @@ qf> vqe hubbard
   |vqe - exact| = 5.92e-12  ✓ converged
 ```
 
+### Tensor Network commands (TEBD / DMRG)
+
+Imaginary-time evolution and variational ground-state search for 1D nearest-neighbor Hamiltonians (TFIM: `-Σ Z_i Z_{i+1} - Σ X_i`). Both use SVD-based truncation with bond-dimension control.
+
+| Command | What it does |
+|---|---|
+| `tebd [qubits=N] [dt=..] [tol=..] [max-bond=..] [steps=N]` | TEBD imaginary-time evolution — outputs ground state energy, updates live MPS |
+| `dmrg [qubits=N] [bond=..] [tol=..] [sweeps=N]` | DMRG variational sweeps — same Hamiltonian, sweeps until energy converges |
+| `tebd-correl [site=..]` | Print `<Z_i Z_{i+1}>` from live TEBD MPS |
+| `dmrg-correl [site=..]` | Print `<Z_i Z_{i+1}>` from live DMRG MPS |
+
+Example:
+```
+qf> tebd qubits=6 dt=0.05 tol=1e-10 max-bond=32 steps=50
+TEBD converged: ground state energy = -2.414213
+qf> tebd-correl site=2
+<Z_2 Z_3> = 0.585786
+qf> dmrg qubits=8 bond=64 tol=1e-12 sweeps=20
+DMRG converged: ground state energy = -2.414213
+qf> dmrg-correl site=3
+<Z_3 Z_4> = 0.585786
+```
+
+### QEC commands
+
+Stabilizer codes with syndrome extraction circuits and (stubbed) recovery tables. Currently supports bit-flip / phase-flip repetition codes, Shor's 9-qubit, Steane's 7-qubit, and planar/rotated surface codes.
+
+| Command | What it does |
+|---|---|
+| `qec-code [type=bitflip\|phaseflip\|shor\|steane\|surface] [n=..] [d=..]` | Build QEC code, print stabilizers + logical ops |
+| `qec-encode [type=bitflip\|phaseflip] [n=..] [state=0\|1]` | Encode logical \|0⟩ or \|1⟩ into repetition code, updates live state |
+| `qec-syndrome` | Measure syndrome on live state using code's circuit (pads with ancillas) |
+| `qec-recover [syndrome=N]` | Apply recovery circuit for given syndrome bits |
+
+Example:
+```
+qf> qec-code type=bitflip n=5
+QEC Code: bitflip (n=5, k=1)
+Stabilizers (4): S0=ZZIII, S1=IZZII, S2=IIZZI, S3=IIIZZ
+qf> qec-encode type=bitflip n=5 state=1
+Encoded logical |1> into 5-qubit repetition code
+qf> qec-syndrome
+Syndrome measurement complete. Ancilla qubits measured.
+```
+
 ## Command-line binary
 
 ```bash
