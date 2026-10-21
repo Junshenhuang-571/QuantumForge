@@ -393,11 +393,40 @@ pub mod local {
         }
 
         fn list_devices(&self) -> Result<Vec<DeviceInfo>> {
+            #[cfg(feature = "cuda")]
             let mut devices = vec![DeviceInfo {
                 id: "cpu".to_string(),
                 name: "Local CPU Simulator".to_string(),
                 provider: "local".to_string(),
-                num_qubits: 30, // Practical limit for state-vector
+                num_qubits: 30,
+                topology: vec![],
+                basis_gates: vec![
+                    "H".into(),
+                    "X".into(),
+                    "Y".into(),
+                    "Z".into(),
+                    "RX".into(),
+                    "RY".into(),
+                    "RZ".into(),
+                    "CNOT".into(),
+                    "CZ".into(),
+                    "SWAP".into(),
+                ],
+                max_shots: 1_000_000,
+                max_experiments: 1,
+                simulator: true,
+                operational: true,
+                avg_readout_error: None,
+                avg_cnot_error: None,
+                avg_single_qubit_error: None,
+            }];
+
+            #[cfg(not(feature = "cuda"))]
+            let devices = vec![DeviceInfo {
+                id: "cpu".to_string(),
+                name: "Local CPU Simulator".to_string(),
+                provider: "local".to_string(),
+                num_qubits: 30,
                 topology: vec![],
                 basis_gates: vec![
                     "H".into(),
@@ -422,12 +451,12 @@ pub mod local {
 
             #[cfg(feature = "cuda")]
             if let Some(cuda_backend) = &self.cuda_backend {
-                let _ = cuda_backend; // suppress unused warning
+                let _ = cuda_backend;
                 devices.push(DeviceInfo {
                     id: "cuda:0".to_string(),
                     name: "Local GPU Simulator (CUDA)".to_string(),
                     provider: "local".to_string(),
-                    num_qubits: 28, // GPU memory limit
+                    num_qubits: 28,
                     topology: vec![],
                     basis_gates: vec![
                         "H".into(),
