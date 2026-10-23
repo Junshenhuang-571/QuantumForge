@@ -93,6 +93,9 @@ QuantumForge REPL — one session, live state. Type 'help' for this, 'quit' to e
         cuda [device=N]         run the current circuit on CUDA GPU:
                                       uploads live state, executes circuit, downloads result
                                       requires `--features cuda` at compile time
+        gpu                     report GPU availability and cuBLAS/cuSOLVER status
+                                      requires `--features gpu` at compile time
+                                      DMRG uses GPU automatically when compiled with --features gpu
           tebd [qubits=N] [dt=..] [tol=..] [max-bond=..] [steps=N]
                                     TEBD imaginary time evolution for TFIM ground state:
                                       H = -Σ Z_i Z_{i+1} - Σ X_i (nearest-neighbor)
@@ -220,6 +223,7 @@ impl Session {
             "anneal" => self.cmd_anneal(rest),
             "gas" => self.cmd_gas(rest),
             "cuda" => self.cmd_cuda(rest),
+            "gpu" => self.cmd_gpu(rest),
             "tebd" => self.cmd_tebd(rest),
             "dmrg" => self.cmd_dmrg(rest),
             "tebd-correl" => self.cmd_tebd_correl(rest),
@@ -2090,6 +2094,23 @@ impl Session {
             "DMRG: n_sites={}, max_bond={}, tol={}, sweeps={}",
             n_sites, max_bond, truncation_tol, max_sweeps
         );
+        let max_gpu_q = quantumforge::tensor_network::gpu_max_qubits();
+        if n_sites >= 13 && n_sites <= max_gpu_q {
+            #[cfg(feature = "gpu")]
+            println!(
+                "  Using GPU (CUDA) acceleration (sparse Lanczos, max {} qubits for this GPU)",
+                max_gpu_q
+            );
+            #[cfg(not(feature = "gpu"))]
+            println!("  Using CPU (sparse Lanczos, compile with --features gpu for GPU)");
+        } else if n_sites <= 12 {
+            println!("  Using CPU (exact diagonalization)");
+        } else {
+            println!(
+                "  Using MPS-based DMRG (CPU, {} qubits exceeds GPU capacity of {})",
+                n_sites, max_gpu_q
+            );
+        }
         match dmrg.run(&even_h, &odd_h) {
             Ok(energy) => {
                 println!("DMRG converged: ground state energy = {:.6}", energy);
@@ -2196,6 +2217,39 @@ impl Session {
             }
         } else {
             eprintln!("No DMRG state loaded. Run `dmrg` first.");
+        }
+    }
+
+    /// Report GPU availability and status.
+    fn cmd_gpu(&mut self, _rest: &str) {
+        #[cfg(feature = "gpu")]
+        {
+            use cudarc::driver::CudaDevice;
+            match CudaDevice::new(0) {
+                Ok(dev) => {
+                    println!("GPU: available (device 0)");
+                    if let Ok(name) = dev.name() {
+                        println!("  Name: {name}");
+                    }
+                    let (free, total) = cudarc::driver::result::mem_get_info().unwrap_or((0, 0));
+                    println!(
+                        "  VRAM: {:.1} GB free / {:.1} GB total",
+                        free as f64 / 1e9,
+                        total as f64 / 1e9
+                    );
+                    let max_q = quantumforge::tensor_network::gpu_max_qubits();
+                    println!("  Max DMRG qubits (sparse Lanczos): {}", max_q);
+                    println!("  cuBLAS/cuSOLVER ready for tensor operations");
+                    println!("  Example: cargo run --example gpu_matmul --features gpu");
+                }
+                Err(e) => eprintln!("GPU: not available ({e})"),
+            }
+        }
+        #[cfg(not(feature = "gpu"))]
+        {
+            eprintln!("GPU support requires `--features gpu` at compile time");
+            eprintln!("Build with: cargo run --features gpu --bin qf");
+            eprintln!("Then run: gpu");
         }
     }
 
