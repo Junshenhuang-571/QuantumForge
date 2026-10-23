@@ -433,6 +433,19 @@ impl MPS {
         let matrix = combined; // Already in correct layout
 
         // Perform SVD
+        #[cfg(feature = "gpu")]
+        let (u, s, vt) = {
+            // Use GPU SVD for large matrices (beneficial above ~64x64)
+            if rows * cols > 4096 {
+                match crate::cusolver_ffi::gpu_svd_complex(&matrix, rows, cols) {
+                    Ok(result) => result,
+                    Err(_) => svd_jacobi(&matrix, rows, cols),
+                }
+            } else {
+                svd_jacobi(&matrix, rows, cols)
+            }
+        };
+        #[cfg(not(feature = "gpu"))]
         let (u, s, vt) = svd_jacobi(&matrix, rows, cols);
 
         // Truncate based on max_bond and truncation_tol

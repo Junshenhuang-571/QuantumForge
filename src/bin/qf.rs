@@ -2193,8 +2193,14 @@ impl Session {
 
     fn cmd_tebd_sites(&self) {
         use quantumforge::Complex64;
-        let z = [[Complex64::ONE, Complex64::ZERO], [Complex64::ZERO, Complex64::new(-1.0, 0.0)]];
-        let x = [[Complex64::ZERO, Complex64::ONE], [Complex64::ONE, Complex64::ZERO]];
+        let z = [
+            [Complex64::ONE, Complex64::ZERO],
+            [Complex64::ZERO, Complex64::new(-1.0, 0.0)],
+        ];
+        let x = [
+            [Complex64::ZERO, Complex64::ONE],
+            [Complex64::ONE, Complex64::ZERO],
+        ];
 
         if let Some(tebd) = &self.tebd {
             let n = tebd.mps.n_sites;
@@ -2213,10 +2219,30 @@ impl Session {
     fn z_gate_pair() -> [[quantumforge::Complex64; 4]; 4] {
         use quantumforge::Complex64;
         [
-            [Complex64::ONE, Complex64::ZERO, Complex64::ZERO, Complex64::ZERO],
-            [Complex64::ZERO, Complex64::new(-1.0, 0.0), Complex64::ZERO, Complex64::ZERO],
-            [Complex64::ZERO, Complex64::ZERO, Complex64::new(-1.0, 0.0), Complex64::ZERO],
-            [Complex64::ZERO, Complex64::ZERO, Complex64::ZERO, Complex64::ONE],
+            [
+                Complex64::ONE,
+                Complex64::ZERO,
+                Complex64::ZERO,
+                Complex64::ZERO,
+            ],
+            [
+                Complex64::ZERO,
+                Complex64::new(-1.0, 0.0),
+                Complex64::ZERO,
+                Complex64::ZERO,
+            ],
+            [
+                Complex64::ZERO,
+                Complex64::ZERO,
+                Complex64::new(-1.0, 0.0),
+                Complex64::ZERO,
+            ],
+            [
+                Complex64::ZERO,
+                Complex64::ZERO,
+                Complex64::ZERO,
+                Complex64::ONE,
+            ],
         ]
     }
     fn cmd_dmrg_correl(&self, rest: &str) {
