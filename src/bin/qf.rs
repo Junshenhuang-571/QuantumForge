@@ -105,6 +105,8 @@ QuantumForge REPL — one session, live state. Type 'help' for this, 'quit' to e
                                       same Hamiltonian, sweeps until energy converges
                                       outputs energy, updates live MPS
           tebd-correl [site=..]    print <Z_i Z_{i+1}> correlation from live TEBD MPS
+          tebd-correl-all          print all nearest-neighbor <Z_i Z_{i+1}> from TEBD
+          tebd-sites               print single-site <Z>, <X> for all sites from TEBD
           dmrg-correl [site=..]    print <Z_i Z_{i+1}> correlation from live DMRG MPS
           qec-code [type=bitflip|phaseflip|shor|steane|surface] [n=..] [d=..]
                                     build QEC code, print stabilizers + logical ops
@@ -227,6 +229,8 @@ impl Session {
             "tebd" => self.cmd_tebd(rest),
             "dmrg" => self.cmd_dmrg(rest),
             "tebd-correl" => self.cmd_tebd_correl(rest),
+            "tebd-correl-all" => self.cmd_tebd_correl_all(),
+            "tebd-sites" => self.cmd_tebd_sites(),
             "dmrg-correl" => self.cmd_dmrg_correl(rest),
             "qec-code" => self.cmd_qec_code(rest),
             "qec-encode" => self.cmd_qec_encode(rest),
@@ -2170,7 +2174,51 @@ impl Session {
         }
     }
 
-    /// Print two-site correlation <Z_i Z_{i+1}> from live DMRG MPS.
+    fn cmd_tebd_correl_all(&self) {
+        let zz = Self::z_gate_pair();
+
+        if let Some(tebd) = &self.tebd {
+            let n = tebd.mps.n_sites;
+            println!("Nearest-neighbor <Z_i Z_{{i+1}}> correlations:");
+            for i in 0..n - 1 {
+                match tebd.mps.expectation_two_site(&zz, i) {
+                    Ok(val) => println!("  <Z_{} Z_{}> = {:.6}", i, i + 1, val),
+                    Err(e) => eprintln!("  site {}: {}", i, e),
+                }
+            }
+        } else {
+            eprintln!("No TEBD state loaded. Run `tebd` first.");
+        }
+    }
+
+    fn cmd_tebd_sites(&self) {
+        use quantumforge::Complex64;
+        let z = [[Complex64::ONE, Complex64::ZERO], [Complex64::ZERO, Complex64::new(-1.0, 0.0)]];
+        let x = [[Complex64::ZERO, Complex64::ONE], [Complex64::ONE, Complex64::ZERO]];
+
+        if let Some(tebd) = &self.tebd {
+            let n = tebd.mps.n_sites;
+            println!("Single-site expectations:");
+            for i in 0..n {
+                let zval = tebd.mps.expectation_single_site(&z, i).re;
+                let xval = tebd.mps.expectation_single_site(&x, i).re;
+                println!("  site {}: <Z> = {:.6}, <X> = {:.6}", i, zval, xval);
+            }
+        } else {
+            eprintln!("No TEBD state loaded. Run `tebd` first.");
+        }
+    }
+
+    /// Helper to create Z⊗Z gate
+    fn z_gate_pair() -> [[quantumforge::Complex64; 4]; 4] {
+        use quantumforge::Complex64;
+        [
+            [Complex64::ONE, Complex64::ZERO, Complex64::ZERO, Complex64::ZERO],
+            [Complex64::ZERO, Complex64::new(-1.0, 0.0), Complex64::ZERO, Complex64::ZERO],
+            [Complex64::ZERO, Complex64::ZERO, Complex64::new(-1.0, 0.0), Complex64::ZERO],
+            [Complex64::ZERO, Complex64::ZERO, Complex64::ZERO, Complex64::ONE],
+        ]
+    }
     fn cmd_dmrg_correl(&self, rest: &str) {
         use quantumforge::Complex64;
 
