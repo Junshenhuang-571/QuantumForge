@@ -37,6 +37,7 @@ rand = "0.8"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 faer = "0.24"
+num-complex = "0.4"
 pyo3 = { version = "0.23", optional = true, features = ["extension-module", "abi3-py38"] }
 reqwest = { version = "0.12", optional = true, features = ["json", "rustls-tls"] }
 cudarc = { version = "0.12", optional = true, features = ["std", "cublas", "driver", "nvrtc", "dynamic-linking"] }

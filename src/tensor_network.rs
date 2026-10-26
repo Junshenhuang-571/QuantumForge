@@ -24,126 +24,45 @@ fn svd_jacobi(
     rows: usize,
     cols: usize,
 ) -> (Vec<Complex64>, Vec<f64>, Vec<Complex64>) {
-    // Compute A^H * A (cols x cols), kept as a complex Hermitian matrix.
-    let mut ata = vec![Complex64::ZERO; cols * cols];
-    for i in 0..cols {
-        for j in 0..cols {
-            let mut sum = Complex64::ZERO;
-            for k in 0..rows {
-                let aik = a[k * cols + i];
-                let ajk = a[k * cols + j];
-                sum = sum + aik.conj() * ajk;
-            }
-            ata[i * cols + j] = sum;
-        }
-    }
+    use faer::Mat;
+    use num_complex::Complex as FaerComplex;
 
-    let mut v = vec![Complex64::ZERO; cols * cols];
-    for i in 0..cols {
-        v[i * cols + i] = Complex64::ONE;
-    }
-
-    for _ in 0..100 {
-        let mut max_off = 0.0f64;
-        let mut p = 0usize;
-        let mut q = 1usize;
-        for i in 0..cols {
-            for j in (i + 1)..cols {
-                let val = ata[i * cols + j].abs();
-                if val > max_off {
-                    max_off = val;
-                    p = i;
-                    q = j;
-                }
-            }
-        }
-        if max_off < 1e-12 || cols < 2 {
-            break;
-        }
-
-        let off_diagonal = ata[p * cols + q];
-        let magnitude = off_diagonal.abs();
-        if magnitude <= 1e-30 {
-            continue;
-        }
-        let a_pp = ata[p * cols + p].re;
-        let a_qq = ata[q * cols + q].re;
-        let tau = (a_qq - a_pp) / (2.0 * magnitude);
-        let t = if tau >= 0.0 {
-            1.0 / (tau + (1.0 + tau * tau).sqrt())
-        } else {
-            -1.0 / (-tau + (1.0 + tau * tau).sqrt())
-        };
-        let cosine = 1.0 / (1.0 + t * t).sqrt();
-        let sine = t * cosine;
-        let phase = off_diagonal / magnitude;
-        let phase_conj = phase.conj();
-
-        for row in 0..cols {
-            let left = ata[row * cols + p];
-            let right = ata[row * cols + q];
-            ata[row * cols + p] = left * Complex64::new(cosine, 0.0)
-                + right * (phase_conj * Complex64::new(-sine, 0.0));
-            ata[row * cols + q] = left * Complex64::new(sine, 0.0)
-                + right * (phase_conj * Complex64::new(cosine, 0.0));
-
-            let left = v[row * cols + p];
-            let right = v[row * cols + q];
-            v[row * cols + p] = left * Complex64::new(cosine, 0.0)
-                + right * (phase_conj * Complex64::new(-sine, 0.0));
-            v[row * cols + q] = left * Complex64::new(sine, 0.0)
-                + right * (phase_conj * Complex64::new(cosine, 0.0));
-        }
-        for col in 0..cols {
-            let top = ata[p * cols + col];
-            let bottom = ata[q * cols + col];
-            ata[p * cols + col] =
-                top * Complex64::new(cosine, 0.0) + (phase * Complex64::new(-sine, 0.0)) * bottom;
-            ata[q * cols + col] =
-                top * Complex64::new(sine, 0.0) + (phase * Complex64::new(cosine, 0.0)) * bottom;
-        }
-        ata[p * cols + q] = Complex64::ZERO;
-        ata[q * cols + p] = Complex64::ZERO;
-        ata[p * cols + p].im = 0.0;
-        ata[q * cols + q].im = 0.0;
-    }
-
-    let mut s = vec![0.0f64; cols];
-    for i in 0..cols {
-        let val = ata[i * cols + i].re.max(0.0);
-        s[i] = val.sqrt();
-    }
-
-    let mut indices: Vec<usize> = (0..cols).collect();
-    indices.sort_by(|&i, &j| s[j].partial_cmp(&s[i]).unwrap_or(std::cmp::Ordering::Equal));
-
-    let mut s_sorted = vec![0.0f64; cols];
-    let mut v_sorted = vec![Complex64::ZERO; cols * cols];
-    for (new_idx, &old_idx) in indices.iter().enumerate() {
-        s_sorted[new_idx] = s[old_idx];
-        for i in 0..cols {
-            v_sorted[i * cols + new_idx] = v[i * cols + old_idx];
-        }
-    }
-
-    let mut u = vec![Complex64::ZERO; rows * cols];
+    // Convert to faer matrix (num_complex::Complex<f64>)
+    let mut mat = Mat::<FaerComplex<f64>>::zeros(rows, cols);
     for i in 0..rows {
         for j in 0..cols {
-            let mut sum = Complex64::ZERO;
-            for k in 0..cols {
-                let aik = a[i * cols + k];
-                let vkj = v_sorted[k * cols + j];
-                sum = sum + aik * vkj;
-            }
-            if s_sorted[j] > 1e-14 {
-                u[i * cols + j] = sum / s_sorted[j];
-            } else {
-                u[i * cols + j] = Complex64::ZERO;
-            }
+            mat[(i, j)] = FaerComplex::new(a[i * cols + j].re, a[i * cols + j].im);
         }
     }
+    // Compute thin SVD
+    let svd = mat.thin_svd().unwrap();
+    let u_mat = svd.U();
+    let s_diag = svd.S();
+    let v_mat = svd.V();
+    let k = rows.min(cols);
 
-    (u, s_sorted, v_sorted)
+    // Extract U
+    let mut u = vec![Complex64::ZERO; rows * k];
+    for i in 0..rows {
+        for j in 0..k {
+            let c = u_mat[(i, j)];
+            u[i * k + j] = Complex64::new(c.re, c.im);
+        }
+    }
+    // Extract S
+    let mut s = vec![0.0f64; k];
+    for i in 0..k {
+        s[i] = s_diag[i].re;
+    }
+    // Extract V^H: V is (cols, k), V^H is (k, cols)
+    let mut vt = vec![Complex64::ZERO; k * cols];
+    for i in 0..k {
+        for j in 0..cols {
+            let c = v_mat[(j, i)];
+            vt[i * cols + j] = Complex64::new(c.re, -c.im); // conj
+        }
+    }
+    (u, s, vt)
 }
 
 /// Complex QR decomposition via modified Gram-Schmidt.
@@ -472,7 +391,8 @@ impl MPS {
             for s1 in 0..phys {
                 let row = a * phys + s1;
                 for b in 0..new_bond_mid {
-                    let val = u[row * cols + b];
+                    let k = rows.min(cols);
+                    let val = u[row * k + b];
                     left_tensor.set(a, s1, b, val);
                 }
             }
