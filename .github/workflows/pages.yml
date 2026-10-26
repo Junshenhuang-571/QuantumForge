@@ -22,7 +22,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
       - name: Build docs
-        run: cargo doc --no-deps --all-features
+        run: cargo doc --no-deps
       - name: Setup Pages
         uses: actions/configure-pages@v4
       - name: Upload artifact
