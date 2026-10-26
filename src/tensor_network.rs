@@ -432,7 +432,20 @@ impl MPS {
         let cols = phys * bond_r;
         let matrix = combined; // Already in correct layout
 
-        // Perform SVD (CPU Jacobi; MPS matrices are small)
+        // Perform SVD
+        #[cfg(feature = "gpu")]
+        let (u, s, vt) = {
+            // Use GPU SVD for large matrices (beneficial above ~64x64)
+            if rows * cols > 4096 {
+                match crate::cusolver_ffi::gpu_svd_complex(&matrix, rows, cols) {
+                    Ok(result) => result,
+                    Err(_) => svd_jacobi(&matrix, rows, cols),
+                }
+            } else {
+                svd_jacobi(&matrix, rows, cols)
+            }
+        };
+        #[cfg(not(feature = "gpu"))]
         let (u, s, vt) = svd_jacobi(&matrix, rows, cols);
 
         // Truncate based on max_bond and truncation_tol
@@ -679,7 +692,7 @@ pub struct TEBD {
     pub even_single_gates: Vec<[[Complex64; 2]; 2]>,
     /// Single-site gates for odd sites (1, 3, 5, ...)
     pub odd_single_gates: Vec<[[Complex64; 2]; 2]>,
-    /// Exact ground-state vector (when available from DMRG).
+    /// Exact ground-state vector (when available).
     pub ground_state: Option<Vec<Complex64>>,
 }
 
@@ -1142,7 +1155,6 @@ impl DMRG {
                     gs[i] += y_j * v_all[j][i];
                 }
             }
-            // Store as Complex64
             let gs_c: Vec<Complex64> = gs.iter().map(|&x| Complex64::new(x, 0.0)).collect();
             self.ground_state = Some(gs_c);
         } else {
