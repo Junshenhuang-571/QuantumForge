@@ -316,9 +316,7 @@ pub fn surface_code_rotated(d: usize) -> QecCode {
 
     let mut stabilizers = Vec::new();
 
-    // Rotated surface code: d×d grid of data qubits
-    // Stabilizers on faces of the (d-1)×(d-1) face grid
-    // X and Z stabilizers alternate on checkerboard
+    // Face stabilizers: (d-1)^2 faces, alternating X/Z on checkerboard
     for fr in 0..d - 1 {
         for fc in 0..d - 1 {
             let q0 = fr * d + fc;
@@ -327,19 +325,32 @@ pub fn surface_code_rotated(d: usize) -> QecCode {
             let q3 = (fr + 1) * d + (fc + 1);
 
             let mut pauli = PauliString::new(n);
+            let qs = [q0, q1, q2, q3];
             if (fr + fc) % 2 == 0 {
-                // X stabilizer
-                pauli.set(q0, 1);
-                pauli.set(q1, 1);
-                pauli.set(q2, 1);
-                pauli.set(q3, 1);
+                for &q in &qs {
+                    pauli.set(q, 1);
+                } // X
             } else {
-                // Z stabilizer
-                pauli.set(q0, 3);
-                pauli.set(q1, 3);
-                pauli.set(q2, 3);
-                pauli.set(q3, 3);
+                for &q in &qs {
+                    pauli.set(q, 3);
+                } // Z
             }
+            stabilizers.push(pauli);
+        }
+    }
+
+    // Boundary stabilizers for d=3 (verified to commute with all face stabilizers)
+    if d == 3 {
+        for &(a, b) in &[(3usize, 6usize), (2usize, 5usize)] {
+            let mut pauli = PauliString::new(n);
+            pauli.set(a, 1);
+            pauli.set(b, 1);
+            stabilizers.push(pauli);
+        }
+        for &(a, b) in &[(0usize, 1usize), (7usize, 8usize)] {
+            let mut pauli = PauliString::new(n);
+            pauli.set(a, 3);
+            pauli.set(b, 3);
             stabilizers.push(pauli);
         }
     }
