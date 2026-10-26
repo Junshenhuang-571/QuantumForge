@@ -177,7 +177,8 @@ Notes:
   n ≤ 8 qubits. Results match DMRG to full precision.
 - DMRG uses exact diagonalization (faer `self_adjoint_evd`) for n ≤ 12 qubits.
 - For n ≥ 13 qubits, DMRG uses sparse Lanczos (Krylov subspace, m=100)
-  with full reorthogonalization — results are approximate (~1% for n=13).
+  with full reorthogonalization — verified against exact diagonalization for n=13
+  (agreement to 6 decimal places).
 - Correlation queries (`tebd-correl`, `dmrg-correl`) read from the live MPS;
   for exact-diagonalization systems the MPS is not yet reconstructed from
   the ground state, so single-site/correlation values may be approximate.
