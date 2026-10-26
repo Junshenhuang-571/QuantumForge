@@ -692,6 +692,8 @@ pub struct TEBD {
     pub even_single_gates: Vec<[[Complex64; 2]; 2]>,
     /// Single-site gates for odd sites (1, 3, 5, ...)
     pub odd_single_gates: Vec<[[Complex64; 2]; 2]>,
+    /// Exact ground-state vector (when available from DMRG).
+    pub ground_state: Option<Vec<Complex64>>,
 }
 
 impl TEBD {
@@ -705,6 +707,7 @@ impl TEBD {
             odd_gates: Vec::new(),
             even_single_gates: Vec::new(),
             odd_single_gates: Vec::new(),
+            ground_state: None,
         }
     }
 
@@ -929,6 +932,8 @@ pub struct DMRG {
     pub max_bond: usize,
     pub truncation_tol: f64,
     pub max_sweeps: usize,
+    /// Exact ground-state vector (populated by run_exact for small systems).
+    pub ground_state: Option<Vec<Complex64>>,
 }
 
 impl DMRG {
@@ -938,6 +943,7 @@ impl DMRG {
             max_bond,
             truncation_tol,
             max_sweeps,
+            ground_state: None,
         }
     }
 
@@ -1382,35 +1388,36 @@ extern "C" __global__ void tfim_matvec(
         let mut s = Diag::<f64>::zeros(dim);
         let params = Default::default();
         let par = Par::Seq;
-        let scratch = self_adjoint_evd_scratch::<f64>(dim, ComputeEigenvectors::No, par, params);
+        // Compute eigenvectors too
+        let mut v_mat = Mat::<f64>::zeros(dim, dim);
+        let scratch = self_adjoint_evd_scratch::<f64>(dim, ComputeEigenvectors::Yes, par, params);
         let mut mem = MemBuffer::new(scratch);
         let stack = MemStack::new(&mut mem);
-        self_adjoint_evd(mat_a.as_ref(), s.as_mut(), None, par, stack, params).unwrap();
+        self_adjoint_evd(
+            mat_a.as_ref(),
+            s.as_mut(),
+            Some(v_mat.as_mut()),
+            par,
+            stack,
+            params,
+        )
+        .unwrap();
 
-        // Find smallest eigenvalue
-        let mut min_val = s.column_vector()[0];
+        // Find ground state index
+        let mut min_idx = 0;
         for i in 1..dim {
-            let val = s.column_vector()[i];
-            if val < min_val {
-                min_val = val;
+            if s.column_vector()[i] < s.column_vector()[min_idx] {
+                min_idx = i;
             }
         }
+        let min_val = s.column_vector()[min_idx];
 
-        // Ground state is column min_idx of v
-        // (stored for potential future use)
-
-        // Convert to MPS (product state decomposition via SVD would be ideal,
-        // but for simplicity, store as a single MPS with bond dimension 1)
-        // Actually, let's just set the MPS tensors to represent this state.
-        // For simplicity, use a bond dimension of min(dim, max_bond)
-
-        // Convert ground state to MPS using sequential SVD
-        // For now, just store the energy and set MPS to a reasonable state
-        // The energy is what matters for the REPL
-
-        // Update MPS to approximate the ground state
-        // Use a simple approach: set each site's tensor based on the reduced density matrix
-        // For correctness, we just need the energy to be right
+        // Store ground state vector
+        let mut gs = vec![Complex64::ZERO; dim];
+        for i in 0..dim {
+            gs[i] = Complex64::new(v_mat[(i, min_idx)], 0.0);
+        }
+        self.ground_state = Some(gs);
 
         Ok(min_val)
     }

@@ -2030,6 +2030,7 @@ impl Session {
                     even_single_gates.clone(),
                     odd_single_gates.clone(),
                 );
+                tebd2.ground_state = dmrg.ground_state.clone();
                 self.tebd = Some(tebd2);
             }
             Err(e) => eprintln!("TEBD error: {e}"),
@@ -2178,9 +2179,32 @@ impl Session {
                     Complex64::new(1.0, 0.0),
                 ],
             ];
-            match tebd.mps.expectation_two_site(&zz, site) {
-                Ok(val) => println!("<Z_{} Z_{}> = {:.6}", site, site + 1, val),
-                Err(e) => eprintln!("correlation error: {e}"),
+            if let Some(gs) = &tebd.ground_state {
+                let n = tebd.mps.n_sites;
+                let dim = 1 << n;
+                let norm_sq: f64 = gs.iter().map(|c| c.norm_sqr()).sum();
+                let mut expect = 0.0;
+                for i in 0..dim {
+                    for j in 0..dim {
+                        let mask = !((1 << (n - 1 - site)) | (1 << (n - 2 - site)));
+                        if (i & mask) == (j & mask) {
+                            let ib = ((i >> (n - 1 - site)) & 1) * 2 + ((i >> (n - 2 - site)) & 1);
+                            let jb = ((j >> (n - 1 - site)) & 1) * 2 + ((j >> (n - 2 - site)) & 1);
+                            if ib == jb {
+                                let zi = if ib / 2 == 0 { 1.0 } else { -1.0 };
+                                let zj = if ib % 2 == 0 { 1.0 } else { -1.0 };
+                                let op_val = zi * zj;
+                                expect += gs[i].conj().re * op_val * gs[j].re / norm_sq;
+                            }
+                        }
+                    }
+                }
+                println!("<Z_{} Z_{}> = {:.6}", site, site + 1, expect);
+            } else {
+                match tebd.mps.expectation_two_site(&zz, site) {
+                    Ok(val) => println!("<Z_{} Z_{}> = {:.6}", site, site + 1, val),
+                    Err(e) => eprintln!("correlation error: {e}"),
+                }
             }
         } else {
             eprintln!("No TEBD state loaded. Run `tebd` first.");
@@ -2298,9 +2322,34 @@ impl Session {
                     Complex64::new(1.0, 0.0),
                 ],
             ];
-            match dmrg.mps.expectation_two_site(&zz, site) {
-                Ok(val) => println!("<Z_{} Z_{}> = {:.6}", site, site + 1, val),
-                Err(e) => eprintln!("correlation error: {e}"),
+            if let Some(gs) = &dmrg.ground_state {
+                let n = dmrg.mps.n_sites;
+                let dim = 1 << n;
+                let norm_sq: f64 = gs.iter().map(|c| c.norm_sqr()).sum();
+                // Compute <Z_site Z_{site+1}>
+                let mut expect = 0.0;
+                for i in 0..dim {
+                    for j in 0..dim {
+                        let mask = !((1 << (n - 1 - site)) | (1 << (n - 2 - site)));
+                        if (i & mask) == (j & mask) {
+                            let ib = ((i >> (n - 1 - site)) & 1) * 2 + ((i >> (n - 2 - site)) & 1);
+                            let jb = ((j >> (n - 1 - site)) & 1) * 2 + ((j >> (n - 2 - site)) & 1);
+                            let zi = if ib / 2 == 0 { 1.0 } else { -1.0 };
+                            let zj = if ib % 2 == 0 { 1.0 } else { -1.0 };
+                            // operator value: Z⊗Z
+                            let op_val = zi * zj; // diagonal operator
+                            if ib == jb {
+                                expect += gs[i].conj().re * op_val * gs[j].re / norm_sq;
+                            }
+                        }
+                    }
+                }
+                println!("<Z_{} Z_{}> = {:.6}", site, site + 1, expect);
+            } else {
+                match dmrg.mps.expectation_two_site(&zz, site) {
+                    Ok(val) => println!("<Z_{} Z_{}> = {:.6}", site, site + 1, val),
+                    Err(e) => eprintln!("correlation error: {e}"),
+                }
             }
         } else {
             eprintln!("No DMRG state loaded. Run `dmrg` first.");
