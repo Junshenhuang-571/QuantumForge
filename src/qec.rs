@@ -456,7 +456,7 @@ mod recovery_tests {
         // k=2 -> bits 1,2 -> syndrome = 0b0110 = 6
         // k=3 -> bits 2,3 -> syndrome = 0b1100 = 12
         let cases = [(1u32, 0usize), (3, 1), (6, 2), (12, 3), (8, 4)];
-        for (syn, q) in cases {
+        for (syn, _q) in cases {
             assert!(code.recovery.contains_key(&syn), "missing syndrome {}", syn);
         }
     }
