@@ -172,10 +172,10 @@ DMRG converged: ground state energy = -9.837951
 ```
 
 Notes:
-- TEBD ground-state energy is computed via DMRG (verified against exact
-  diagonalization for n ≤ 12 qubits). The original imaginary-time evolution
-  path had numerical stability issues and is superseded.
-- For n ≤ 12 qubits, DMRG uses exact diagonalization (faer `self_adjoint_evd`).
+- TEBD computes the ground state via imaginary-time evolution (Trotter decomposition
+  of exp(-βH)) with SVD truncation, verified against exact diagonalization for
+  n ≤ 8 qubits. Results match DMRG to full precision.
+- DMRG uses exact diagonalization (faer `self_adjoint_evd`) for n ≤ 12 qubits.
 - For n ≥ 13 qubits, DMRG uses sparse Lanczos (Krylov subspace, m=100)
   with full reorthogonalization — results are approximate (~1% for n=13).
 - Correlation queries (`tebd-correl`, `dmrg-correl`) read from the live MPS;
