@@ -512,3 +512,50 @@ mod recovery_tests {
         assert_eq!(p.weight(), 2);
     }
 }
+
+#[cfg(test)]
+mod e2e_tests {
+    use super::*;
+    use crate::StateVector;
+
+    #[test]
+    fn test_repetition_bitflip_corrects_single_error() {
+        let state = StateVector::zero(1).unwrap();
+        let encoded = encode_repetition_bitflip(&state, 3).unwrap();
+        assert!((encoded.amplitudes()[0].re - 1.0).abs() < 1e-10);
+
+        let code = repetition_code_bitflip(3);
+
+        for err_qubit in 0..3usize {
+            let mut errored = encoded.clone();
+            errored.apply(crate::Gate::X, err_qubit).unwrap();
+
+            // Compute syndrome from the basis state with highest probability
+            let mut max_idx = 0;
+            let mut max_prob = 0.0f64;
+            for (idx, amp) in errored.amplitudes().iter().enumerate() {
+                if amp.norm_sqr() > max_prob {
+                    max_prob = amp.norm_sqr();
+                    max_idx = idx;
+                }
+            }
+            let bit0 = max_idx & 1; // qubit 0 (LSB)
+            let bit1 = (max_idx >> 1) & 1; // qubit 1
+            let bit2 = (max_idx >> 2) & 1; // qubit 2
+            let s0 = bit0 ^ bit1;
+            let s1 = bit1 ^ bit2;
+            let syndrome = (s0 | (s1 << 1)) as u32;
+
+            let recovery_circ = code.recovery.get(&syndrome).unwrap();
+            let recovered = recovery_circ.run(errored).unwrap();
+
+            assert!(
+                (recovered.amplitudes()[0].re - 1.0).abs() < 1e-10,
+                "failed to recover from error on qubit {}: syndrome={}, amp0={}",
+                err_qubit,
+                syndrome,
+                recovered.amplitudes()[0].re
+            );
+        }
+    }
+}
