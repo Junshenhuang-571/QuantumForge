@@ -1102,10 +1102,10 @@ impl DMRG {
         }
 
         // Use faer for accurate eigendecomposition of tridiagonal matrix
-        use faer::linalg::evd::{ComputeEigenvectors, self_adjoint_evd, self_adjoint_evd_scratch};
-        use faer::{Mat, Par};
         use faer::diag::Diag;
         use faer::dyn_stack::{MemBuffer, MemStack};
+        use faer::linalg::evd::{ComputeEigenvectors, self_adjoint_evd, self_adjoint_evd_scratch};
+        use faer::{Mat, Par};
 
         let mut mat_a = Mat::<f64>::zeros(size, size);
         for i in 0..size {

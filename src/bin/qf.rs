@@ -1952,9 +1952,6 @@ impl Session {
             return;
         }
 
-        let mps = MPS::zero_state(n_sites, max_bond);
-        // let mut tebd = TEBD::new(mps, dt, max_bond, truncation_tol);
-
         // Build ZZ Hamiltonian gates for TFIM: H = -Σ Z_i Z_{i+1} - Σ X_i
         // Z⊗Z = diag(1, -1, -1, 1)
         let zz = [
@@ -2027,7 +2024,12 @@ impl Session {
                 println!("TEBD converged: ground state energy = {:.6}", energy);
                 // Move DMRG's MPS into a TEBD instance for correlation queries
                 let mut tebd2 = TEBD::new(dmrg.mps, dt, max_bond, truncation_tol);
-                tebd2.set_hamiltonian_gates(even_gates.clone(), odd_gates.clone(), even_single_gates.clone(), odd_single_gates.clone());
+                tebd2.set_hamiltonian_gates(
+                    even_gates.clone(),
+                    odd_gates.clone(),
+                    even_single_gates.clone(),
+                    odd_single_gates.clone(),
+                );
                 self.tebd = Some(tebd2);
             }
             Err(e) => eprintln!("TEBD error: {e}"),
