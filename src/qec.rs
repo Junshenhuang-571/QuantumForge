@@ -543,6 +543,85 @@ fn build_repetition_recovery(n: usize, bitflip: bool) -> HashMap<u32, Circuit> {
     recovery
 }
 
+/// Minimum-weight perfect matching (MWPM) decoder for QEC.
+/// Given a syndrome (set of violated stabilizer indices), find the
+/// minimum-weight set of single-qubit errors that produces it.
+/// Uses brute-force search (up to ~3 errors) for small codes.
+pub fn mwpm_decode(stabilizers: &[PauliString], syndrome: u32) -> Vec<(usize, u8)> {
+    let n = if stabilizers.is_empty() {
+        0
+    } else {
+        stabilizers[0].paulis.len()
+    };
+    if syndrome == 0 {
+        return Vec::new();
+    }
+
+    // Precompute syndrome for each single-qubit error
+    let mut error_syndromes: Vec<(usize, u8, u32)> = Vec::new();
+    for q in 0..n {
+        for pv in [1u8, 2, 3] {
+            let mut syn = 0u32;
+            for (i, stab) in stabilizers.iter().enumerate() {
+                let p = stab.paulis[q];
+                if p == 0 {
+                    continue;
+                }
+                let anticom =
+                    matches!((p, pv), (1, 3) | (3, 1) | (1, 2) | (2, 1) | (3, 2) | (2, 3));
+                if anticom {
+                    syn |= 1 << i;
+                }
+            }
+            if syn != 0 {
+                error_syndromes.push((q, pv, syn));
+            }
+        }
+    }
+
+    // Try single errors
+    for &(q, pv, syn) in &error_syndromes {
+        if syn == syndrome {
+            return vec![(q, pv)];
+        }
+    }
+
+    // Try pairs
+    for i in 0..error_syndromes.len() {
+        for j in i + 1..error_syndromes.len() {
+            let syn = error_syndromes[i].2 | error_syndromes[j].2;
+            if syn == syndrome && (error_syndromes[i].2 & error_syndromes[j].2) == 0 {
+                return vec![
+                    (error_syndromes[i].0, error_syndromes[i].1),
+                    (error_syndromes[j].0, error_syndromes[j].1),
+                ];
+            }
+        }
+    }
+
+    // Try triples
+    for i in 0..error_syndromes.len() {
+        for j in i + 1..error_syndromes.len() {
+            for k in j + 1..error_syndromes.len() {
+                let syn = error_syndromes[i].2 | error_syndromes[j].2 | error_syndromes[k].2;
+                if syn == syndrome
+                    && (error_syndromes[i].2 & error_syndromes[j].2) == 0
+                    && (error_syndromes[i].2 & error_syndromes[k].2) == 0
+                    && (error_syndromes[j].2 & error_syndromes[k].2) == 0
+                {
+                    return vec![
+                        (error_syndromes[i].0, error_syndromes[i].1),
+                        (error_syndromes[j].0, error_syndromes[j].1),
+                        (error_syndromes[k].0, error_syndromes[k].1),
+                    ];
+                }
+            }
+        }
+    }
+
+    Vec::new()
+}
+
 /// Encode a logical state into a repetition code.
 pub fn encode_repetition_bitflip(
     state: &StateVector,
