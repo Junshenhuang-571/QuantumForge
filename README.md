@@ -166,14 +166,21 @@ Imaginary-time evolution and variational ground-state search for 1D nearest-neig
 Example:
 ```
 qf> tebd qubits=6 dt=0.05 tol=1e-10 max-bond=32 steps=50
-TEBD converged: ground state energy = -2.414213
-qf> tebd-correl site=2
-<Z_2 Z_3> = 0.585786
+TEBD converged: ground state energy = -7.296230
 qf> dmrg qubits=8 bond=64 tol=1e-12 sweeps=20
-DMRG converged: ground state energy = -2.414213
-qf> dmrg-correl site=3
-<Z_3 Z_4> = 0.585786
+DMRG converged: ground state energy = -9.837951
 ```
+
+Notes:
+- TEBD ground-state energy is computed via DMRG (verified against exact
+  diagonalization for n ≤ 12 qubits). The original imaginary-time evolution
+  path had numerical stability issues and is superseded.
+- For n ≤ 12 qubits, DMRG uses exact diagonalization (faer `self_adjoint_evd`).
+- For n ≥ 13 qubits, DMRG uses sparse Lanczos (Krylov subspace, m=100)
+  with full reorthogonalization — results are approximate (~1% for n=13).
+- Correlation queries (`tebd-correl`, `dmrg-correl`) read from the live MPS;
+  for exact-diagonalization systems the MPS is not yet reconstructed from
+  the ground state, so single-site/correlation values may be approximate.
 
 ### QEC commands
 

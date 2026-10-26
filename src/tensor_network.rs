@@ -956,6 +956,9 @@ impl DMRG {
         #[cfg(feature = "gpu")]
         {
             let max_q = gpu_max_qubits();
+            if self.mps.n_sites <= 12 {
+                return self.run_exact(even_h, odd_h);
+            }
             #[allow(clippy::collapsible_if)]
             if (13..=max_q).contains(&self.mps.n_sites) {
                 if let Ok(result) = self.run_sparse_lanczos_gpu() {
@@ -965,12 +968,12 @@ impl DMRG {
         }
         #[cfg(not(feature = "gpu"))]
         {
+            if self.mps.n_sites <= 12 {
+                return self.run_exact(even_h, odd_h);
+            }
             if self.mps.n_sites <= 20 {
                 return self.run_sparse_lanczos();
             }
-        }
-        if self.mps.n_sites <= 12 {
-            return self.run_exact(even_h, odd_h);
         }
 
         let mut prev_energy = f64::INFINITY;
@@ -1009,6 +1012,8 @@ impl DMRG {
         let m = if n >= 24 { 30.min(dim) } else { 100.min(dim) }; // Krylov subspace dimension
         let mut v_prev = vec![0.0f64; dim];
         let mut v_curr = vec![0.0f64; dim];
+        // Store all Lanczos vectors for full reorthogonalization
+        let mut v_all: Vec<Vec<f64>> = Vec::with_capacity(m);
 
         // Random initial vector
         let mut seed = 42u64;
@@ -1021,6 +1026,8 @@ impl DMRG {
         for x in v_curr.iter_mut() {
             *x /= norm;
         }
+        // Store initial vector for reorthogonalization
+        v_all.push(v_curr.clone());
 
         let mut alpha = vec![0.0f64; m];
         let mut beta = vec![0.0f64; m];
@@ -1057,6 +1064,14 @@ impl DMRG {
                 }
             }
 
+            // Full reorthogonalization against all previous Lanczos vectors
+            for v in &v_all {
+                let dot: f64 = w.iter().zip(v.iter()).map(|(a, b)| a * b).sum();
+                for i in 0..dim {
+                    w[i] -= dot * v[i];
+                }
+            }
+
             // beta_j = ||w||
             beta[j] = w.iter().map(|x| x * x).sum::<f64>().sqrt();
 
@@ -1070,6 +1085,8 @@ impl DMRG {
             for i in 0..dim {
                 v_curr[i] = w[i] / beta[j];
             }
+            // Store the new vector for future reorthogonalization
+            v_all.push(v_curr.clone());
         }
 
         // Build tridiagonal matrix and find smallest eigenvalue
@@ -1084,65 +1101,33 @@ impl DMRG {
             }
         }
 
-        // Jacobi on tridiagonal (fast since it's small)
-        let mut a = t.clone();
-        let mut v = vec![vec![0.0f64; size]; size];
+        // Use faer for accurate eigendecomposition of tridiagonal matrix
+        use faer::linalg::evd::{ComputeEigenvectors, self_adjoint_evd, self_adjoint_evd_scratch};
+        use faer::{Mat, Par};
+        use faer::diag::Diag;
+        use faer::dyn_stack::{MemBuffer, MemStack};
+
+        let mut mat_a = Mat::<f64>::zeros(size, size);
         for i in 0..size {
-            v[i][i] = 1.0;
-        }
-        for _ in 0..1000 {
-            let mut max_val = 0.0f64;
-            let mut p = 0;
-            let mut q = 1;
-            for i in 0..size {
-                for j in (i + 1)..size {
-                    if a[i][j].abs() > max_val {
-                        max_val = a[i][j].abs();
-                        p = i;
-                        q = j;
-                    }
-                }
-            }
-            if max_val < 1e-12 {
-                break;
-            }
-            let theta = (a[q][q] - a[p][p]) / (2.0 * a[p][q]);
-            let tt = if theta >= 0.0 {
-                1.0 / (theta + (theta * theta + 1.0).sqrt())
-            } else {
-                -1.0 / (-theta + (theta * theta + 1.0).sqrt())
-            };
-            let c = 1.0 / (1.0 + tt * tt).sqrt();
-            let s = tt * c;
-            let app = a[p][p];
-            let aqq = a[q][q];
-            let apq = a[p][q];
-            a[p][p] = c * c * app - 2.0 * s * c * apq + s * s * aqq;
-            a[q][q] = s * s * app + 2.0 * s * c * apq + c * c * aqq;
-            a[p][q] = 0.0;
-            a[q][p] = 0.0;
-            for i in 0..size {
-                if i != p && i != q {
-                    let aip = a[i][p];
-                    let aiq = a[i][q];
-                    a[i][p] = c * aip - s * aiq;
-                    a[p][i] = a[i][p];
-                    a[i][q] = s * aip + c * aiq;
-                    a[q][i] = a[i][q];
-                }
+            for j in 0..size {
+                mat_a[(i, j)] = t[i][j];
             }
         }
+        let mut s = Diag::<f64>::zeros(size);
+        let params = Default::default();
+        let par = Par::Seq;
+        let scratch = self_adjoint_evd_scratch::<f64>(size, ComputeEigenvectors::No, par, params);
+        let mut mem = MemBuffer::new(scratch);
+        let stack = MemStack::new(&mut mem);
+        self_adjoint_evd(mat_a.as_ref(), s.as_mut(), None, par, stack, params).unwrap();
 
-        let mut min_val = a[0][0];
+        let mut min_val = s.column_vector()[0];
         for i in 1..size {
-            if a[i][i] < min_val {
-                min_val = a[i][i];
+            let val = s.column_vector()[i];
+            if val < min_val {
+                min_val = val;
             }
         }
-
-        // For GPU acceleration, the sparse matvec above (w = H * v_curr)
-        // is the hotspot. With --features gpu, this could use cuSPARSE.
-        // For now, the CPU version is fast enough for 16-20 qubits.
 
         Ok(min_val)
     }
@@ -1191,16 +1176,20 @@ extern "C" __global__ void tfim_matvec(
         let m = if n >= 24 { 30.min(dim) } else { 100.min(dim) };
         let mut v_prev = vec![0.0f64; dim];
         let mut v_curr = vec![0.0f64; dim];
+        let mut v_all: Vec<Vec<f64>> = Vec::with_capacity(m);
 
+        // Random initial vector
         let mut seed = 42u64;
         for x in v_curr.iter_mut() {
             seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
             *x = (seed as f64 / u64::MAX as f64) - 0.5;
         }
+        // Normalize
         let norm: f64 = v_curr.iter().map(|x| x * x).sum::<f64>().sqrt();
         for x in v_curr.iter_mut() {
             *x /= norm;
         }
+        v_all.push(v_curr.clone());
 
         let mut alpha = vec![0.0f64; m];
         let mut beta = vec![0.0f64; m];
@@ -1236,6 +1225,13 @@ extern "C" __global__ void tfim_matvec(
                     w2[i] -= beta[j - 1] * v_prev[i];
                 }
             }
+            // Full reorthogonalization
+            for v in &v_all {
+                let dot: f64 = w2.iter().zip(v.iter()).map(|(a, b)| a * b).sum();
+                for i in 0..dim {
+                    w2[i] -= dot * v[i];
+                }
+            }
             beta[j] = w2.iter().map(|x| x * x).sum::<f64>().sqrt();
 
             if beta[j] < 1e-12 {
@@ -1246,6 +1242,8 @@ extern "C" __global__ void tfim_matvec(
             for i in 0..dim {
                 v_curr[i] = w2[i] / beta[j];
             }
+            // Store the new vector for future reorthogonalization
+            v_all.push(v_curr.clone());
             v_gpu = device
                 .htod_copy(v_curr.clone())
                 .map_err(|_| "upload failed")?;
@@ -1375,7 +1373,6 @@ extern "C" __global__ void tfim_matvec(
         // Let's just use a basic eigensolver. For small dim, we can use the
         // Jacobi eigenvalue algorithm.
 
-        // Use faer for fast, accurate eigendecomposition
         let mut mat_a = Mat::<f64>::zeros(dim, dim);
         for i in 0..dim {
             for j in 0..dim {

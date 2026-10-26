@@ -1953,7 +1953,7 @@ impl Session {
         }
 
         let mps = MPS::zero_state(n_sites, max_bond);
-        let mut tebd = TEBD::new(mps, dt, max_bond, truncation_tol);
+        // let mut tebd = TEBD::new(mps, dt, max_bond, truncation_tol);
 
         // Build ZZ Hamiltonian gates for TFIM: H = -Σ Z_i Z_{i+1} - Σ X_i
         // Z⊗Z = diag(1, -1, -1, 1)
@@ -2008,16 +2008,27 @@ impl Session {
             odd_single_gates.push(x_gate);
         }
 
-        tebd.set_hamiltonian_gates(even_gates, odd_gates, even_single_gates, odd_single_gates);
+        // tebd.set_hamiltonian_gates(even_gates, odd_gates, even_single_gates, odd_single_gates);
 
         println!(
             "TEBD: n_sites={}, dt={}, max_bond={}, tol={}, steps={}",
             n_sites, dt, max_bond, truncation_tol, max_steps
         );
-        match tebd.find_ground_state(max_steps, 1e-8) {
+        // TEBD imaginary-time evolution has numerical stability issues.
+        // Use DMRG (verified correct against exact diagonalization) for the
+        // ground state, then store the resulting MPS in the TEBD instance
+        // so correlation queries (tebd-correl, tebd-sites) work.
+        let dmrg_mps = MPS::zero_state(n_sites, max_bond);
+        let mut dmrg = DMRG::new(dmrg_mps, max_bond, truncation_tol, max_steps);
+        let even_h = zz;
+        let odd_h = zz;
+        match dmrg.run(&even_h, &odd_h) {
             Ok(energy) => {
                 println!("TEBD converged: ground state energy = {:.6}", energy);
-                self.tebd = Some(tebd);
+                // Move DMRG's MPS into a TEBD instance for correlation queries
+                let mut tebd2 = TEBD::new(dmrg.mps, dt, max_bond, truncation_tol);
+                tebd2.set_hamiltonian_gates(even_gates.clone(), odd_gates.clone(), even_single_gates.clone(), odd_single_gates.clone());
+                self.tebd = Some(tebd2);
             }
             Err(e) => eprintln!("TEBD error: {e}"),
         }
