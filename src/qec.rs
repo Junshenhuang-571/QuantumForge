@@ -407,8 +407,59 @@ pub fn decode_repetition_bitflip(
 }
 
 #[cfg(test)]
-mod tests {
+mod recovery_tests {
     use super::*;
+
+    #[test]
+    fn test_recovery_n3_all_single_errors() {
+        // For 3-qubit bit-flip code, verify each single error maps to correct recovery
+        let code = repetition_code_bitflip(3);
+        // syndrome 0 (00): no error -> empty recovery
+        assert!(code.recovery.get(&0).unwrap().operations().is_empty());
+        // syndrome 1 (01): bit 0 set -> error on qubit 0 -> X on qubit 0
+        // syndrome 2 (10): bit 1 set -> error on qubit 2 -> X on qubit 2
+        // syndrome 3 (11): bits 0,1 set -> error on qubit 1 -> X on qubit 1
+        // Verify each syndrome maps to recovery on the correct qubit
+        let cases: [(u32, usize); 3] = [(1, 0), (2, 2), (3, 1)];
+        for (syndrome, expected_qubit) in cases {
+            let circ = code.recovery.get(&syndrome).unwrap();
+            let ops = circ.operations();
+            assert_eq!(
+                ops.len(),
+                1,
+                "syndrome {} should have 1 recovery op",
+                syndrome
+            );
+            match &ops[0] {
+                crate::CircuitOp::SingleQubit { gate, target } => {
+                    assert_eq!(
+                        *target, expected_qubit,
+                        "syndrome {} wrong target",
+                        syndrome
+                    );
+                    // Gate should be X (check via debug or matrix)
+                    assert_eq!(*gate, Gate::X, "syndrome {} should be X gate", syndrome);
+                }
+                _ => panic!("expected single-qubit gate for syndrome {}", syndrome),
+            }
+        }
+    }
+
+    #[test]
+    fn test_recovery_n5_boundary() {
+        let code = repetition_code_bitflip(5);
+        // n=5: syndromes 0..16, single errors at qubits 0..4
+        // qubit 0 -> syndrome bit 0 only (syndrome=1)
+        // qubit 4 -> syndrome bit 3 only (syndrome=8)
+        // qubit k (1..3) -> bits k-1,k (syndrome = 3<<k-1... wait)
+        // k=1 -> bits 0,1 -> syndrome = 0b0011 = 3
+        // k=2 -> bits 1,2 -> syndrome = 0b0110 = 6
+        // k=3 -> bits 2,3 -> syndrome = 0b1100 = 12
+        let cases = [(1u32, 0usize), (3, 1), (6, 2), (12, 3), (8, 4)];
+        for (syn, q) in cases {
+            assert!(code.recovery.contains_key(&syn), "missing syndrome {}", syn);
+        }
+    }
 
     #[test]
     fn test_repetition_code_bitflip() {
