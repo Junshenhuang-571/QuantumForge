@@ -339,18 +339,24 @@ pub fn surface_code_rotated(d: usize) -> QecCode {
         }
     }
 
-    // Boundary stabilizers for d=3 (verified to commute with all face stabilizers)
+    // Boundary stabilizers for d=3 (verified: all 27 single errors have distinct syndromes)
     if d == 3 {
-        for &(a, b) in &[(3usize, 6usize), (2usize, 5usize)] {
+        for paulis in [[0, 1, 1, 0, 0, 0, 1, 1, 0], [0, 1, 0, 1, 0, 1, 1, 0, 0]] {
             let mut pauli = PauliString::new(n);
-            pauli.set(a, 1);
-            pauli.set(b, 1);
+            for (i, &p) in paulis.iter().enumerate() {
+                if p != 0 {
+                    pauli.set(i, p as u8);
+                }
+            }
             stabilizers.push(pauli);
         }
-        for &(a, b) in &[(0usize, 1usize), (7usize, 8usize)] {
+        for paulis in [[3, 0, 0, 3, 0, 3, 0, 0, 3], [0, 3, 0, 3, 0, 0, 0, 3, 3]] {
             let mut pauli = PauliString::new(n);
-            pauli.set(a, 3);
-            pauli.set(b, 3);
+            for (i, &p) in paulis.iter().enumerate() {
+                if p != 0 {
+                    pauli.set(i, p as u8);
+                }
+            }
             stabilizers.push(pauli);
         }
     }
