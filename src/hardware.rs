@@ -340,6 +340,7 @@ pub mod local {
     };
     #[cfg(feature = "cuda")]
     use crate::cuda::CudaBackend;
+    use crate::{Circuit, StateVector};
 
     /// Local CPU/GPU simulator backend.
     #[cfg(feature = "cuda")]
@@ -358,6 +359,29 @@ pub mod local {
             return Self { cuda_backend };
             #[cfg(not(feature = "cuda"))]
             return Self;
+        }
+
+        pub fn run_circuit(&self, circuit: &Circuit, shots: usize) -> Result<Vec<u64>> {
+            let n = circuit.num_qubits();
+            let mut results = Vec::with_capacity(shots);
+            for _ in 0..shots {
+                let state = StateVector::zero(n)?;
+                let final_state = circuit.run(state)?;
+                // Measure all qubits
+                let mut outcome = 0u64;
+                for q in 0..n {
+                    let prob1: f64 = final_state
+                        .amplitudes()
+                        .iter()
+                        .enumerate()
+                        .filter(|(idx, _)| (idx >> q) & 1 == 1)
+                        .map(|(_, a)| a.norm_sqr())
+                        .sum();
+                    outcome |= if prob1 > 0.5 { 1u64 << q } else { 0 };
+                }
+                results.push(outcome);
+            }
+            Ok(results)
         }
 
         pub fn with_cuda(device: i32) -> Result<Self> {
