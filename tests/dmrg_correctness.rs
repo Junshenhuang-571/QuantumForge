@@ -1,5 +1,6 @@
 use quantumforge::tensor_network::{DMRG, MPS};
 
+#[allow(clippy::needless_range_loop)]
 fn exact_tfim_energy(n: usize) -> f64 {
     // Exact diagonalization of TFIM H = -Σ Z_i Z_{i+1} - Σ X_i
     let dim = 1usize << n;
@@ -25,7 +26,6 @@ fn exact_tfim_energy(n: usize) -> f64 {
     use faer::diag::Diag;
     use faer::dyn_stack::{MemBuffer, MemStack};
     use faer::linalg::evd::{ComputeEigenvectors, self_adjoint_evd, self_adjoint_evd_scratch};
-    use faer::prelude::*;
     let mut mat_a = faer::Mat::<f64>::zeros(dim, dim);
     for i in 0..dim {
         for j in 0..dim {
@@ -48,6 +48,7 @@ fn exact_tfim_energy(n: usize) -> f64 {
     min_val
 }
 
+#[allow(clippy::needless_range_loop)]
 #[test]
 fn dmrg_exact_matches_exact_diag() {
     for n in 2..=8 {
@@ -88,6 +89,7 @@ fn dmrg_exact_matches_exact_diag() {
     }
 }
 
+#[allow(clippy::needless_range_loop)]
 #[test]
 fn dmrg_correlation_matches_exact() {
     let n = 6;
