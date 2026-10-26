@@ -23,6 +23,12 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
       - name: Build docs
         run: cargo doc --no-deps
+      - name: Add root redirect
+        run: |
+          cat > target/doc/index.html << 'REDIRECT'
+          <!DOCTYPE html>
+          <html><head><meta http-equiv="refresh" content="0; url=quantumforge/"></head><body></body></html>
+          REDIRECT
       - name: Setup Pages
         uses: actions/configure-pages@v4
       - name: Upload artifact
