@@ -338,33 +338,26 @@ fn build_repetition_recovery(n: usize, bitflip: bool) -> HashMap<u32, Circuit> {
         if syndrome == 0 {
             // No error
         } else {
-            // Find the leftmost 1 (lowest bit position)
-            let mut leftmost = None;
-            let mut rightmost = None;
-            for i in 0..(n - 1) {
-                if (syndrome >> i) & 1 == 1 {
-                    if leftmost.is_none() {
-                        leftmost = Some(i);
-                    }
-                    rightmost = Some(i);
-                }
-            }
+            // Find error qubit from syndrome
+            // Syndrome bit i = z_i XOR z_{i+1}
+            // Single qubit k error produces:
+            //   k=0: bit 0 set
+            //   k=n-1: bit n-2 set
+            //   0<k<n-1: bits k-1 and k set (contiguous pair)
 
-            // For repetition code, the error is at the boundary
-            // If syndrome has contiguous 1s, error is at leftmost position
-            // Special case: single 1 at position 0 -> qubit 0
-            // Single 1 at position n-2 -> qubit n-1
-            // Contiguous block from i to j -> qubit i
-            if let (Some(l), Some(r)) = (leftmost, rightmost) {
-                // Check if bits are contiguous
-                let is_contiguous = (l..=r).all(|i| (syndrome >> i) & 1 == 1);
-                if is_contiguous {
-                    error_qubit = Some(l);
-                } else if syndrome & 1 == 1 && syndrome & (1 << (n - 2)) != 0 {
-                    // Error at boundaries - treat as qubit 0 or n-1
-                    // This handles the wrap-around case for periodic boundary
+            // Count set bits
+            let positions: Vec<usize> = (0..n - 1).filter(|&i| (syndrome >> i) & 1 == 1).collect();
+
+            if positions.len() == 1 {
+                let i = positions[0];
+                if i == 0 {
                     error_qubit = Some(0);
+                } else if i == n - 2 {
+                    error_qubit = Some(n - 1);
                 }
+                // else: invalid syndrome for single error
+            } else if positions.len() == 2 && positions[1] == positions[0] + 1 {
+                error_qubit = Some(positions[0] + 1);
             }
         }
 
