@@ -292,14 +292,17 @@ pub fn surface_code_planar(d: usize) -> QecCode {
         logical_z.set(0, 3);
     }
 
+    let syndrome_circuit = build_surface_syndrome(n, &stabilizers);
+    let recovery = build_surface_recovery(n, &stabilizers);
+
     QecCode {
         n_physical: n,
         n_logical: 1,
         stabilizers,
         logical_x: vec![logical_x],
         logical_z: vec![logical_z],
-        syndrome_circuit: Circuit::new(),
-        recovery: HashMap::new(),
+        syndrome_circuit,
+        recovery,
     }
 }
 
@@ -351,18 +354,97 @@ pub fn surface_code_rotated(d: usize) -> QecCode {
         logical_z.set(r * d, 3);
     }
 
+    let syndrome_circuit = build_surface_syndrome(n, &stabilizers);
+    let recovery = build_surface_recovery(n, &stabilizers);
+
     QecCode {
         n_physical: n,
         n_logical: 1,
         stabilizers,
         logical_x: vec![logical_x],
         logical_z: vec![logical_z],
-        syndrome_circuit: Circuit::new(),
-        recovery: HashMap::new(),
+        syndrome_circuit,
+        recovery,
     }
 }
 
-// --- Internal syndrome circuit builders ---
+/// Build syndrome extraction circuit for a surface code.
+/// Data qubits: 0..n_data, ancilla qubits: n_data..n_data+n_stab
+fn build_surface_syndrome(n_data: usize, stabilizers: &[PauliString]) -> Circuit {
+    let mut circuit = Circuit::new();
+
+    for (i, stab) in stabilizers.iter().enumerate() {
+        let ancilla = n_data + i;
+        // Determine if X-type or Z-type
+        let is_x_type = stab.paulis.contains(&1) && !stab.paulis.contains(&3);
+
+        if is_x_type {
+            // X stabilizer: prepare |+>, CNOT ancilla->data, H, measure
+            circuit.push(Gate::H, ancilla);
+            for (q, &p) in stab.paulis.iter().enumerate() {
+                if p == 1 {
+                    circuit.cnot(ancilla, q);
+                }
+            }
+            circuit.push(Gate::H, ancilla);
+        } else {
+            // Z stabilizer: prepare |0>, CNOT data->ancilla, measure
+            for (q, &p) in stab.paulis.iter().enumerate() {
+                if p == 3 {
+                    circuit.cnot(q, ancilla);
+                }
+            }
+        }
+    }
+
+    // Measure all ancillas
+    for i in 0..stabilizers.len() {
+        circuit.measure(n_data + i, i);
+    }
+
+    circuit
+}
+
+/// Build recovery table for a surface code using single-error syndrome lookup.
+fn build_surface_recovery(n_data: usize, stabilizers: &[PauliString]) -> HashMap<u32, Circuit> {
+    let mut recovery = HashMap::new();
+    let _ = stabilizers.len();
+
+    // For each single-qubit error, compute syndrome and map to recovery
+    for q in 0..n_data {
+        for (gate, pauli_val) in [(Gate::X, 1u8), (Gate::Z, 3u8), (Gate::Y, 2u8)] {
+            // Compute syndrome: bit i = 1 if stabilizer i anticommutes with error
+            let mut syndrome = 0u32;
+            for (i, stab) in stabilizers.iter().enumerate() {
+                let p = stab.paulis[q];
+                if p == 0 {
+                    continue;
+                }
+                // Anticommutes if one is X and other is Z (or vice versa)
+                // X (1) anticommutes with Z (3)
+                // Y (2) anticommutes with both X and Z
+                let anticommutes = matches!(
+                    (p, pauli_val),
+                    (1, 3) | (3, 1) | (1, 2) | (2, 1) | (3, 2) | (2, 3)
+                );
+                if anticommutes {
+                    syndrome |= 1 << i;
+                }
+            }
+
+            if syndrome != 0 {
+                let mut circ = Circuit::new();
+                circ.push(gate, q);
+                recovery.insert(syndrome, circ);
+            }
+        }
+    }
+
+    // Syndrome 0: no error -> empty circuit
+    recovery.insert(0, Circuit::new());
+
+    recovery
+}
 
 fn build_repetition_syndrome(n: usize, bitflip: bool) -> Circuit {
     let mut circuit = Circuit::new();
