@@ -8,7 +8,6 @@ pub mod aqc;
 #[cfg(feature = "cuda")]
 pub mod cuda;
 #[cfg(feature = "gpu")]
-pub mod cusolver_ffi;
 #[cfg(feature = "llvm")]
 pub mod llvm_backend;
 pub mod mbqc;
