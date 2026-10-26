@@ -1122,17 +1122,44 @@ impl DMRG {
         let mut s = Diag::<f64>::zeros(size);
         let params = Default::default();
         let par = Par::Seq;
-        let scratch = self_adjoint_evd_scratch::<f64>(size, ComputeEigenvectors::No, par, params);
+        // Compute eigenvectors too (for ground state reconstruction)
+        let mut v_tri = Mat::<f64>::zeros(size, size);
+        let scratch = self_adjoint_evd_scratch::<f64>(size, ComputeEigenvectors::Yes, par, params);
         let mut mem = MemBuffer::new(scratch);
         let stack = MemStack::new(&mut mem);
-        self_adjoint_evd(mat_a.as_ref(), s.as_mut(), None, par, stack, params).unwrap();
+        self_adjoint_evd(
+            mat_a.as_ref(),
+            s.as_mut(),
+            Some(v_tri.as_mut()),
+            par,
+            stack,
+            params,
+        )
+        .unwrap();
 
-        let mut min_val = s.column_vector()[0];
+        // Find smallest eigenvalue and its index
+        let mut min_idx = 0;
         for i in 1..size {
-            let val = s.column_vector()[i];
-            if val < min_val {
-                min_val = val;
+            if s.column_vector()[i] < s.column_vector()[min_idx] {
+                min_idx = i;
             }
+        }
+        let min_val = s.column_vector()[min_idx];
+
+        // Reconstruct ground state vector from Lanczos vectors (only for n <= 20)
+        if n <= 20 {
+            let mut gs = vec![0.0f64; dim];
+            for j in 0..size {
+                let y_j = v_tri[(j, min_idx)];
+                for i in 0..dim {
+                    gs[i] += y_j * v_all[j][i];
+                }
+            }
+            // Store as Complex64
+            let gs_c: Vec<Complex64> = gs.iter().map(|&x| Complex64::new(x, 0.0)).collect();
+            self.ground_state = Some(gs_c);
+        } else {
+            self.ground_state = None;
         }
 
         Ok(min_val)
