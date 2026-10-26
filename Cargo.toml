@@ -1,6 +1,6 @@
 [package]
 name = "quantumforge"
-version = "0.2.2"
+version = "0.2.3"
 edition = "2024"
 description = "A small, backend-neutral quantum simulation kernel: CPU, CUDA, and LLVM backends with gate-model circuits, VQE/QML, MBQC, adiabatic QC, and unitary Turing machines."
 license = "GPL-3.0"
