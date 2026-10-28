@@ -2,7 +2,6 @@ fn main() {
     #[cfg(not(feature = "cuda"))]
     {
         println!("This example requires --features cuda");
-        return;
     }
     #[cfg(feature = "cuda")]
     run_bench();
