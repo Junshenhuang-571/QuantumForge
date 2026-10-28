@@ -205,6 +205,7 @@ Same circuit (Ry + CNOT ring, depth 10), batch of 16:
 
 | Backend | Time |
 |---------|------|
+| Qiskit (CPU, Python) | 0.240 s |
 | NumPy (CPU, Python) | 0.106 s |
 | QuantumForge (CPU) | ~0.001 s |
 | QuantumForge (GPU, batched) | ~0.0005 s |
