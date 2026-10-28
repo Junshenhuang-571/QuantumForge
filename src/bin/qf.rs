@@ -3463,7 +3463,9 @@ fn run_classification(data: &[(Vec<f64>, f64)], label: &str, config: &TrainConfi
 /// - ising: pure Ising, H = -Σ Z_i Z_{i+1}
 /// - heisenberg: XXX Heisenberg chain, H = Σ (X_i X_{i+1} + Y_i Y_{i+1} + Z_i Z_{i+1})
 /// - xxz: anisotropic XXZ ring, H = Σ (X_iX_{i+1} + Y_iY_{i+1} - ½ Z_iZ_{i+1})
-/// - hubbard: Hubbard ring (t=1, U=1) mapped to spins via Jordan-Wigner,
+/// - ising2d: 2D Ising on square lattice, H = -Σ_{<ij>} Z_i Z_j  (perfect square qubit count)
+/// - heisenberg2d: 2D Heisenberg on square lattice, H = Σ_{<ij>} (X_iX_j+Y_iY_j+Z_iZ_j)
+/// - ising3d: 3D Ising on cubic lattice, H = -Σ_{<ij>} Z_i Z_j  (perfect cube qubit count)
 ///   H = Σ (c†ᵢc_{i+1} + h.c.) + U Σ n_i n_{i+1} = -½Σ(X_iX_{i+1}+Y_iY_{i+1}) + ¼Σ(I_iI_{i+1} - Z_iZ_{i+1})
 ///
 /// Returns None for unknown names or qubit counts < 2 (no bonds to form).
@@ -3514,9 +3516,80 @@ fn named_hamiltonian(name: &str, qubits: usize) -> Option<quantumforge::analytic
                 add(&mut sum, -1, 2, &[(i, Pauli::Z), (i + 1, Pauli::Z)], qubits);
             }
         }
+"ising2d" => {
+            // 2D Ising on square lattice (Lx × Ly), row-major 1D mapping.
+            // H = -Σ_{<ij>} Z_i Z_j  (nearest-neighbor bonds in x and y)
+            let lx = (qubits as f64).sqrt().round() as usize;
+            let ly = qubits / lx;
+            if lx * ly != qubits { return None; } // must be perfect square
+            for y in 0..ly {
+                for x in 0..lx {
+                    let i = y * lx + x;
+                    // x-neighbor
+                    if x + 1 < lx {
+                        let j = y * lx + (x + 1);
+                        add(&mut sum, -1, 1, &[(i, Pauli::Z), (j, Pauli::Z)], qubits);
+                    }
+                    // y-neighbor
+                    if y + 1 < ly {
+                        let j = (y + 1) * lx + x;
+                        add(&mut sum, -1, 1, &[(i, Pauli::Z), (j, Pauli::Z)], qubits);
+                    }
+                }
+            }
+        }
+        "heisenberg2d" => {
+            // 2D Heisenberg on square lattice: H = Σ_{<ij>} (X_iX_j + Y_iY_j + Z_iZ_j)
+            let lx = (qubits as f64).sqrt().round() as usize;
+            let ly = qubits / lx;
+            if lx * ly != qubits { return None; }
+            for y in 0..ly {
+                for x in 0..lx {
+                    let i = y * lx + x;
+                    for &(dx, dy) in &[(1, 0), (0, 1)] {
+                        let nx = x as i32 + dx;
+                        let ny = y as i32 + dy;
+                        if nx >= 0 && nx < lx as i32 && ny >= 0 && ny < ly as i32 {
+                            let j = ny as usize * lx + nx as usize;
+                            if j > i {
+                                for p in [Pauli::X, Pauli::Y, Pauli::Z] {
+                                    add(&mut sum, 1, 1, &[(i, p), (j, p)], qubits);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        "ising3d" => {
+            // 3D Ising on cubic lattice (Lx × Ly × Lz), row-major 1D mapping.
+            let l = (qubits as f64).cbrt().round() as usize;
+            if l * l * l != qubits { return None; }
+            for z in 0..l {
+                for y in 0..l {
+                    for x in 0..l {
+                        let i = (z * l + y) * l + x;
+                        // x-neighbor
+                        if x + 1 < l {
+                            let j = (z * l + y) * l + (x + 1);
+                            add(&mut sum, -1, 1, &[(i, Pauli::Z), (j, Pauli::Z)], qubits);
+                        }
+                        // y-neighbor
+                        if y + 1 < l {
+                            let j = (z * l + (y + 1)) * l + x;
+                            add(&mut sum, -1, 1, &[(i, Pauli::Z), (j, Pauli::Z)], qubits);
+                        }
+                        // z-neighbor
+                        if z + 1 < l {
+                            let j = ((z + 1) * l + y) * l + x;
+                            add(&mut sum, -1, 1, &[(i, Pauli::Z), (j, Pauli::Z)], qubits);
+                        }
+                    }
+                }
+            }
+        }
         "hubbard" => {
             // Hubbard ring (t=1, U=1), Jordan-Wigner to spins:
-            //   hopping  -½(XX+YY) per bond;  interaction  ¼(II - ZZ) per bond.
             for i in 0..qubits - 1 {
                 add(&mut sum, -1, 2, &[(i, Pauli::X), (i + 1, Pauli::X)], qubits);
                 add(&mut sum, -1, 2, &[(i, Pauli::Y), (i + 1, Pauli::Y)], qubits);

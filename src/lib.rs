@@ -351,6 +351,64 @@ impl StateVector {
             .sum())
     }
 
+    /// Von Neumann entanglement entropy for a bipartition: first `n_a` qubits
+    /// form subsystem A, the rest form subsystem B.
+    /// S = -Tr(ρ_A log ρ_A) where ρ_A = Tr_B(|ψ⟩⟨ψ|).
+    pub fn entanglement_entropy(&self, n_a: usize) -> Result<f64, QuantumError> {
+        if n_a == 0 || n_a >= self.qubits {
+            return Err(QuantumError::InvalidParameterCount {
+                expected: self.qubits - 1,
+                actual: n_a,
+            });
+        }
+        let n_b = self.qubits - n_a;
+        let dim_a = 1usize << n_a;
+        let dim_b = 1usize << n_b;
+        // Build reduced density matrix ρ_A (dim_a × dim_a)
+        let mut rho = vec![0.0f64; dim_a * dim_a];
+        for i in 0..dim_a {
+            for j in 0..dim_a {
+                let mut val = 0.0f64;
+                for b in 0..dim_b {
+                    let idx_i = i * dim_b + b;
+                    let idx_j = j * dim_b + b;
+                    // ρ_A[i,j] = Σ_b ψ[i,b] * conj(ψ[j,b])
+                    let amp_i = self.amplitudes[idx_i];
+                    let amp_j = self.amplitudes[idx_j];
+                    val += amp_i.re * amp_j.re + amp_i.im * amp_j.im;
+                }
+                rho[i * dim_a + j] = val;
+            }
+        }
+        let mat = Mat::from_fn(dim_a, dim_a, |i, j| rho[i * dim_a + j]);
+        use faer::diag::Diag;
+        use faer::dyn_stack::{MemBuffer, MemStack};
+        use faer::linalg::evd::{ComputeEigenvectors, self_adjoint_evd, self_adjoint_evd_scratch};
+        use faer::{Mat, Par};
+        let par = Par::Seq;
+        let params = Default::default();
+        let mut s = Diag::<f64>::zeros(dim_a);
+        let scratch = self_adjoint_evd_scratch::<f64>(dim_a, ComputeEigenvectors::No, par, params);
+        let mut mem = MemBuffer::new(scratch);
+        let stack = MemStack::new(&mut mem);
+        self_adjoint_evd(
+            mat.as_ref(),
+            s.as_mut(),
+            None,
+            par,
+            stack,
+            params,
+        );
+        // S = -Σ λ log λ
+        let mut s_val = 0.0f64;
+        for i in 0..dim_a {
+            let lam = s[i].max(0.0);
+            if lam > 1e-15 {
+                s_val -= lam * lam.ln();
+            }
+        }
+        Ok(s_val)
+    }
     pub fn expectation_x(&self, qubit: usize) -> Result<f64, QuantumError> {
         if qubit >= self.qubits {
             return Err(QuantumError::QubitOutOfRange {
