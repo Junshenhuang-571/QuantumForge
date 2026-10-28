@@ -189,7 +189,6 @@ DMRG ground-state energy for TFIM (H = -Σ Z_i Z_{i+1} - Σ X_i), bond dimension
 
 | Qubits | CPU (MPS DMRG) | GPU (sparse Lanczos) |
 |--------|----------------|----------------------|
-| 12     | 15.6 s         | 18.1 s               |
 | 14     | 0.21 s         | 0.65 s               |
 | 16     | 0.71 s         | 1.03 s               |
 | 18     | 3.19 s         | 3.77 s               |
