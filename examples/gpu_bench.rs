@@ -1,9 +1,18 @@
-#![cfg(feature = "cuda")]
-use quantumforge::cuda::CudaBackend;
-use quantumforge::{Circuit, Gate, StateVector};
-use std::time::Instant;
-
 fn main() {
+    #[cfg(not(feature = "cuda"))]
+    {
+        println!("This example requires --features cuda");
+        return;
+    }
+    #[cfg(feature = "cuda")]
+    run_bench();
+}
+
+#[cfg(feature = "cuda")]
+fn run_bench() {
+    use quantumforge::cuda::CudaBackend;
+    use quantumforge::{Circuit, Gate, StateVector};
+    use std::time::Instant;
     let n_qubits = 20;
     let batch_size = 32;
     let depth = 20;
