@@ -1,3 +1,4 @@
+#![cfg(feature = "cuda")]
 use quantumforge::cuda::CudaBackend;
 use quantumforge::{Circuit, Gate, StateVector};
 use std::time::Instant;
