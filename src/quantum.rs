@@ -1711,3 +1711,146 @@ impl Observable {
         Ok(value)
     }
 }
+
+#[cfg(feature = "gpu")]
+pub fn sparse_lanczos_gpu(op: &SparseOperator, max_iterations: usize, tolerance: f64) -> Result<f64, LinearError> {
+    use cudarc::driver::{CudaDevice, LaunchAsync, LaunchConfig};
+    use cudarc::nvrtc::compile_ptx;
+
+    let dimension = op.input.dimension;
+    if op.output != op.input {
+        return Err(LinearError::NotEndomorphism);
+    }
+
+    let device = CudaDevice::new(0).map_err(|_| LinearError::EigenDecompositionNoConvergence)?;
+
+    let row_offsets: Vec<i32> = op.row_offsets.iter().map(|&x| x as i32).collect();
+    let col_indices: Vec<i32> = op.column_indices.iter().map(|&x| x as i32).collect();
+    let values: Vec<f64> = op.values.iter().map(|c| c.re).collect();
+
+    let kernel_src = r#"
+extern "C" __global__ void sparse_matvec(
+    const double* v, double* w,
+    const int* row_offsets, const int* col_indices,
+    const double* values, int dim
+) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= dim) return;
+    double sum = 0.0;
+    for (int j = row_offsets[i]; j < row_offsets[i+1]; j++) {
+        sum += values[j] * v[col_indices[j]];
+    }
+    w[i] = sum;
+}
+"#;
+
+    let ptx = compile_ptx(kernel_src).map_err(|_| LinearError::EigenDecompositionNoConvergence)?;
+    device
+        .load_ptx(ptx, "sparse", &["sparse_matvec"])
+        .map_err(|_| LinearError::EigenDecompositionNoConvergence)?;
+    let func = device
+        .get_func("sparse", "sparse_matvec")
+        .ok_or(LinearError::EigenDecompositionNoConvergence)?;
+
+    let m = max_iterations.min(dimension).min(100);
+    let mut v_curr = vec![0.0f64; dimension];
+    let mut seed = 42u64;
+    for x in v_curr.iter_mut() {
+        seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+        *x = (seed as f64 / u64::MAX as f64) - 0.5;
+    }
+    let norm: f64 = v_curr.iter().map(|x| x * x).sum::<f64>().sqrt();
+    for x in v_curr.iter_mut() {
+        *x /= norm;
+    }
+
+    let mut v_prev = vec![0.0f64; dimension];
+    let mut v_all: Vec<Vec<f64>> = Vec::with_capacity(m);
+    v_all.push(v_curr.clone());
+
+    let mut alpha = vec![0.0f64; m];
+    let mut beta = vec![0.0f64; m];
+
+    let row_gpu = device.htod_copy(row_offsets.clone()).map_err(|_| LinearError::EigenDecompositionNoConvergence)?;
+    let col_gpu = device.htod_copy(col_indices.clone()).map_err(|_| LinearError::EigenDecompositionNoConvergence)?;
+    let val_gpu = device.htod_copy(values.clone()).map_err(|_| LinearError::EigenDecompositionNoConvergence)?;
+    let mut v_gpu = device.htod_copy(v_curr.clone()).map_err(|_| LinearError::EigenDecompositionNoConvergence)?;
+    let mut w_gpu = device.alloc_zeros::<f64>(dimension).map_err(|_| LinearError::EigenDecompositionNoConvergence)?;
+
+    for j in 0..m {
+        let cfg = LaunchConfig {
+            grid_dim: ((dimension as u32).div_ceil(256), 1, 1),
+            block_dim: (256, 1, 1),
+            shared_mem_bytes: 0,
+        };
+        unsafe {
+            func.clone()
+                .launch(cfg, (&v_gpu, &mut w_gpu, &row_gpu, &col_gpu, &val_gpu, dimension as i32))
+                .map_err(|_| LinearError::EigenDecompositionNoConvergence)?;
+        }
+        device.synchronize().map_err(|_| LinearError::EigenDecompositionNoConvergence)?;
+
+        let w: Vec<f64> = device.dtoh_sync_copy(&w_gpu).map_err(|_| LinearError::EigenDecompositionNoConvergence)?;
+
+        let mut w = w;
+        if j > 0 {
+            for i in 0..dimension {
+                w[i] -= beta[j - 1] * v_prev[i];
+            }
+        }
+        for vec in v_all.iter().take(j) {
+            let proj: f64 = (0..dimension).map(|i| vec[i] * w[i]).sum();
+            for i in 0..dimension {
+                w[i] -= proj * vec[i];
+            }
+        }
+        let alpha_j: f64 = (0..dimension).map(|i| v_curr[i] * w[i]).sum();
+        for i in 0..dimension {
+            w[i] -= alpha_j * v_curr[i];
+        }
+        let beta_j: f64 = (0..dimension).map(|i| w[i] * w[i]).sum::<f64>().sqrt();
+
+        alpha[j] = alpha_j;
+        if j + 1 < m {
+            beta[j] = beta_j;
+        }
+
+        if beta_j < tolerance || j + 1 == m {
+            break;
+        }
+
+        v_prev = v_curr.clone();
+        v_curr = w.iter().map(|x| x / beta_j).collect();
+        v_all.push(v_curr.clone());
+        v_gpu = device.htod_copy(v_curr.clone()).map_err(|_| LinearError::EigenDecompositionNoConvergence)?;
+    }
+
+    // Build tridiagonal
+    let actual_m = alpha.iter().position(|&a| a == 0.0).unwrap_or(m).min(m);
+    let mut tri = vec![0.0f64; actual_m * actual_m];
+    for i in 0..actual_m {
+        tri[i * actual_m + i] = alpha[i];
+        if i > 0 {
+            tri[i * actual_m + (i - 1)] = beta[i - 1];
+            tri[(i - 1) * actual_m + i] = beta[i - 1];
+        }
+    }
+
+    // Solve via faer
+    use faer::diag::Diag;
+    use faer::dyn_stack::{MemBuffer, MemStack};
+    use faer::linalg::evd::{ComputeEigenvectors, self_adjoint_evd, self_adjoint_evd_scratch};
+    use faer::{Mat, Par};
+    let par = Par::Seq;
+    let params = Default::default();
+    let mat = Mat::from_fn(actual_m, actual_m, |i, j| tri[i * actual_m + j]);
+    let mut s = Diag::<f64>::zeros(actual_m);
+    let scratch = self_adjoint_evd_scratch::<f64>(actual_m, ComputeEigenvectors::No, par, params);
+    let mut mem = MemBuffer::new(scratch);
+    let stack = MemStack::new(&mut mem);
+    let _ = self_adjoint_evd(mat.as_ref(), s.as_mut(), None, par, stack, params);
+
+    let lowest = s[0];
+
+    Ok(lowest)
+}
