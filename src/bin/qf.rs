@@ -3516,12 +3516,14 @@ fn named_hamiltonian(name: &str, qubits: usize) -> Option<quantumforge::analytic
                 add(&mut sum, -1, 2, &[(i, Pauli::Z), (i + 1, Pauli::Z)], qubits);
             }
         }
-"ising2d" => {
+        "ising2d" => {
             // 2D Ising on square lattice (Lx × Ly), row-major 1D mapping.
             // H = -Σ_{<ij>} Z_i Z_j  (nearest-neighbor bonds in x and y)
             let lx = (qubits as f64).sqrt().round() as usize;
             let ly = qubits / lx;
-            if lx * ly != qubits { return None; } // must be perfect square
+            if lx * ly != qubits {
+                return None;
+            } // must be perfect square
             for y in 0..ly {
                 for x in 0..lx {
                     let i = y * lx + x;
@@ -3542,7 +3544,9 @@ fn named_hamiltonian(name: &str, qubits: usize) -> Option<quantumforge::analytic
             // 2D Heisenberg on square lattice: H = Σ_{<ij>} (X_iX_j + Y_iY_j + Z_iZ_j)
             let lx = (qubits as f64).sqrt().round() as usize;
             let ly = qubits / lx;
-            if lx * ly != qubits { return None; }
+            if lx * ly != qubits {
+                return None;
+            }
             for y in 0..ly {
                 for x in 0..lx {
                     let i = y * lx + x;
@@ -3564,7 +3568,9 @@ fn named_hamiltonian(name: &str, qubits: usize) -> Option<quantumforge::analytic
         "ising3d" => {
             // 3D Ising on cubic lattice (Lx × Ly × Lz), row-major 1D mapping.
             let l = (qubits as f64).cbrt().round() as usize;
-            if l * l * l != qubits { return None; }
+            if l * l * l != qubits {
+                return None;
+            }
             for z in 0..l {
                 for y in 0..l {
                     for x in 0..l {
