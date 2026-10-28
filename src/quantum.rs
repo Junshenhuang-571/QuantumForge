@@ -1713,7 +1713,11 @@ impl Observable {
 }
 
 #[cfg(feature = "gpu")]
-pub fn sparse_lanczos_gpu(op: &SparseOperator, max_iterations: usize, tolerance: f64) -> Result<f64, LinearError> {
+pub fn sparse_lanczos_gpu(
+    op: &SparseOperator,
+    max_iterations: usize,
+    tolerance: f64,
+) -> Result<f64, LinearError> {
     use cudarc::driver::{CudaDevice, LaunchAsync, LaunchConfig};
     use cudarc::nvrtc::compile_ptx;
 
@@ -1771,11 +1775,21 @@ extern "C" __global__ void sparse_matvec(
     let mut alpha = vec![0.0f64; m];
     let mut beta = vec![0.0f64; m];
 
-    let row_gpu = device.htod_copy(row_offsets.clone()).map_err(|_| LinearError::EigenDecompositionNoConvergence)?;
-    let col_gpu = device.htod_copy(col_indices.clone()).map_err(|_| LinearError::EigenDecompositionNoConvergence)?;
-    let val_gpu = device.htod_copy(values.clone()).map_err(|_| LinearError::EigenDecompositionNoConvergence)?;
-    let mut v_gpu = device.htod_copy(v_curr.clone()).map_err(|_| LinearError::EigenDecompositionNoConvergence)?;
-    let mut w_gpu = device.alloc_zeros::<f64>(dimension).map_err(|_| LinearError::EigenDecompositionNoConvergence)?;
+    let row_gpu = device
+        .htod_copy(row_offsets.clone())
+        .map_err(|_| LinearError::EigenDecompositionNoConvergence)?;
+    let col_gpu = device
+        .htod_copy(col_indices.clone())
+        .map_err(|_| LinearError::EigenDecompositionNoConvergence)?;
+    let val_gpu = device
+        .htod_copy(values.clone())
+        .map_err(|_| LinearError::EigenDecompositionNoConvergence)?;
+    let mut v_gpu = device
+        .htod_copy(v_curr.clone())
+        .map_err(|_| LinearError::EigenDecompositionNoConvergence)?;
+    let mut w_gpu = device
+        .alloc_zeros::<f64>(dimension)
+        .map_err(|_| LinearError::EigenDecompositionNoConvergence)?;
 
     for j in 0..m {
         let cfg = LaunchConfig {
@@ -1785,12 +1799,26 @@ extern "C" __global__ void sparse_matvec(
         };
         unsafe {
             func.clone()
-                .launch(cfg, (&v_gpu, &mut w_gpu, &row_gpu, &col_gpu, &val_gpu, dimension as i32))
+                .launch(
+                    cfg,
+                    (
+                        &v_gpu,
+                        &mut w_gpu,
+                        &row_gpu,
+                        &col_gpu,
+                        &val_gpu,
+                        dimension as i32,
+                    ),
+                )
                 .map_err(|_| LinearError::EigenDecompositionNoConvergence)?;
         }
-        device.synchronize().map_err(|_| LinearError::EigenDecompositionNoConvergence)?;
+        device
+            .synchronize()
+            .map_err(|_| LinearError::EigenDecompositionNoConvergence)?;
 
-        let w: Vec<f64> = device.dtoh_sync_copy(&w_gpu).map_err(|_| LinearError::EigenDecompositionNoConvergence)?;
+        let w: Vec<f64> = device
+            .dtoh_sync_copy(&w_gpu)
+            .map_err(|_| LinearError::EigenDecompositionNoConvergence)?;
 
         let mut w = w;
         if j > 0 {
@@ -1822,7 +1850,9 @@ extern "C" __global__ void sparse_matvec(
         v_prev = v_curr.clone();
         v_curr = w.iter().map(|x| x / beta_j).collect();
         v_all.push(v_curr.clone());
-        v_gpu = device.htod_copy(v_curr.clone()).map_err(|_| LinearError::EigenDecompositionNoConvergence)?;
+        v_gpu = device
+            .htod_copy(v_curr.clone())
+            .map_err(|_| LinearError::EigenDecompositionNoConvergence)?;
     }
 
     // Build tridiagonal
