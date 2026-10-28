@@ -1131,6 +1131,11 @@ impl Session {
         let n_qubits = cfg.qubits.unwrap_or(2);
         let layers = cfg.layers.unwrap_or(2);
         let qnn = VariationalQnn::new(n_qubits, layers);
+        #[cfg(feature = "cuda")]
+        if cfg.gpu {
+            run_qnn_gpu(&qnn, &data, &cfg);
+            return;
+        }
         run_qnn(&qnn, &data, &cfg);
     }
 
@@ -3086,6 +3091,7 @@ struct QnnConfig {
     adam: bool,
     qubits: Option<usize>,
     layers: Option<usize>,
+    gpu: bool,
 }
 impl Default for QnnConfig {
     fn default() -> Self {
@@ -3096,6 +3102,7 @@ impl Default for QnnConfig {
             adam: true,
             qubits: None,
             layers: None,
+            gpu: false,
         }
     }
 }
@@ -3129,8 +3136,24 @@ fn split_qnn_config(tail: &str) -> (String, QnnConfig) {
         let config = format!("{} {}", &trimmed[..start], &trimmed[end..]);
         (trimmed[start..end].to_string(), config.trim().to_string())
     } else {
-        // No brace-enclosed data
-        (trimmed.to_string(), String::new())
+        // No brace-enclosed data: check if all words are config keys
+        let words: Vec<&str> = trimmed.split_whitespace().collect();
+        let all_config = words.iter().all(|w| {
+            w.starts_with("target=")
+                || w.starts_with("lr=")
+                || w.starts_with("steps=")
+                || w.starts_with("qubits=")
+                || w.starts_with("layers=")
+                || w == &"opt=adam"
+                || w == &"opt=gd"
+                || w == &"gpu"
+                || w == &"gpu=true"
+        });
+        if all_config {
+            (String::new(), trimmed.to_string())
+        } else {
+            (trimmed.to_string(), String::new())
+        }
     };
 
     // Parse config options from the config part
@@ -3161,6 +3184,8 @@ fn split_qnn_config(tail: &str) -> (String, QnnConfig) {
             cfg.adam = true;
         } else if word == "opt=gd" {
             cfg.adam = false;
+        } else if word == "gpu" || word == "gpu=true" {
+            cfg.gpu = true;
         }
     }
 
@@ -3169,6 +3194,154 @@ fn split_qnn_config(tail: &str) -> (String, QnnConfig) {
 
 /// Fit the multi-parameter VariationalQnn to `data` with the chosen optimizer and
 /// report initial/final MSE and the learned weights.
+#[cfg(feature = "cuda")]
+fn evaluate_gpu(
+    backend: &quantumforge::cuda::CudaBackend,
+    qnn: &VariationalQnn,
+    input: f64,
+    weights: &[f64],
+) -> Result<f64, String> {
+    use quantumforge::cuda::CudaDeviceState;
+    use quantumforge::{RotationAxis, StateVector};
+    let n = qnn.num_qubits;
+    let mut device_state = backend
+        .upload(&StateVector::zero(n).map_err(|e| format!("{e}"))?)
+        .map_err(|e| format!("{e}"))?;
+    for layer in 0..qnn.layers {
+        // Encoding: Ry(input) on all qubits — batched into one kernel
+        let enc_gates: Vec<(RotationAxis, usize, f64)> =
+            (0..n).map(|q| (RotationAxis::Y, q, input)).collect();
+        device_state
+            .apply_rotation_chain(&enc_gates)
+            .map_err(|e| format!("{e}"))?;
+        // Entangling: CNOT ring
+        for q in 0..n {
+            device_state
+                .apply_cnot(q, (q + 1) % n)
+                .map_err(|e| format!("{e}"))?;
+        }
+        // Variational: Ry(weight) on all qubits — batched
+        let var_gates: Vec<(RotationAxis, usize, f64)> = (0..n)
+            .map(|q| {
+                let idx = layer * n + q;
+                (RotationAxis::Y, q, weights[idx])
+            })
+            .collect();
+        device_state
+            .apply_rotation_chain(&var_gates)
+            .map_err(|e| format!("{e}"))?;
+    }
+    let sv = device_state.download().map_err(|e| format!("{e}"))?;
+    Ok(sv.expectation_z(0).map_err(|e| format!("{e}"))?)
+}
+
+#[cfg(feature = "cuda")]
+fn run_qnn_gpu(qnn: &VariationalQnn, data: &[(f64, f64)], cfg: &QnnConfig) {
+    use quantumforge::cuda::CudaBackend;
+    let backend = match CudaBackend::new(0) {
+        Ok(b) => b,
+        Err(e) => {
+            eprintln!("cuda init error: {e}");
+            return;
+        }
+    };
+    let n_params = qnn.num_qubits * qnn.layers;
+    let init = vec![-1.2; n_params];
+    let trained = if cfg.adam {
+        // Adam with GPU
+        let (lr, beta1, beta2, eps) = (cfg.lr, 0.9, 0.999, 1e-8);
+        let mut weights = init.clone();
+        let mut m = vec![0.0; n_params];
+        let mut v = vec![0.0; n_params];
+        for t in 1..=cfg.steps {
+            // loss + gradient via GPU
+            let mut loss = 0.0;
+            let mut gradient = vec![0.0; n_params];
+            for &(input, target) in data {
+                let pred = match evaluate_gpu(&backend, qnn, input, &weights) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        eprintln!("gpu error: {e}");
+                        return;
+                    }
+                };
+                let residual = pred - target;
+                loss += residual * residual;
+                // parameter-shift gradient
+                let shift = std::f64::consts::FRAC_PI_2;
+                for i in 0..n_params {
+                    let mut wp = weights.clone();
+                    let mut wm = weights.clone();
+                    wp[i] += shift;
+                    wm[i] -= shift;
+                    let vp = evaluate_gpu(&backend, qnn, input, &wp).unwrap_or(0.0);
+                    let vm = evaluate_gpu(&backend, qnn, input, &wm).unwrap_or(0.0);
+                    gradient[i] += 2.0 * residual * 0.5 * (vp - vm);
+                }
+            }
+            let n = data.len() as f64;
+            for g in &mut gradient {
+                *g /= n;
+            }
+            let t = t as f64;
+            for i in 0..n_params {
+                m[i] = beta1 * m[i] + (1.0 - beta1) * gradient[i];
+                v[i] = beta2 * v[i] + (1.0 - beta2) * gradient[i] * gradient[i];
+                let m_hat = m[i] / (1.0 - beta1.powf(t));
+                let v_hat = v[i] / (1.0 - beta2.powf(t));
+                weights[i] -= lr * m_hat / (v_hat.sqrt() + eps);
+            }
+        }
+        weights
+    } else {
+        let mut weights = init.clone();
+        for _ in 0..cfg.steps {
+            let mut gradient = vec![0.0; n_params];
+            for &(input, target) in data {
+                let pred = match evaluate_gpu(&backend, qnn, input, &weights) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        eprintln!("gpu error: {e}");
+                        return;
+                    }
+                };
+                let residual = pred - target;
+                let shift = std::f64::consts::FRAC_PI_2;
+                for i in 0..n_params {
+                    let mut wp = weights.clone();
+                    let mut wm = weights.clone();
+                    wp[i] += shift;
+                    wm[i] -= shift;
+                    let vp = evaluate_gpu(&backend, qnn, input, &wp).unwrap_or(0.0);
+                    let vm = evaluate_gpu(&backend, qnn, input, &wm).unwrap_or(0.0);
+                    gradient[i] += 2.0 * residual * 0.5 * (vp - vm);
+                }
+            }
+            let n = data.len() as f64;
+            for g in &mut gradient {
+                *g /= n;
+            }
+            for i in 0..n_params {
+                weights[i] -= cfg.lr * gradient[i];
+            }
+        }
+        weights
+    };
+    let _ = (0.0f64, vec![0.0f64]);
+    let _ = (0.0f64, vec![0.0f64]);
+    let opt = if cfg.adam { "Adam" } else { "GD" };
+    println!(
+        "qnn GPU ({}-qubit, {} layer, {} params, Ry-encode + CNOT ring + Ry, <Z> readout, {opt}, {} samples):",
+        qnn.num_qubits,
+        qnn.layers,
+        n_params,
+        data.len()
+    );
+    println!(
+        "  trained weights = {trained:?}  (lr={}, steps={})",
+        cfg.lr, cfg.steps
+    );
+}
 fn run_qnn(qnn: &VariationalQnn, data: &[(f64, f64)], cfg: &QnnConfig) {
     if data.is_empty() {
         return eprintln!("qnn: empty dataset");

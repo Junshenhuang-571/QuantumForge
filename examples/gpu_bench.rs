@@ -46,7 +46,9 @@ fn main() {
     // GPU: batched
     let backend = CudaBackend::new(0).expect("cuda");
     let start = Instant::now();
-    let gpu_results = backend.run_circuit_batch(&states, &circuit).expect("gpu batch");
+    let gpu_results = backend
+        .run_circuit_batch(&states, &circuit)
+        .expect("gpu batch");
     let gpu_time = start.elapsed();
 
     // Verify correctness
@@ -57,9 +59,15 @@ fn main() {
         }
     }
 
-    println!("Batch circuit benchmark: {} qubits, depth {}, batch size {}", n_qubits, depth, batch_size);
+    println!(
+        "Batch circuit benchmark: {} qubits, depth {}, batch size {}",
+        n_qubits, depth, batch_size
+    );
     println!("CPU (sequential): {:?}", cpu_time);
     println!("GPU (batched):    {:?}", gpu_time);
-    println!("Speedup: {:.1}x", cpu_time.as_secs_f64() / gpu_time.as_secs_f64());
+    println!(
+        "Speedup: {:.1}x",
+        cpu_time.as_secs_f64() / gpu_time.as_secs_f64()
+    );
     println!("Max error: {:.3e}", max_err);
 }
