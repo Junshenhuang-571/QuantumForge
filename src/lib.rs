@@ -391,7 +391,7 @@ impl StateVector {
         let scratch = self_adjoint_evd_scratch::<f64>(dim_a, ComputeEigenvectors::No, par, params);
         let mut mem = MemBuffer::new(scratch);
         let stack = MemStack::new(&mut mem);
-        self_adjoint_evd(mat.as_ref(), s.as_mut(), None, par, stack, params);
+        let _ = self_adjoint_evd(mat.as_ref(), s.as_mut(), None, par, stack, params);
         // S = -Σ λ log λ
         let mut s_val = 0.0f64;
         for i in 0..dim_a {
