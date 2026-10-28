@@ -183,8 +183,6 @@ Notes:
   for exact-diagonalization systems the MPS is not yet reconstructed from
   the ground state, so single-site/correlation values may be approximate.
 
-## What's New
-
 ### GPU Sparse Lanczos (2D/3D models)
 GPU-accelerated sparse Lanczos now works with **any** PauliSum Hamiltonian, including 2D and 3D lattice models. Previously, GPU sparse Lanczos was hardcoded for 1D TFIM only.
 
