@@ -183,7 +183,21 @@ Notes:
   for exact-diagonalization systems the MPS is not yet reconstructed from
   the ground state, so single-site/correlation values may be approximate.
 
-### QEC commands
+## Benchmark: CPU vs GPU
+
+DMRG ground-state energy for TFIM (H = -Σ Z_i Z_{i+1} - Σ X_i), bond dimension 64, 20 sweeps:
+
+| Qubits | CPU (MPS DMRG) | GPU (sparse Lanczos) |
+|--------|----------------|----------------------|
+| 12     | 15.6 s         | 18.1 s               |
+| 14     | 0.21 s         | 0.65 s               |
+| 16     | 0.71 s         | 1.03 s               |
+| 18     | 3.19 s         | 3.77 s               |
+| 20     | 15.6 s         | 17.8 s               |
+
+GPU acceleration activates for sparse Lanczos (≥13 qubits). For small systems, CPU overhead dominates; GPU benefit emerges at 20+ qubits.
+
+![CPU vs GPU benchmark](docs/benchmark_cpu_vs_gpu.svg)
 
 Stabilizer codes with syndrome extraction circuits and recovery tables. Currently supports bit-flip / phase-flip repetition codes, Shor's 9-qubit, Steane's 7-qubit, and planar/rotated surface codes. Includes MWPM decoder for single/multi-error recovery. Verified: all stabilizers commute, repetition code end-to-end correction, surface code d=3 has distinct syndromes for all single errors.
 
