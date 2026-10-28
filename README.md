@@ -183,6 +183,28 @@ Notes:
   for exact-diagonalization systems the MPS is not yet reconstructed from
   the ground state, so single-site/correlation values may be approximate.
 
+## What's New
+
+### GPU Sparse Lanczos (2D/3D models)
+GPU-accelerated sparse Lanczos now works with **any** PauliSum Hamiltonian, including 2D and 3D lattice models. Previously, GPU sparse Lanczos was hardcoded for 1D TFIM only.
+
+- `sparse_lanczos_gpu(&sparse_op, max_iter, tol)` — generic, works with `ising2d`, `heisenberg2d`, `ising3d`
+- CSR sparse matrix-vector product kernel on GPU
+- Enables ground-state computation for 2D/3D quantum systems on GPU
+
+### New Spin Models
+- `ising2d` — 2D Ising on square lattice (perfect square qubit count: 4, 9, 16, 25...)
+- `heisenberg2d` — 2D Heisenberg on square lattice
+- `ising3d` — 3D Ising on cubic lattice (perfect cube: 8, 27...)
+
+### Entanglement Entropy
+- `StateVector::entanglement_entropy(n_a)` — von Neumann entropy for bipartition
+- Uses faer eigendecomposition of reduced density matrix
+
+### Batched GPU Circuits
+- `run_circuit_batch()` — 13x speedup at 20 qubits (batch 32, depth 20)
+- `examples/gpu_bench.rs` — runnable benchmark
+
 ## Benchmark: CPU vs GPU
 
 DMRG ground-state energy for TFIM (H = -Σ Z_i Z_{i+1} - Σ X_i), bond dimension 64, 20 sweeps:
