@@ -321,39 +321,39 @@ pub fn shor_period_finding(n: u64, _a: u64) -> Circuit {
     circuit
 }
 
-    #[test]
-    fn test_grover_circuit() {
-        let mut oracle = Circuit::new();
-        oracle.cnot(0, 1);
+#[test]
+fn test_grover_circuit() {
+    let mut oracle = Circuit::new();
+    oracle.cnot(0, 1);
 
-        let circuit = grover_circuit(2, oracle, 1);
-        assert!(!circuit.operations().is_empty());
-    }
+    let circuit = grover_circuit(2, oracle, 1);
+    assert!(!circuit.operations().is_empty());
+}
 
-    #[test]
-    fn test_qaoa_maxcut() {
-        let edges = vec![(0, 1, 1.0), (1, 2, 1.0), (2, 0, 1.0)];
-        let betas = vec![0.5, 0.3];
-        let gammas = vec![0.7, 0.2];
+#[test]
+fn test_qaoa_maxcut() {
+    let edges = vec![(0, 1, 1.0), (1, 2, 1.0), (2, 0, 1.0)];
+    let betas = vec![0.5, 0.3];
+    let gammas = vec![0.7, 0.2];
 
-        let circuit = qaoa_maxcut(3, &edges, 2, &betas, &gammas);
-        assert!(!circuit.operations().is_empty());
-    }
+    let circuit = qaoa_maxcut(3, &edges, 2, &betas, &gammas);
+    assert!(!circuit.operations().is_empty());
+}
 
-    #[test]
-    fn test_hea_ansatz() {
-        let params = vec![0.1, 0.2, 0.3, 0.4, 0.5, 0.6];
-        let circuit = hea_ansatz(3, 2, &params);
-        assert!(!circuit.operations().is_empty());
-    }
+#[test]
+fn test_hea_ansatz() {
+    let params = vec![0.1, 0.2, 0.3, 0.4, 0.5, 0.6];
+    let circuit = hea_ansatz(3, 2, &params);
+    assert!(!circuit.operations().is_empty());
+}
 
-    #[test]
-    fn test_qaoa_ansatz() {
-        let edges = vec![(0, 1), (1, 2)];
-        let params = vec![0.5, 0.3, 0.7, 0.2];
-        let circuit = qaoa_ansatz(3, &edges, 2, &params);
-        assert!(!circuit.operations().is_empty());
-    }
+#[test]
+fn test_qaoa_ansatz() {
+    let edges = vec![(0, 1), (1, 2)];
+    let params = vec![0.5, 0.3, 0.7, 0.2];
+    let circuit = qaoa_ansatz(3, &edges, 2, &params);
+    assert!(!circuit.operations().is_empty());
+}
 
 #[cfg(test)]
 mod tests {
