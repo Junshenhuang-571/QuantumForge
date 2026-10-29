@@ -224,7 +224,7 @@ pub fn cpu_max_qubits_sparse() -> usize {
         d *= 2;
         q += 1;
     }
-    q.max(12).min(30)
+    q.clamp(12, 30)
 }
 
 #[cfg(not(feature = "gpu"))]
