@@ -321,10 +321,6 @@ pub fn shor_period_finding(n: u64, _a: u64) -> Circuit {
     circuit
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
     #[test]
     fn test_grover_circuit() {
         let mut oracle = Circuit::new();
@@ -358,7 +354,6 @@ mod tests {
         let circuit = qaoa_ansatz(3, &edges, 2, &params);
         assert!(!circuit.operations().is_empty());
     }
-}
 
 #[cfg(test)]
 mod tests {
