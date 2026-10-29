@@ -163,6 +163,76 @@ pub fn hea_ansatz(num_qubits: usize, layers: usize, params: &[f64]) -> Circuit {
     circuit
 }
 
+/// Quantum Fourier Transform on `num_qubits` qubits.
+pub fn qft_circuit(num_qubits: usize) -> Circuit {
+    let mut circuit = Circuit::new();
+    for i in 0..num_qubits {
+        circuit.push(Gate::H, i);
+        for j in i + 1..num_qubits {
+            let angle = std::f64::consts::PI / (1 << (j - i)) as f64;
+            circuit.cnot(j, i);
+            circuit.push(Gate::Rz(angle), i);
+            circuit.cnot(j, i);
+        }
+    }
+    for i in 0..num_qubits / 2 {
+        circuit.swap(i, num_qubits - 1 - i);
+    }
+    circuit
+}
+
+/// Deutsch-Jozsa algorithm: determines if a function is constant or balanced.
+/// `oracle` is a circuit implementing f(x) on the last qubit.
+pub fn deutsch_jozsa(num_qubits: usize, oracle: Circuit) -> Circuit {
+    let mut circuit = Circuit::new();
+    // Initialize: |0...0>|1>
+    circuit.push(Gate::X, num_qubits);
+    // Hadamard on all qubits
+    for i in 0..=num_qubits {
+        circuit.push(Gate::H, i);
+    }
+    // Apply oracle
+    for op in oracle.operations() {
+        match op {
+            crate::CircuitOp::SingleQubit { gate, target } => circuit.push(*gate, *target),
+            crate::CircuitOp::Cnot { control, target } => circuit.cnot(*control, *target),
+            crate::CircuitOp::Cz { first, second } => circuit.cz(*first, *second),
+            crate::CircuitOp::Swap { first, second } => circuit.swap(*first, *second),
+            _ => {}
+        }
+    }
+    // Hadamard on input qubits
+    for i in 0..num_qubits {
+        circuit.push(Gate::H, i);
+    }
+    circuit
+}
+
+/// Bernstein-Vazirani algorithm: finds hidden string s such that f(x) = s·x mod 2.
+pub fn bernstein_vazirani(num_qubits: usize, oracle: Circuit) -> Circuit {
+    let mut circuit = Circuit::new();
+    // Initialize: |0...0>|1>
+    circuit.push(Gate::X, num_qubits);
+    // Hadamard on all qubits
+    for i in 0..=num_qubits {
+        circuit.push(Gate::H, i);
+    }
+    // Apply oracle
+    for op in oracle.operations() {
+        match op {
+            crate::CircuitOp::SingleQubit { gate, target } => circuit.push(*gate, *target),
+            crate::CircuitOp::Cnot { control, target } => circuit.cnot(*control, *target),
+            crate::CircuitOp::Cz { first, second } => circuit.cz(*first, *second),
+            crate::CircuitOp::Swap { first, second } => circuit.swap(*first, *second),
+            _ => {}
+        }
+    }
+    // Hadamard on input qubits
+    for i in 0..num_qubits {
+        circuit.push(Gate::H, i);
+    }
+    circuit
+}
 /// QAOA-style ansatz for VQE.
 pub fn qaoa_ansatz(
     num_qubits: usize,
