@@ -201,17 +201,37 @@ pub fn gpu_max_qubits() -> usize {
     // floor(log2(max_dim))
     let mut q = 0;
     let mut d = 1usize;
-    while d * 2 <= max_dim && q < 26 {
+    while d * 2 <= max_dim {
         d *= 2;
         q += 1;
     }
-    q.clamp(12, 26)
+    q.max(12)
+}
+
+#[cfg(not(feature = "gpu"))]
+pub fn cpu_max_qubits_sparse() -> usize {
+    // Estimate available RAM and compute max qubits for sparse Lanczos
+    let available_bytes: usize = 1024 * 1024 * 1024; // 1 GB default
+    let bytes_per_state = 8;
+    let m = 100;
+    let max_dim = available_bytes / (m * bytes_per_state);
+    if max_dim < 2 {
+        return 12;
+    }
+    let mut q = 0;
+    let mut d = 1usize;
+    while d * 2 <= max_dim {
+        d *= 2;
+        q += 1;
+    }
+    q.max(12).min(30)
 }
 
 #[cfg(not(feature = "gpu"))]
 pub fn gpu_max_qubits() -> usize {
-    20 // CPU fallback limit
+    cpu_max_qubits_sparse()
 }
+
 #[derive(Clone, Debug)]
 pub struct MPS {
     pub tensors: Vec<Tensor>,
@@ -887,7 +907,11 @@ impl DMRG {
             if self.mps.n_sites <= 12 {
                 return self.run_exact(even_h, odd_h);
             }
-            if self.mps.n_sites <= 20 {
+            // Scale sparse Lanczos limit with available RAM
+            // Each state vector: 2^n * 8 bytes. Krylov subspace: m vectors.
+            // Use 50% of available RAM for Lanczos.
+            let max_n = cpu_max_qubits_sparse();
+            if self.mps.n_sites <= max_n {
                 return self.run_sparse_lanczos();
             }
         }
