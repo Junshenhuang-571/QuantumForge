@@ -648,6 +648,70 @@ pub fn mwpm_decode(stabilizers: &[PauliString], syndrome: u32) -> Vec<(usize, u8
         }
     }
 
+    // Try quadruples (greedy extension)
+    if error_syndromes.len() <= 50 {
+        for i in 0..error_syndromes.len() {
+            for j in i + 1..error_syndromes.len() {
+                for k in j + 1..error_syndromes.len() {
+                    for l in k + 1..error_syndromes.len() {
+                        let syn = error_syndromes[i].2
+                            | error_syndromes[j].2
+                            | error_syndromes[k].2
+                            | error_syndromes[l].2;
+                        if syn == syndrome
+                            && (error_syndromes[i].2 & error_syndromes[j].2) == 0
+                            && (error_syndromes[i].2 & error_syndromes[k].2) == 0
+                            && (error_syndromes[i].2 & error_syndromes[l].2) == 0
+                            && (error_syndromes[j].2 & error_syndromes[k].2) == 0
+                            && (error_syndromes[j].2 & error_syndromes[l].2) == 0
+                            && (error_syndromes[k].2 & error_syndromes[l].2) == 0
+                        {
+                            return vec![
+                                (error_syndromes[i].0, error_syndromes[i].1),
+                                (error_syndromes[j].0, error_syndromes[j].1),
+                                (error_syndromes[k].0, error_syndromes[k].1),
+                                (error_syndromes[l].0, error_syndromes[l].1),
+                            ];
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Greedy fallback: iteratively pick the error that covers the most
+    // remaining syndrome bits
+    let mut remaining = syndrome;
+    let mut result = Vec::new();
+    let mut used = vec![false; error_syndromes.len()];
+    while remaining != 0 {
+        let mut best_idx = None;
+        let mut best_cover = 0u32;
+        for (idx, &(_, _, syn)) in error_syndromes.iter().enumerate() {
+            if used[idx] {
+                continue;
+            }
+            let cover = syn & remaining;
+            if cover.count_ones() > best_cover.count_ones() {
+                best_cover = cover;
+                best_idx = Some(idx);
+            }
+        }
+        if let Some(idx) = best_idx {
+            if best_cover == 0 {
+                break;
+            }
+            used[idx] = true;
+            result.push((error_syndromes[idx].0, error_syndromes[idx].1));
+            remaining &= !error_syndromes[idx].2;
+        } else {
+            break;
+        }
+    }
+    if remaining == 0 {
+        return result;
+    }
+
     Vec::new()
 }
 
