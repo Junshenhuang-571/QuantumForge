@@ -268,7 +268,7 @@ pub fn surface_code_planar(d: usize) -> QecCode {
             let q3 = ((fr + 1) * (d + 1) + fc + 1) % n_data;
 
             let mut pauli = PauliString::new(n);
-            if (fr + fc) % 2 == 0 {
+            if (fr + fc).is_multiple_of(2) {
                 pauli.set(q0, 1);
                 pauli.set(q1, 1);
                 pauli.set(q2, 1);
@@ -326,7 +326,7 @@ pub fn surface_code_rotated(d: usize) -> QecCode {
 
             let mut pauli = PauliString::new(n);
             let qs = [q0, q1, q2, q3];
-            if (fr + fc) % 2 == 0 {
+            if (fr + fc).is_multiple_of(2) {
                 for &q in &qs {
                     pauli.set(q, 1);
                 } // X
@@ -366,7 +366,7 @@ pub fn surface_code_rotated(d: usize) -> QecCode {
             let q0 = c;
             let q1 = c + 1;
             let mut pauli = PauliString::new(n);
-            if c % 2 == 0 {
+            if c.is_multiple_of(2) {
                 pauli.set(q0, 1);
                 pauli.set(q1, 1);
             } else {
@@ -379,7 +379,7 @@ pub fn surface_code_rotated(d: usize) -> QecCode {
             let q0 = (d - 1) * d + c;
             let q1 = (d - 1) * d + c + 1;
             let mut pauli = PauliString::new(n);
-            if (d - 1 + c) % 2 == 0 {
+            if (d - 1 + c).is_multiple_of(2) {
                 pauli.set(q0, 1);
                 pauli.set(q1, 1);
             } else {

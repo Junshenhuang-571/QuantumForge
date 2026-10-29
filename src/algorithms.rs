@@ -270,6 +270,57 @@ pub fn qaoa_ansatz(
     circuit
 }
 
+/// HHL algorithm for solving A x = b for 2x2 Hermitian matrices.
+pub fn hhl_2x2(a: [[f64; 2]; 2], b: [f64; 2]) -> Circuit {
+    let mut circuit = Circuit::new();
+    let norm_b = (b[0] * b[0] + b[1] * b[1]).sqrt();
+    let b0 = b[0] / norm_b;
+    let b1 = b[1] / norm_b;
+    let theta = 2.0 * b1.atan2(b0);
+    circuit.push(Gate::Ry(theta), 0);
+    let tr = a[0][0] + a[1][1];
+    let det = a[0][0] * a[1][1] - a[0][1] * a[1][0];
+    let disc = (tr * tr - 4.0 * det).sqrt();
+    let lambda0 = (tr + disc) / 2.0;
+    let lambda1 = (tr - disc) / 2.0;
+    let c = 1.0 / lambda0.abs().max(lambda1.abs());
+    let _angle0 = 2.0 * (c / lambda0).asin();
+    let _angle1 = 2.0 * (c / lambda1).asin();
+    circuit.push(Gate::H, 1);
+    circuit.cnot(1, 2);
+    circuit.push(Gate::H, 1);
+    circuit
+}
+
+/// Shor period-finding circuit for factoring N.
+pub fn shor_period_finding(n: u64, _a: u64) -> Circuit {
+    let m = (n as f64).log2().ceil() as usize;
+    let num_qubits = 2 * m + 1;
+    let mut circuit = Circuit::new();
+    for i in 0..m {
+        circuit.push(Gate::H, i);
+    }
+    let qft = qft_circuit(m);
+    for op in qft.operations() {
+        match *op {
+            CircuitOp::SingleQubit { gate, target } if target < num_qubits => {
+                circuit.push(gate, target);
+            }
+            CircuitOp::Cnot { control, target } if control < num_qubits && target < num_qubits => {
+                circuit.cnot(control, target);
+            }
+            CircuitOp::Cz { first, second } if first < num_qubits && second < num_qubits => {
+                circuit.cz(first, second);
+            }
+            CircuitOp::Swap { first, second } if first < num_qubits && second < num_qubits => {
+                circuit.swap(first, second);
+            }
+            _ => {}
+        }
+    }
+    circuit
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -309,61 +360,41 @@ mod tests {
     }
 }
 
-/// HHL algorithm for solving A x = b for 2x2 Hermitian matrices.
-pub fn hhl_2x2(a: [[f64; 2]; 2], b: [f64; 2]) -> Circuit {
-    let mut circuit = Circuit::new();
-    let norm_b = (b[0] * b[0] + b[1] * b[1]).sqrt();
-    let b0 = b[0] / norm_b;
-    let b1 = b[1] / norm_b;
-    let theta = 2.0 * b1.atan2(b0);
-    circuit.push(Gate::Ry(theta), 0);
-    let tr = a[0][0] + a[1][1];
-    let det = a[0][0] * a[1][1] - a[0][1] * a[1][0];
-    let disc = (tr * tr - 4.0 * det).sqrt();
-    let lambda0 = (tr + disc) / 2.0;
-    let lambda1 = (tr - disc) / 2.0;
-    let c = 1.0 / lambda0.abs().max(lambda1.abs());
-    let _angle0 = 2.0 * (c / lambda0).asin();
-    let _angle1 = 2.0 * (c / lambda1).asin();
-    circuit.push(Gate::H, 1);
-    circuit.cnot(1, 2);
-    circuit.push(Gate::H, 1);
-    circuit
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-/// Shor period-finding circuit for factoring N.
-pub fn shor_period_finding(n: u64, _a: u64) -> Circuit {
-    let m = (n as f64).log2().ceil() as usize;
-    let num_qubits = 2 * m + 1;
-    let mut circuit = Circuit::new();
-    for i in 0..m {
-        circuit.push(Gate::H, i);
+    #[test]
+    fn test_grover_circuit() {
+        let mut oracle = Circuit::new();
+        oracle.cnot(0, 1);
+
+        let circuit = grover_circuit(2, oracle, 1);
+        assert!(!circuit.operations().is_empty());
     }
-    let qft = qft_circuit(m);
-    for op in qft.operations() {
-        match *op {
-            CircuitOp::SingleQubit { gate, target } => {
-                if target < num_qubits {
-                    circuit.push(gate, target);
-                }
-            }
-            CircuitOp::Cnot { control, target } => {
-                if control < num_qubits && target < num_qubits {
-                    circuit.cnot(control, target);
-                }
-            }
-            CircuitOp::Cz { first, second } => {
-                if first < num_qubits && second < num_qubits {
-                    circuit.cz(first, second);
-                }
-            }
-            CircuitOp::Swap { first, second } => {
-                if first < num_qubits && second < num_qubits {
-                    circuit.swap(first, second);
-                }
-            }
-            _ => {}
-        }
+
+    #[test]
+    fn test_qaoa_maxcut() {
+        let edges = vec![(0, 1, 1.0), (1, 2, 1.0), (2, 0, 1.0)];
+        let betas = vec![0.5, 0.3];
+        let gammas = vec![0.7, 0.2];
+
+        let circuit = qaoa_maxcut(3, &edges, 2, &betas, &gammas);
+        assert!(!circuit.operations().is_empty());
     }
-    circuit
+
+    #[test]
+    fn test_hea_ansatz() {
+        let params = vec![0.1, 0.2, 0.3, 0.4, 0.5, 0.6];
+        let circuit = hea_ansatz(3, 2, &params);
+        assert!(!circuit.operations().is_empty());
+    }
+
+    #[test]
+    fn test_qaoa_ansatz() {
+        let edges = vec![(0, 1), (1, 2)];
+        let params = vec![0.5, 0.3, 0.7, 0.2];
+        let circuit = qaoa_ansatz(3, &edges, 2, &params);
+        assert!(!circuit.operations().is_empty());
+    }
 }
