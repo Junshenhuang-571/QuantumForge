@@ -245,43 +245,100 @@ pub fn steane_code() -> QecCode {
 pub fn surface_code_planar(d: usize) -> QecCode {
     assert!(d >= 3 && d % 2 == 1, "distance must be odd and >= 3");
 
-    let n_data = 2 * d * d - 2 * d + 1;
+    // Planar code: d×d data qubits with (d-1)×(d-1) plaquettes
+    let n_data = d * d;
     let n = n_data;
 
-    // Simplified: use same face-based stabilizer approach as rotated but on a larger lattice
-    // For planar code, we have a (2d-1)×(2d-1) grid with alternating data/ancilla
-    // This is complex; provide basic structure with correct count
     let mut stabilizers = Vec::new();
 
-    // Number of stabilizers for planar code: (d-1)^2 X + (d-1)^2 Z = 2(d-1)^2
-    // For simplicity, generate alternating X/Z on a (d-1)×(d-1) face grid
-    // using the first n_data qubits
-    let face_size = d - 1;
-    for fr in 0..face_size {
-        for fc in 0..face_size {
-            if fr * face_size + fc >= n_data {
-                break;
-            }
-            let q0 = (fr * (d + 1) + fc) % n_data;
-            let q1 = (fr * (d + 1) + fc + 1) % n_data;
-            let q2 = ((fr + 1) * (d + 1) + fc) % n_data;
-            let q3 = ((fr + 1) * (d + 1) + fc + 1) % n_data;
+    // X-type stabilizers (plaquettes): (d-1)×(d-1) grid
+    for fr in 0..d - 1 {
+        for fc in 0..d - 1 {
+            let q0 = fr * d + fc;
+            let q1 = fr * d + (fc + 1);
+            let q2 = (fr + 1) * d + fc;
+            let q3 = (fr + 1) * d + (fc + 1);
 
             let mut pauli = PauliString::new(n);
-            if (fr + fc).is_multiple_of(2) {
-                pauli.set(q0, 1);
-                pauli.set(q1, 1);
-                pauli.set(q2, 1);
-                pauli.set(q3, 1);
+            if (fr + fc) .is_multiple_of(2) {
+                for &q in &[q0, q1, q2, q3] {
+                    pauli.set(q, 1); // X
+                }
             } else {
-                pauli.set(q0, 3);
-                pauli.set(q1, 3);
-                pauli.set(q2, 3);
-                pauli.set(q3, 3);
+                for &q in &[q0, q1, q2, q3] {
+                    pauli.set(q, 3); // Z
+                }
             }
             stabilizers.push(pauli);
         }
     }
+
+    // Boundary stabilizers for planar code (weight-2 on edges)
+    // Top edge
+    for c in 0..d - 1 {
+        let q0 = c;
+        let q1 = c + 1;
+        let mut pauli = PauliString::new(n);
+        if c .is_multiple_of(2) {
+            pauli.set(q0, 1);
+            pauli.set(q1, 1);
+        } else {
+            pauli.set(q0, 3);
+            pauli.set(q1, 3);
+        }
+        stabilizers.push(pauli);
+    }
+    // Bottom edge
+    for c in 0..d - 1 {
+        let q0 = (d - 1) * d + c;
+        let q1 = (d - 1) * d + c + 1;
+        let mut pauli = PauliString::new(n);
+        if (d - 1 + c) .is_multiple_of(2) {
+            pauli.set(q0, 1);
+            pauli.set(q1, 1);
+        } else {
+            pauli.set(q0, 3);
+            pauli.set(q1, 3);
+        }
+        stabilizers.push(pauli);
+    }
+    // Left edge
+    for r in 1..d - 1 {
+        let q0 = r * d;
+        let q1 = (r + 1) * d;
+        let mut pauli = PauliString::new(n);
+        if r .is_multiple_of(2) {
+            pauli.set(q0, 1);
+            pauli.set(q1, 1);
+        } else {
+            pauli.set(q0, 3);
+            pauli.set(q1, 3);
+        }
+        stabilizers.push(pauli);
+    }
+    // Right edge
+    for r in 1..d - 1 {
+        let q0 = r * d + (d - 1);
+        let q1 = (r + 1) * d + (d - 1);
+        let mut pauli = PauliString::new(n);
+        if (r + (d - 1)) .is_multiple_of(2) {
+            pauli.set(q0, 1);
+            pauli.set(q1, 1);
+        } else {
+            pauli.set(q0, 3);
+            pauli.set(q1, 3);
+        }
+        stabilizers.push(pauli);
+    }
+
+    // Remove duplicate stabilizers
+    let mut unique = Vec::new();
+    for s in stabilizers {
+        if !unique.iter().any(|u: &PauliString| u.paulis == s.paulis) {
+            unique.push(s);
+        }
+    }
+    let stabilizers = unique;
 
     let mut logical_x = PauliString::new(n);
     if n > 0 {

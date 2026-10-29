@@ -753,6 +753,22 @@ impl TEBD {
             }
         }
 
+        // Normalize the state after imaginary-time step
+        let state = self.mps.to_state_vector();
+        let norm_sq: f64 = state.iter().map(|a| a.norm_sqr()).sum();
+        if norm_sq > 0.0 && norm_sq != 1.0 {
+            let scale = 1.0 / norm_sq.sqrt();
+            let t = &mut self.mps.tensors[0];
+            for i in 0..t.shape[0] {
+                for j in 0..t.shape[1] {
+                    for k in 0..t.shape[2] {
+                        let val = t.get(i, j, k);
+                        t.set(i, j, k, val * Complex64::new(scale, 0.0));
+                    }
+                }
+            }
+        }
+
         Ok(())
     }
 
