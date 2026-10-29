@@ -203,9 +203,20 @@ pub mod python_bindings {
                 .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))
         }
 
-        fn depolarize(&mut self, qubit: usize, probability: f64) -> PyResult<()> {
+        fn apply_channel(&mut self, channel: &str, qubit: usize, param: f64) -> PyResult<()> {
+            let ch = match channel {
+                "depolarizing" => crate::NoiseChannel::Depolarizing { probability: param },
+                "amplitude_damping" => crate::NoiseChannel::AmplitudeDamping { gamma: param },
+                "phase_damping" => crate::NoiseChannel::PhaseDamping { gamma: param },
+                _ => {
+                    return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+                        "Unknown channel: {}",
+                        channel
+                    )));
+                }
+            };
             self.inner
-                .depolarize(qubit, probability)
+                .apply_channel(ch, qubit)
                 .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))
         }
 
@@ -704,8 +715,11 @@ pub mod python_bindings {
         }
 
         fn run(&mut self) -> PyResult<f64> {
+            // DMRG::run requires Hamiltonian gates; use empty as placeholder
+            let even_h = [[crate::Complex64::ZERO; 4]; 4];
+            let odd_h = [[crate::Complex64::ZERO; 4]; 4];
             self.inner
-                .run()
+                .run(&even_h, &odd_h)
                 .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e))
         }
     }
@@ -773,6 +787,27 @@ pub mod python_bindings {
         Ok(s.to_string())
     }
 
+    #[pyfunction]
+    fn qft_circuit_py(num_qubits: usize) -> PyCircuit {
+        PyCircuit {
+            inner: crate::algorithms::qft_circuit(num_qubits),
+        }
+    }
+
+    #[pyfunction]
+    fn hhl_2x2_py(a00: f64, a01: f64, a10: f64, a11: f64, b0: f64, b1: f64) -> PyCircuit {
+        PyCircuit {
+            inner: crate::algorithms::hhl_2x2([[a00, a01], [a10, a11]], [b0, b1]),
+        }
+    }
+
+    #[pyfunction]
+    fn shor_period_finding_py(n: u64, a: u64) -> PyCircuit {
+        PyCircuit {
+            inner: crate::algorithms::shor_period_finding(n, a),
+        }
+    }
+
     /// Python module definition
     #[pymodule]
     pub fn quantumforge(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
@@ -793,7 +828,9 @@ pub mod python_bindings {
         m.add_class::<PyTEBD>()?;
         m.add_class::<PyDMRG>()?;
 
-        m.add_function(wrap_pyfunction!(parse_qasm_py, m)?)?;
+        m.add_function(wrap_pyfunction!(qft_circuit_py, m)?)?;
+        m.add_function(wrap_pyfunction!(hhl_2x2_py, m)?)?;
+        m.add_function(wrap_pyfunction!(shor_period_finding_py, m)?)?;
         m.add_function(wrap_pyfunction!(export_qasm_py, m)?)?;
         m.add_function(wrap_pyfunction!(parse_circuit_py, m)?)?;
         m.add_function(wrap_pyfunction!(optimize_circuit_py, m)?)?;
