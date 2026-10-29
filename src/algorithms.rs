@@ -312,14 +312,14 @@ mod tests {
 /// HHL algorithm for solving A x = b for 2x2 Hermitian matrices.
 pub fn hhl_2x2(a: [[f64; 2]; 2], b: [f64; 2]) -> Circuit {
     let mut circuit = Circuit::new();
-    let norm_b = (b[0]*b[0] + b[1]*b[1]).sqrt();
+    let norm_b = (b[0] * b[0] + b[1] * b[1]).sqrt();
     let b0 = b[0] / norm_b;
     let b1 = b[1] / norm_b;
     let theta = 2.0 * b1.atan2(b0);
     circuit.push(Gate::Ry(theta), 0);
     let tr = a[0][0] + a[1][1];
-    let det = a[0][0]*a[1][1] - a[0][1]*a[1][0];
-    let disc = (tr*tr - 4.0*det).sqrt();
+    let det = a[0][0] * a[1][1] - a[0][1] * a[1][0];
+    let disc = (tr * tr - 4.0 * det).sqrt();
     let lambda0 = (tr + disc) / 2.0;
     let lambda1 = (tr - disc) / 2.0;
     let c = 1.0 / lambda0.abs().max(lambda1.abs());
@@ -343,16 +343,24 @@ pub fn shor_period_finding(n: u64, _a: u64) -> Circuit {
     for op in qft.operations() {
         match *op {
             CircuitOp::SingleQubit { gate, target } => {
-                if target < num_qubits { circuit.push(gate, target); }
+                if target < num_qubits {
+                    circuit.push(gate, target);
+                }
             }
             CircuitOp::Cnot { control, target } => {
-                if control < num_qubits && target < num_qubits { circuit.cnot(control, target); }
+                if control < num_qubits && target < num_qubits {
+                    circuit.cnot(control, target);
+                }
             }
             CircuitOp::Cz { first, second } => {
-                if first < num_qubits && second < num_qubits { circuit.cz(first, second); }
+                if first < num_qubits && second < num_qubits {
+                    circuit.cz(first, second);
+                }
             }
             CircuitOp::Swap { first, second } => {
-                if first < num_qubits && second < num_qubits { circuit.swap(first, second); }
+                if first < num_qubits && second < num_qubits {
+                    circuit.swap(first, second);
+                }
             }
             _ => {}
         }
