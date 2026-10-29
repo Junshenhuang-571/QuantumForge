@@ -359,6 +359,35 @@ pub fn surface_code_rotated(d: usize) -> QecCode {
             }
             stabilizers.push(pauli);
         }
+    } else {
+        // Boundary stabilizers for d > 3: 2(d-1) stabilizers alternating X/Z
+        // Top + bottom edges: d-1 stabilizers each (2-qubit on boundary)
+        for c in 0..d - 1 {
+            let q0 = c;
+            let q1 = c + 1;
+            let mut pauli = PauliString::new(n);
+            if c % 2 == 0 {
+                pauli.set(q0, 1);
+                pauli.set(q1, 1);
+            } else {
+                pauli.set(q0, 3);
+                pauli.set(q1, 3);
+            }
+            stabilizers.push(pauli);
+        }
+        for c in 0..d - 1 {
+            let q0 = (d - 1) * d + c;
+            let q1 = (d - 1) * d + c + 1;
+            let mut pauli = PauliString::new(n);
+            if (d - 1 + c) % 2 == 0 {
+                pauli.set(q0, 1);
+                pauli.set(q1, 1);
+            } else {
+                pauli.set(q0, 3);
+                pauli.set(q1, 3);
+            }
+            stabilizers.push(pauli);
+        }
     }
 
     // Logical operators: X on top row, Z on left column
