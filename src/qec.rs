@@ -665,79 +665,133 @@ pub fn mwpm_decode(stabilizers: &[PauliString], syndrome: u32) -> Vec<(usize, u8
         }
     }
 
-    // Try single errors
+    // Build defect list: stabilizer indices with syndrome bit set
+    let n_stab = stabilizers.len();
+    let mut defects: Vec<usize> = Vec::new();
+    for i in 0..n_stab {
+        if (syndrome >> i) & 1 == 1 {
+            defects.push(i);
+        }
+    }
+
+    if defects.is_empty() {
+        return Vec::new();
+    }
+
+    // If odd number of defects, add a boundary node (virtual defect)
+    // that matches any defect with cost = distance to boundary
+    // For simplicity, we handle this by allowing single-error corrections
+    // to absorb unmatched defects.
+
+    // Precompute weight between any two defects:
+    // weight = minimum number of errors whose syndrome covers both
+    // For simplicity, use Hamming distance on syndrome bits as proxy.
+    // Better: use the error_syndromes lookup.
+
+    // Build a complete graph on defects + optional boundary
+    // Use recursive branch-and-bound to find minimum weight matching.
+    // For small defect counts (<= 12), use exact recursive search.
+    // For larger, use greedy.
+
+    let num_defects = defects.len();
+    if num_defects > 12 {
+        // Greedy fallback for large instances
+        return greedy_mwpm(&error_syndromes, syndrome);
+    }
+
+    // Exact recursive MWPM via branch and bound
+    // We try to match defect 0 with each other defect (or leave it
+    // unmatched if it can be corrected by a single error).
+    // State: set of remaining defects, accumulated errors.
+
+    // First, check if any single error explains the whole syndrome
     for &(q, pv, syn) in &error_syndromes {
         if syn == syndrome {
             return vec![(q, pv)];
         }
     }
 
-    // Try pairs
-    for i in 0..error_syndromes.len() {
-        for j in i + 1..error_syndromes.len() {
-            let syn = error_syndromes[i].2 | error_syndromes[j].2;
-            if syn == syndrome && (error_syndromes[i].2 & error_syndromes[j].2) == 0 {
-                return vec![
-                    (error_syndromes[i].0, error_syndromes[i].1),
-                    (error_syndromes[j].0, error_syndromes[j].1),
-                ];
+    // Recursive matching: try pairing defects
+    let mut best: Option<Vec<(usize, u8)>> = None;
+    let mut best_weight = usize::MAX;
+
+    // Generate all subsets of errors (up to 6 errors) via recursion
+    fn search(
+        error_syndromes: &[(usize, u8, u32)],
+        target: u32,
+        idx: usize,
+        current_syn: u32,
+        current_errors: &mut Vec<(usize, u8)>,
+        best: &mut Option<Vec<(usize, u8)>>,
+        best_weight: &mut usize,
+    ) {
+        if current_syn == target {
+            if current_errors.len() < *best_weight {
+                *best_weight = current_errors.len();
+                *best = Some(current_errors.clone());
             }
+            return;
+        }
+        if idx >= error_syndromes.len() {
+            return;
+        }
+        // Pruning: if current errors already >= best, skip
+        if current_errors.len() >= *best_weight {
+            return;
+        }
+        // Remaining syndrome bits
+        let remaining = target & !current_syn;
+        if remaining == 0 {
+            if current_errors.len() < *best_weight {
+                *best_weight = current_errors.len();
+                *best = Some(current_errors.clone());
+            }
+            return;
+        }
+
+        // Option 1: skip this error
+        search(
+            error_syndromes,
+            target,
+            idx + 1,
+            current_syn,
+            current_errors,
+            best,
+            best_weight,
+        );
+
+        // Option 2: use this error (if it covers new bits and doesn't overlap)
+        let syn = error_syndromes[idx].2;
+        if (syn & current_syn) == 0 && (syn & remaining) != 0 {
+            current_errors.push((error_syndromes[idx].0, error_syndromes[idx].1));
+            search(
+                error_syndromes,
+                target,
+                idx + 1,
+                current_syn | syn,
+                current_errors,
+                best,
+                best_weight,
+            );
+            current_errors.pop();
         }
     }
 
-    // Try triples
-    for i in 0..error_syndromes.len() {
-        for j in i + 1..error_syndromes.len() {
-            for k in j + 1..error_syndromes.len() {
-                let syn = error_syndromes[i].2 | error_syndromes[j].2 | error_syndromes[k].2;
-                if syn == syndrome
-                    && (error_syndromes[i].2 & error_syndromes[j].2) == 0
-                    && (error_syndromes[i].2 & error_syndromes[k].2) == 0
-                    && (error_syndromes[j].2 & error_syndromes[k].2) == 0
-                {
-                    return vec![
-                        (error_syndromes[i].0, error_syndromes[i].1),
-                        (error_syndromes[j].0, error_syndromes[j].1),
-                        (error_syndromes[k].0, error_syndromes[k].1),
-                    ];
-                }
-            }
-        }
-    }
+    let mut current = Vec::new();
+    search(
+        &error_syndromes,
+        syndrome,
+        0,
+        0,
+        &mut current,
+        &mut best,
+        &mut best_weight,
+    );
 
-    // Try quadruples (greedy extension)
-    if error_syndromes.len() <= 50 {
-        for i in 0..error_syndromes.len() {
-            for j in i + 1..error_syndromes.len() {
-                for k in j + 1..error_syndromes.len() {
-                    for l in k + 1..error_syndromes.len() {
-                        let syn = error_syndromes[i].2
-                            | error_syndromes[j].2
-                            | error_syndromes[k].2
-                            | error_syndromes[l].2;
-                        if syn == syndrome
-                            && (error_syndromes[i].2 & error_syndromes[j].2) == 0
-                            && (error_syndromes[i].2 & error_syndromes[k].2) == 0
-                            && (error_syndromes[i].2 & error_syndromes[l].2) == 0
-                            && (error_syndromes[j].2 & error_syndromes[k].2) == 0
-                            && (error_syndromes[j].2 & error_syndromes[l].2) == 0
-                            && (error_syndromes[k].2 & error_syndromes[l].2) == 0
-                        {
-                            return vec![
-                                (error_syndromes[i].0, error_syndromes[i].1),
-                                (error_syndromes[j].0, error_syndromes[j].1),
-                                (error_syndromes[k].0, error_syndromes[k].1),
-                                (error_syndromes[l].0, error_syndromes[l].1),
-                            ];
-                        }
-                    }
-                }
-            }
-        }
-    }
+    best.unwrap_or_else(|| greedy_mwpm(&error_syndromes, syndrome))
+}
 
-    // Greedy fallback: iteratively pick the error that covers the most
-    // remaining syndrome bits
+fn greedy_mwpm(error_syndromes: &[(usize, u8, u32)], syndrome: u32) -> Vec<(usize, u8)> {
     let mut remaining = syndrome;
     let mut result = Vec::new();
     let mut used = vec![false; error_syndromes.len()];
@@ -766,12 +820,11 @@ pub fn mwpm_decode(stabilizers: &[PauliString], syndrome: u32) -> Vec<(usize, u8
         }
     }
     if remaining == 0 {
-        return result;
+        result
+    } else {
+        Vec::new()
     }
-
-    Vec::new()
 }
-
 /// Encode a logical state into a repetition code.
 pub fn encode_repetition_bitflip(
     state: &StateVector,
