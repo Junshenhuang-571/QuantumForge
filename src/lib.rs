@@ -33,6 +33,7 @@ use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt;
 
+/// A complex number with f64 real and imaginary parts.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Complex64 {
@@ -94,6 +95,7 @@ impl std::ops::Div<f64> for Complex64 {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+/// Errors that can occur during quantum operations.
 pub enum QuantumError {
     ZeroQubits,
     StateSizeNotPowerOfTwo(usize),
@@ -193,6 +195,7 @@ impl From<crate::cuda::CudaError> for QuantumError {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+/// A quantum state vector over 2^n amplitudes.
 pub struct StateVector {
     amplitudes: Vec<Complex64>,
     qubits: usize,

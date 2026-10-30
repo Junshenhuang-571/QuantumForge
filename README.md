@@ -106,7 +106,7 @@ println!("{:?}", result.counts);
 
 ```bash
 cargo build            # default (CPU-only) build
-cargo test             # 179 tests (default build; llvm/cuda tests need feature flags)
+cargo test             # 202 tests (default build; llvm/cuda tests need feature flags)
 ```
 
 Run the interactive REPL:
