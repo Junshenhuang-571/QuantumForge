@@ -819,11 +819,7 @@ fn greedy_mwpm(error_syndromes: &[(usize, u8, u32)], syndrome: u32) -> Vec<(usiz
             break;
         }
     }
-    if remaining == 0 {
-        result
-    } else {
-        Vec::new()
-    }
+    if remaining == 0 { result } else { Vec::new() }
 }
 /// Encode a logical state into a repetition code.
 pub fn encode_repetition_bitflip(
