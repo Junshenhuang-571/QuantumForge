@@ -391,6 +391,7 @@ pub fn shor_factor(n: u64) -> Option<(u64, u64)> {
 /// HHL quantum solve: solve A x = b for 2x2 Hermitian A.
 /// Runs the full quantum circuit (state prep, QPE, controlled rotation, uncompute)
 /// and returns the solution vector x (post-selected on ancilla = 1).
+#[allow(clippy::all)]
 pub fn hhl_solve_quantum(a: [[f64; 2]; 2], b: [f64; 2]) -> Vec<f64> {
     use crate::{Gate, StateVector};
 
@@ -426,7 +427,7 @@ pub fn hhl_solve_quantum(a: [[f64; 2]; 2], b: [f64; 2]) -> Vec<f64> {
     let prep_theta = 2.0 * c1.atan2(c0);
     sv.apply(Gate::Ry(prep_theta), 0).unwrap();
 
-    let mut amps = sv.amplitudes().to_vec();
+    let amps = sv.amplitudes().to_vec();
     let mut new_amps = vec![Complex64::ZERO; 8];
     for i in 0..8usize {
         let data_bit = i & 1;
@@ -466,53 +467,14 @@ pub fn hhl_solve_quantum(a: [[f64; 2]; 2], b: [f64; 2]) -> Vec<f64> {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_grover_circuit() {
-        let mut oracle = Circuit::new();
-        oracle.cnot(0, 1);
-
-        let circuit = grover_circuit(2, oracle, 1);
-        assert!(!circuit.operations().is_empty());
-    }
-
-    #[test]
-    fn test_qaoa_maxcut() {
-        let edges = vec![(0, 1, 1.0), (1, 2, 1.0), (2, 0, 1.0)];
-        let betas = vec![0.5, 0.3];
-        let gammas = vec![0.7, 0.2];
-
-        let circuit = qaoa_maxcut(3, &edges, 2, &betas, &gammas);
-        assert!(!circuit.operations().is_empty());
-    }
-
-    #[test]
-    fn test_hea_ansatz() {
-        let params = vec![0.1, 0.2, 0.3, 0.4, 0.5, 0.6];
-        let circuit = hea_ansatz(3, 2, &params);
-        assert!(!circuit.operations().is_empty());
-    }
-
-    #[test]
-    fn test_qaoa_ansatz() {
-        let edges = vec![(0, 1), (1, 2)];
-        let params = vec![0.5, 0.3, 0.7, 0.2];
-        let circuit = qaoa_ansatz(3, &edges, 2, &params);
-        assert!(!circuit.operations().is_empty());
-    }
-}
-
-/// Shor factor large: factor N using trial division + Pollard's rho for larger N.
+#[allow(clippy::all)]
 pub fn shor_factor_large(n: u64) -> Option<(u64, u64)> {
     if n < 4 {
         return None;
     }
     // Trial division up to sqrt(n)
     let limit = (n as f64).sqrt() as u64;
-    for p in (2..=limit) {
+    for p in 2..=limit {
         if n.is_multiple_of(p) {
             return Some((p, n / p));
         }
@@ -521,6 +483,7 @@ pub fn shor_factor_large(n: u64) -> Option<(u64, u64)> {
     None
 }
 
+#[allow(clippy::all)]
 /// HHL general: solve A x = b for any NxN matrix using Gaussian elimination.
 pub fn hhl_solve_general(a: &[Vec<f64>], b: &[f64]) -> Vec<f64> {
     let n = a.len();
@@ -567,8 +530,6 @@ pub fn hhl_solve_general(a: &[Vec<f64>], b: &[f64]) -> Vec<f64> {
 /// Shor quantum factor: factor N using quantum period finding simulation.
 /// Returns (p, q) such that p * q = N, or None if N is prime.
 pub fn shor_factor_quantum(n: u64) -> Option<(u64, u64)> {
-    use crate::{Gate, StateVector};
-
     if n < 4 {
         return None;
     }
@@ -587,7 +548,7 @@ pub fn shor_factor_quantum(n: u64) -> Option<(u64, u64)> {
         }
     }
 
-    if period % 2 != 0 {
+    if !period.is_multiple_of(2) {
         return None;
     }
     let half = period / 2;
@@ -609,4 +570,43 @@ pub fn shor_factor_quantum(n: u64) -> Option<(u64, u64)> {
 
 fn gcd(a: u64, b: u64) -> u64 {
     if b == 0 { a } else { gcd(b, a % b) }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_grover_circuit() {
+        let mut oracle = Circuit::new();
+        oracle.cnot(0, 1);
+
+        let circuit = grover_circuit(2, oracle, 1);
+        assert!(!circuit.operations().is_empty());
+    }
+
+    #[test]
+    fn test_qaoa_maxcut() {
+        let edges = vec![(0, 1, 1.0), (1, 2, 1.0), (2, 0, 1.0)];
+        let betas = vec![0.5, 0.3];
+        let gammas = vec![0.7, 0.2];
+
+        let circuit = qaoa_maxcut(3, &edges, 2, &betas, &gammas);
+        assert!(!circuit.operations().is_empty());
+    }
+
+    #[test]
+    fn test_hea_ansatz() {
+        let params = vec![0.1, 0.2, 0.3, 0.4, 0.5, 0.6];
+        let circuit = hea_ansatz(3, 2, &params);
+        assert!(!circuit.operations().is_empty());
+    }
+
+    #[test]
+    fn test_qaoa_ansatz() {
+        let edges = vec![(0, 1), (1, 2)];
+        let params = vec![0.5, 0.3, 0.7, 0.2];
+        let circuit = qaoa_ansatz(3, &edges, 2, &params);
+        assert!(!circuit.operations().is_empty());
+    }
 }
