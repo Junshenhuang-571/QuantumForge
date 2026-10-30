@@ -833,6 +833,11 @@ pub mod python_bindings {
         crate::algorithms::shor_factor_large(n)
     }
 
+    #[pyfunction]
+    fn shor_factor_quantum_py(n: u64) -> Option<(u64, u64)> {
+        crate::algorithms::shor_factor_quantum(n)
+    }
+
     /// Python module definition
     #[pymodule]
     pub fn quantumforge(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
@@ -860,6 +865,7 @@ pub mod python_bindings {
         m.add_function(wrap_pyfunction!(shor_factor_py, m)?)?;
         m.add_function(wrap_pyfunction!(hhl_solve_general_py, m)?)?;
         m.add_function(wrap_pyfunction!(shor_factor_large_py, m)?)?;
+        m.add_function(wrap_pyfunction!(shor_factor_quantum_py, m)?)?;
         m.add_function(wrap_pyfunction!(export_qasm_py, m)?)?;
         m.add_function(wrap_pyfunction!(parse_circuit_py, m)?)?;
         m.add_function(wrap_pyfunction!(optimize_circuit_py, m)?)?;
