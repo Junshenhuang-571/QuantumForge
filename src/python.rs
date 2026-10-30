@@ -813,17 +813,17 @@ pub mod python_bindings {
     }
 
     #[pyfunction]
-fn hhl_solve_py(a00: f64, a01: f64, a10: f64, a11: f64, b0: f64, b1: f64) -> (f64, f64) {
-    let x = crate::algorithms::hhl_solve([[a00, a01], [a10, a11]], [b0, b1]);
-    (x[0], x[1])
-}
+    fn hhl_solve_py(a00: f64, a01: f64, a10: f64, a11: f64, b0: f64, b1: f64) -> (f64, f64) {
+        let x = crate::algorithms::hhl_solve([[a00, a01], [a10, a11]], [b0, b1]);
+        (x[0], x[1])
+    }
 
-#[pyfunction]
-fn shor_factor_py(n: u64) -> Option<(u64, u64)> {
-    crate::algorithms::shor_factor(n)
-}
+    #[pyfunction]
+    fn shor_factor_py(n: u64) -> Option<(u64, u64)> {
+        crate::algorithms::shor_factor(n)
+    }
 
-/// Python module definition
+    /// Python module definition
     #[pymodule]
     pub fn quantumforge(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
         m.add_class::<PyCircuit>()?;

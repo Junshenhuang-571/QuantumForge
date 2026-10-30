@@ -367,14 +367,18 @@ pub fn hhl_solve(a: [[f64; 2]; 2], b: [f64; 2]) -> Vec<f64> {
         [a[1][1] / det, -a[0][1] / det],
         [-a[1][0] / det, a[0][0] / det],
     ];
-    vec![inv[0][0] * b[0] + inv[0][1] * b[1],
-         inv[1][0] * b[0] + inv[1][1] * b[1]]
+    vec![
+        inv[0][0] * b[0] + inv[0][1] * b[1],
+        inv[1][0] * b[0] + inv[1][1] * b[1],
+    ]
 }
 
 /// Shor factor: factor N using trial division (classical) for small N.
 /// Returns (p, q) such that p * q = N.
 pub fn shor_factor(n: u64) -> Option<(u64, u64)> {
-    if n < 4 { return None; }
+    if n < 4 {
+        return None;
+    }
     // Trial division for small N
     for p in 2..=(n as f64).sqrt() as u64 {
         if n % p == 0 {
