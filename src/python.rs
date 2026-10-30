@@ -98,7 +98,7 @@ pub mod python_bindings {
         }
 
         fn draw(&self) -> String {
-            format!("Circuit with {} operations", self.inner.operations().len())
+            self.inner.draw()
         }
 
         fn num_operations(&self) -> usize {

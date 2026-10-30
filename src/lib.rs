@@ -1338,6 +1338,83 @@ impl Circuit {
     pub fn operations_mut(&mut self) -> &mut Vec<CircuitOp> {
         &mut self.operations
     }
+
+    /// Render the circuit as an ASCII diagram.
+    pub fn draw(&self) -> String {
+        if self.operations.is_empty() {
+            return String::from("(empty circuit)");
+        }
+        // Determine number of qubits
+        let mut n = 0;
+        for op in &self.operations {
+            let max_q = match op {
+                CircuitOp::SingleQubit { target, .. } => *target,
+                CircuitOp::Cnot { control, target } => (*control).max(*target),
+                CircuitOp::Cz { first, second } => (*first).max(*second),
+                CircuitOp::Swap { first, second } => (*first).max(*second),
+                CircuitOp::Channel { target, .. } => *target,
+                CircuitOp::Measure { target, .. } => *target,
+                CircuitOp::ConditionalSingleQubit { target, .. } => *target,
+            };
+            n = n.max(max_q + 1);
+        }
+        if n == 0 {
+            n = 1;
+        }
+
+        // Build timeline
+        let mut lines: Vec<String> = (0..n).map(|i| format!("q{}: ", i)).collect();
+        for op in &self.operations {
+            match op {
+                CircuitOp::SingleQubit { gate, target } => {
+                    let label = format!("{:?}", gate);
+                    let short = if label.len() > 4 { &label[..4] } else { &label };
+                    for (i, line) in lines.iter_mut().enumerate() {
+                        if i == *target {
+                            line.push_str(&format!("[{}]--", short));
+                        } else {
+                            line.push_str("-------");
+                        }
+                    }
+                }
+                CircuitOp::Cnot { control, target } => {
+                    for (i, line) in lines.iter_mut().enumerate() {
+                        if i == *control {
+                            line.push_str("--@----");
+                        } else if i == *target {
+                            line.push_str("--X----");
+                        } else {
+                            line.push_str("-------");
+                        }
+                    }
+                }
+                CircuitOp::Cz { first, second } => {
+                    for (i, line) in lines.iter_mut().enumerate() {
+                        if i == *first || i == *second {
+                            line.push_str("--Z----");
+                        } else {
+                            line.push_str("-------");
+                        }
+                    }
+                }
+                CircuitOp::Swap { first, second } => {
+                    for (i, line) in lines.iter_mut().enumerate() {
+                        if i == *first || i == *second {
+                            line.push_str("--x----");
+                        } else {
+                            line.push_str("-------");
+                        }
+                    }
+                }
+                _ => {
+                    for line in lines.iter_mut() {
+                        line.push_str("-------");
+                    }
+                }
+            }
+        }
+        lines.join("\n")
+    }
     pub fn num_qubits(&self) -> usize {
         let mut max_qubit = 0;
         for op in &self.operations {
