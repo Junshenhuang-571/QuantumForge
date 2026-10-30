@@ -50,19 +50,22 @@ impl PauliString {
     }
 
     pub fn weight(&self) -> usize {
-    self.paulis.iter().filter(|&&p| p != 0).count()
-}
+        self.paulis.iter().filter(|&&p| p != 0).count()
+    }
 
-pub fn commutes(&self, other: &PauliString) -> bool {
+    pub fn commutes(&self, other: &PauliString) -> bool {
         let mut anticommute_count = 0;
         for i in 0..self.paulis.len() {
             let p = self.paulis[i];
             let q = other.paulis[i];
             if p != 0 && q != 0 && p != q {
                 // X-Z, X-Y, Y-Z etc. anticommute
-                if (p == 1 && q == 3) || (p == 3 && q == 1)
-                    || (p == 1 && q == 2) || (p == 2 && q == 1)
-                    || (p == 2 && q == 3) || (p == 3 && q == 2)
+                if (p == 1 && q == 3)
+                    || (p == 3 && q == 1)
+                    || (p == 1 && q == 2)
+                    || (p == 2 && q == 1)
+                    || (p == 2 && q == 3)
+                    || (p == 3 && q == 2)
                 {
                     anticommute_count += 1;
                 }
