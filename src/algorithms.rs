@@ -443,7 +443,9 @@ pub fn hhl_solve_quantum(a: [[f64; 2]; 2], b: [f64; 2]) -> Vec<f64> {
             new_amps[base | 4] = new_amps[base | 4] + amps[i] * Complex64::new(cos_a, 0.0);
         }
     }
-    for i in 0..8 { sv.amplitudes_mut()[i] = new_amps[i]; }
+    for i in 0..8 {
+        sv.amplitudes_mut()[i] = new_amps[i];
+    }
 
     let mut x_eig = [Complex64::ZERO, Complex64::ZERO];
     for i in 0..8usize {
@@ -522,10 +524,14 @@ pub fn shor_factor_large(n: u64) -> Option<(u64, u64)> {
 /// HHL general: solve A x = b for any NxN matrix using Gaussian elimination.
 pub fn hhl_solve_general(a: &[Vec<f64>], b: &[f64]) -> Vec<f64> {
     let n = a.len();
-    if n == 0 || b.len() != n { return vec![]; }
+    if n == 0 || b.len() != n {
+        return vec![];
+    }
     let mut aug = vec![vec![0.0f64; n + 1]; n];
     for i in 0..n {
-        for j in 0..n { aug[i][j] = a[i][j]; }
+        for j in 0..n {
+            aug[i][j] = a[i][j];
+        }
         aug[i][n] = b[i];
     }
     for col in 0..n {
@@ -537,14 +543,22 @@ pub fn hhl_solve_general(a: &[Vec<f64>], b: &[f64]) -> Vec<f64> {
                 pivot = r;
             }
         }
-        if max_val < 1e-12 { return vec![0.0; n]; }
+        if max_val < 1e-12 {
+            return vec![0.0; n];
+        }
         aug.swap(col, pivot);
         let pv = aug[col][col];
-        for j in col..=n { aug[col][j] /= pv; }
+        for j in col..=n {
+            aug[col][j] /= pv;
+        }
         for r in 0..n {
-            if r == col { continue; }
+            if r == col {
+                continue;
+            }
             let factor = aug[r][col];
-            for j in col..=n { aug[r][j] -= factor * aug[col][j]; }
+            for j in col..=n {
+                aug[r][j] -= factor * aug[col][j];
+            }
         }
     }
     (0..n).map(|i| aug[i][n]).collect()
@@ -555,7 +569,9 @@ pub fn hhl_solve_general(a: &[Vec<f64>], b: &[f64]) -> Vec<f64> {
 pub fn shor_factor_quantum(n: u64) -> Option<(u64, u64)> {
     use crate::{Gate, StateVector};
 
-    if n < 4 { return None; }
+    if n < 4 {
+        return None;
+    }
 
     // Find a coprime to n
     let a = (2..n).find(|&x| gcd(x, n) == 1)?;
@@ -566,14 +582,22 @@ pub fn shor_factor_quantum(n: u64) -> Option<(u64, u64)> {
     while val != 1 {
         val = (val * a) % n;
         period += 1;
-        if period > n { return None; }
+        if period > n {
+            return None;
+        }
     }
 
-    if period % 2 != 0 { return None; }
+    if period % 2 != 0 {
+        return None;
+    }
     let half = period / 2;
     let mut x = 1u64;
-    for _ in 0..half { x = (x * a) % n; }
-    if x == n - 1 { return None; }
+    for _ in 0..half {
+        x = (x * a) % n;
+    }
+    if x == n - 1 {
+        return None;
+    }
     let p = gcd(x + 1, n);
     let q = gcd(x.wrapping_sub(1), n);
     if p > 1 && p < n && q > 1 && q < n {
