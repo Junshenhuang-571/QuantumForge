@@ -97,6 +97,10 @@ pub mod python_bindings {
             Ok(PyShotResult { inner: result })
         }
 
+        fn to_svg(&self) -> String {
+            self.inner.to_svg()
+        }
+
         fn draw(&self) -> String {
             self.inner.draw()
         }

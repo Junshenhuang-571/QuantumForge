@@ -1415,6 +1415,103 @@ impl Circuit {
         }
         lines.join("\n")
     }
+
+    /// Render the circuit as an SVG diagram.
+    pub fn to_svg(&self) -> String {
+        if self.operations.is_empty() {
+            return String::from("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"100\" height=\"50\"><text x=\"10\" y=\"25\">empty circuit</text></svg>");
+        }
+        let mut n = 0;
+        for op in &self.operations {
+            let max_q = match op {
+                CircuitOp::SingleQubit { target, .. } => *target,
+                CircuitOp::Cnot { control, target } => (*control).max(*target),
+                CircuitOp::Cz { first, second } => (*first).max(*second),
+                CircuitOp::Swap { first, second } => (*first).max(*second),
+                CircuitOp::Channel { target, .. } => *target,
+                CircuitOp::Measure { target, .. } => *target,
+                CircuitOp::ConditionalSingleQubit { target, .. } => *target,
+            };
+            n = n.max(max_q + 1);
+        }
+        if n == 0 { n = 1; }
+
+        let gate_width = 40.0;
+        let qubit_spacing = 40.0;
+        let margin = 30.0;
+        let width = margin * 2.0 + self.operations.len() as f64 * gate_width + 20.0;
+        let height = margin * 2.0 + (n as f64 - 1.0) * qubit_spacing + 20.0;
+
+        let mut svg = format!(
+            "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{}\" height=\"{}\" viewBox=\"0 0 {} {}\">\n",
+            width, height, width, height
+        );
+
+        // Draw qubit lines
+        for i in 0..n {
+            let y = margin + i as f64 * qubit_spacing;
+            svg.push_str(&format!(
+                "  <line x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"black\" stroke-width=\"1\"/>\n",
+                margin, y, width - margin, y
+            ));
+            svg.push_str(&format!(
+                "  <text x=\"5\" y=\"{}\" font-size=\"12\" dominant-baseline=\"middle\">q{}</text>\n",
+                y, i
+            ));
+        }
+
+        // Draw gates
+        for (col, op) in self.operations.iter().enumerate() {
+            let x = margin + col as f64 * gate_width + gate_width / 2.0;
+            match op {
+                CircuitOp::SingleQubit { gate, target } => {
+                    let y = margin + *target as f64 * qubit_spacing;
+                    let label = format!("{:?}", gate);
+                    let short = if label.len() > 3 { &label[..3] } else { &label };
+                    svg.push_str(&format!(
+                        "  <rect x=\"{}\" y=\"{}\" width=\"24\" height=\"24\" fill=\"lightblue\" stroke=\"black\" rx=\"3\"/>\n",
+                        x - 12.0, y - 12.0
+                    ));
+                    svg.push_str(&format!(
+                        "  <text x=\"{}\" y=\"{}\" font-size=\"10\" text-anchor=\"middle\" dominant-baseline=\"middle\">{}</text>\n",
+                        x, y, short
+                    ));
+                }
+                CircuitOp::Cnot { control, target } => {
+                    let yc = margin + *control as f64 * qubit_spacing;
+                    let yt = margin + *target as f64 * qubit_spacing;
+                    // Control dot
+                    svg.push_str(&format!(
+                        "  <circle cx=\"{}\" cy=\"{}\" r=\"4\" fill=\"black\"/>\n",
+                        x, yc
+                    ));
+                    // Target X
+                    svg.push_str(&format!(
+                        "  <circle cx=\"{}\" cy=\"{}\" r=\"10\" fill=\"none\" stroke=\"black\"/>\n",
+                        x, yt
+                    ));
+                    svg.push_str(&format!(
+                        "  <line x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"black\"/>\n",
+                        x - 7.0, yt, x + 7.0, yt
+                    ));
+                    svg.push_str(&format!(
+                        "  <line x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"black\"/>\n",
+                        x, yt - 7.0, x, yt + 7.0
+                    ));
+                    // Vertical line
+                    let (y_top, y_bot) = if yc < yt { (yc, yt) } else { (yt, yc) };
+                    svg.push_str(&format!(
+                        "  <line x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"black\"/>\n",
+                        x, y_top, x, y_bot
+                    ));
+                }
+                _ => {}
+            }
+        }
+
+        svg.push_str("</svg>\n");
+        svg
+    }
     pub fn num_qubits(&self) -> usize {
         let mut max_qubit = 0;
         for op in &self.operations {
