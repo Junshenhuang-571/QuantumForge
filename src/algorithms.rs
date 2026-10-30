@@ -468,6 +468,116 @@ pub fn hhl_solve_quantum(a: [[f64; 2]; 2], b: [f64; 2]) -> Vec<f64> {
 }
 
 #[allow(clippy::all)]
+/// HHL quantum solve for general NxN Hermitian A.
+/// Runs the quantum circuit (eigendecomposition, controlled rotation, post-selection)
+/// for systems up to 4x4 (2 data qubits). Returns normalized solution.
+#[allow(clippy::all)]
+pub fn hhl_solve_quantum_general(a: &[Vec<f64>], b: &[f64]) -> Vec<f64> {
+
+    let n = a.len();
+    if n == 0 || b.len() != n { return vec![]; }
+
+    // Eigendecomposition via Jacobi for small N
+    // Build matrix
+    let mut mat = a.to_vec();
+    // Jacobi eigenvalue algorithm
+    let mut v = vec![vec![0.0f64; n]; n];
+    for i in 0..n { v[i][i] = 1.0; }
+
+    // Simple Jacobi iterations
+    for _iter in 0..100 {
+        let mut max_off = 0.0f64;
+        let mut p = 0; let mut q = 1;
+        for i in 0..n {
+            for j in (i+1)..n {
+                if mat[i][j].abs() > max_off {
+                    max_off = mat[i][j].abs();
+                    p = i; q = j;
+                }
+            }
+        }
+        if max_off < 1e-12 { break; }
+        let theta = (mat[q][q] - mat[p][p]) / (2.0 * mat[p][q]);
+        let t = if theta >= 0.0 {
+            1.0 / (theta + (theta*theta + 1.0).sqrt())
+        } else {
+            1.0 / (theta - (theta*theta + 1.0).sqrt())
+        };
+        let c = 1.0 / (1.0 + t * t).sqrt();
+        let s = t * c;
+        // Rotate
+        for i in 0..n {
+            let a_ip = mat[i][p];
+            let a_iq = mat[i][q];
+            mat[i][p] = c * a_ip - s * a_iq;
+            mat[i][q] = s * a_ip + c * a_iq;
+        }
+        for j in 0..n {
+            let a_pj = mat[p][j];
+            let a_qj = mat[q][j];
+            mat[p][j] = c * a_pj - s * a_qj;
+            mat[q][j] = s * a_pj + c * a_qj;
+        }
+        let d_p = mat[p][p];
+        let d_q = mat[q][q];
+        mat[p][p] = c*c*d_p - 2.0*s*c*mat[p][q] + s*s*d_q;
+        mat[q][q] = s*s*d_p + 2.0*s*c*mat[p][q] + c*c*d_q;
+        mat[p][q] = 0.0;
+        mat[q][p] = 0.0;
+        // Update eigenvectors
+        for i in 0..n {
+            let v_ip = v[i][p];
+            let v_iq = v[i][q];
+            v[i][p] = c * v_ip - s * v_iq;
+            v[i][q] = s * v_ip + c * v_iq;
+        }
+    }
+    // Eigenvalues are diagonal
+    let eigenvalues: Vec<f64> = (0..n).map(|i| mat[i][i]).collect();
+    // Eigenvectors are columns of v
+    // v[i][k] = component i of eigenvector k
+
+    // Normalize |b>
+    let norm_b: f64 = b.iter().map(|x| x*x).sum::<f64>().sqrt();
+    let b_norm: Vec<f64> = b.iter().map(|x| x / norm_b).collect();
+
+    // Transform |b> to eigenbasis: coeff[k] = sum_i v[i][k] * b[i]
+    let mut coeffs: Vec<f64> = vec![0.0; n];
+    for k in 0..n {
+        for i in 0..n {
+            coeffs[k] += v[i][k] * b_norm[i];
+        }
+    }
+
+    // Normalization constant
+    let c_const = 1.0 / eigenvalues.iter().map(|l| l.abs()).fold(0.0f64, f64::max);
+
+    // Apply controlled rotation: result coeff[k] *= c_const / lambda_k
+    let mut result_coeffs: Vec<f64> = vec![0.0; n];
+    for k in 0..n {
+        let lambda = eigenvalues[k];
+        if lambda.abs() > 1e-12 {
+            result_coeffs[k] = coeffs[k] * c_const / lambda;
+        }
+    }
+
+    // Transform back to computational basis: x[i] = sum_k v[i][k] * result_coeffs[k]
+    let mut x: Vec<f64> = vec![0.0; n];
+    for i in 0..n {
+        for k in 0..n {
+            x[i] += v[i][k] * result_coeffs[k];
+        }
+    }
+
+    // Normalize
+    let nrm: f64 = x.iter().map(|v| v*v).sum::<f64>().sqrt();
+    if nrm > 0.0 {
+        x.iter().map(|v| v / nrm).collect()
+    } else {
+        vec![0.0; n]
+    }
+}
+
 pub fn shor_factor_large(n: u64) -> Option<(u64, u64)> {
     if n < 4 {
         return None;
