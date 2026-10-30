@@ -203,35 +203,20 @@ GPU-accelerated sparse Lanczos now works with **any** PauliSum Hamiltonian, incl
 - `StateVector::entanglement_entropy(n_a)` — von Neumann entropy for bipartition
 - Uses faer eigendecomposition of reduced density matrix
 
-### Comparison: QuantumForge GPU vs NumPy (CPU)
+### Performance
 
-Same circuit (Ry + CNOT ring, depth 10), batch of 16:
+Run `cargo bench` for criterion-based micro-benchmarks (state-vector gate application, density-matrix operations).
 
-| Backend | Time |
-|---------|------|
-| Qiskit (CPU, Python) | 0.240 s |
-| NumPy (CPU, Python) | 0.106 s |
-| QuantumForge (CPU) | ~0.001 s |
-| QuantumForge (GPU, batched) | ~0.0005 s |
+GPU acceleration activates for sparse Lanczos (>=13 qubits) and batched circuit execution. For small systems, CPU overhead dominates; GPU benefit emerges at larger qubit counts.
 
-For larger systems (20 qubits, depth 20, batch 32): QuantumForge GPU achieves **13x** over its own CPU path. NumPy cannot handle 20 qubits in reasonable time (2^20 = 1M amplitudes per state).
-- `run_circuit_batch()` — 13x speedup at 20 qubits (batch 32, depth 20)
-- `examples/gpu_bench.rs` — runnable benchmark
+- `examples/gpu_bench.rs` — runnable GPU benchmark (requires `--features gpu` or `--features cuda`)
+- `benches/core.rs` — criterion benchmarks for core operations
 
 ### Batched GPU Circuits
 
 ## Benchmark: CPU vs GPU
 
-DMRG ground-state energy for TFIM (H = -Σ Z_i Z_{i+1} - Σ X_i), bond dimension 64, 20 sweeps:
-
-| Qubits | CPU (MPS DMRG) | GPU (sparse Lanczos) |
-|--------|----------------|----------------------|
-| 14     | 0.21 s         | 0.65 s               |
-| 16     | 0.71 s         | 1.03 s               |
-| 18     | 3.19 s         | 3.77 s               |
-| 20     | 15.6 s         | 17.8 s               |
-
-GPU acceleration activates for sparse Lanczos (≥13 qubits). For small systems, CPU overhead dominates; GPU benefit emerges at 20+ qubits.
+DMRG ground-state energy for TFIM (H = -Σ Z_i Z_{i+1} - Σ X_i). Run `cargo bench` for measured timings on your hardware. GPU acceleration activates for sparse Lanczos (>=13 qubits).
 
 ![CPU vs GPU benchmark](docs/benchmark_cpu_vs_gpu.svg)
 
