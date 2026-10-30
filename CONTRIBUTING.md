@@ -29,3 +29,11 @@ cargo test
 ## Code of Conduct
 
 Be respectful and constructive. We follow the [Rust Code of Conduct](https://www.rust-lang.org/policies/code-of-conduct).
+
+## Hardware-Specific Testing
+
+- GPU features: `cargo test --features gpu` (NVIDIA) or `--features cuda`
+- macOS: Metal support is planned; contributions welcome
+- AMD/Intel GPUs: ROCm/HIP and oneAPI contributions welcome
+
+CI runs on Linux, Windows, and macOS. GPU tests run locally only (no GPU in CI).
