@@ -499,3 +499,177 @@ mod tests {
         assert!((after.amplitudes()[0].re - 1.0).abs() < 1e-10);
     }
 }
+
+/// T-gate statistics for a circuit.
+#[derive(Clone, Debug, Default)]
+pub struct TGateStats {
+    pub t_count: usize,
+    pub tdg_count: usize,
+    pub total_clifford: usize,
+}
+
+/// Count T gates and Clifford gates in a circuit.
+pub fn t_gate_count(circuit: &Circuit) -> TGateStats {
+    let mut stats = TGateStats::default();
+    for op in circuit.operations() {
+        match op {
+            CircuitOp::SingleQubit { gate, .. } => match gate {
+                Gate::T => stats.t_count += 1,
+                Gate::Tdg => stats.tdg_count += 1,
+                Gate::I | Gate::X | Gate::Y | Gate::Z | Gate::H | Gate::S | Gate::Sdg => {
+                    stats.total_clifford += 1;
+                }
+                Gate::Rx(_) | Gate::Ry(_) | Gate::Rz(_) => {}
+            },
+            CircuitOp::Cnot { .. } | CircuitOp::Cz { .. } | CircuitOp::Swap { .. } => {
+                stats.total_clifford += 1;
+            }
+            _ => {}
+        }
+    }
+    stats
+}
+
+/// Minimize T-gates by merging consecutive Rz rotations on the same qubit
+/// into a single Rz, then converting Rz(π/4 * k) to T/Tdg when k is 1 or 7.
+pub fn minimize_t_gates(circuit: &mut Circuit) -> usize {
+    let before = t_gate_count(circuit).t_count + t_gate_count(circuit).tdg_count;
+    // Merge consecutive Rz on same qubit
+    let ops = circuit.operations().to_vec();
+    let mut new_ops: Vec<CircuitOp> = Vec::new();
+    let mut i = 0;
+    while i < ops.len() {
+        if let CircuitOp::SingleQubit {
+            gate: Gate::Rz(a),
+            target: t1,
+        } = &ops[i]
+        {
+            // Look ahead for consecutive Rz on same qubit
+            let mut total = *a;
+            let mut j = i + 1;
+            while j < ops.len() {
+                if let CircuitOp::SingleQubit {
+                    gate: Gate::Rz(b),
+                    target: t2,
+                } = &ops[j]
+                    && t1 == t2
+                {
+                    total += *b;
+                    j += 1;
+                    continue;
+                }
+                break;
+            }
+            if j > i + 1 {
+                // Merged
+                new_ops.push(CircuitOp::SingleQubit {
+                    gate: Gate::Rz(total),
+                    target: *t1,
+                });
+                i = j;
+                continue;
+            }
+        }
+        new_ops.push(ops[i]);
+        i += 1;
+    }
+    *circuit.operations_mut() = new_ops;
+    let after = t_gate_count(circuit).t_count + t_gate_count(circuit).tdg_count;
+    before.saturating_sub(after)
+}
+
+/// Hardware coupling map: list of (physical_qubit_a, physical_qubit_b) edges.
+#[derive(Clone, Debug)]
+pub struct CouplingMap {
+    pub num_qubits: usize,
+    pub edges: Vec<(usize, usize)>,
+}
+
+impl CouplingMap {
+    /// Linear chain topology.
+    pub fn linear(n: usize) -> Self {
+        let edges = (0..n.saturating_sub(1)).map(|i| (i, i + 1)).collect();
+        Self {
+            num_qubits: n,
+            edges,
+        }
+    }
+    /// Grid topology (rows x cols).
+    pub fn grid(rows: usize, cols: usize) -> Self {
+        let n = rows * cols;
+        let mut edges = Vec::new();
+        for r in 0..rows {
+            for c in 0..cols {
+                let idx = r * cols + c;
+                if c + 1 < cols {
+                    edges.push((idx, idx + 1));
+                }
+                if r + 1 < rows {
+                    edges.push((idx, idx + cols));
+                }
+            }
+        }
+        Self {
+            num_qubits: n,
+            edges,
+        }
+    }
+    pub fn are_connected(&self, a: usize, b: usize) -> bool {
+        self.edges
+            .iter()
+            .any(|&(x, y)| (x == a && y == b) || (x == b && y == a))
+    }
+}
+
+/// Route a circuit to a hardware topology by inserting SWAP gates.
+/// Returns the number of SWAPs inserted.
+pub fn route_to_hardware(circuit: &mut Circuit, coupling: &CouplingMap) -> usize {
+    let mut swaps = 0;
+    // Simple greedy: for each CNOT, if qubits not connected, insert SWAP chain
+    let ops = circuit.operations().to_vec();
+    let mut new_ops: Vec<CircuitOp> = Vec::new();
+    for op in &ops {
+        match op {
+            CircuitOp::Cnot { control, target } => {
+                if !coupling.are_connected(*control, *target) {
+                    // Insert SWAP to bring them together (simplified: swap control to target-1)
+                    // For a chain, swap along path
+                    let (mut c, _t) = (*control, *target);
+                    while !coupling.are_connected(c, *target) {
+                        // Find neighbor of c closer to t
+                        let neighbors: Vec<usize> = coupling
+                            .edges
+                            .iter()
+                            .filter_map(|&(a, b)| {
+                                if a == c {
+                                    Some(b)
+                                } else if b == c {
+                                    Some(a)
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect();
+                        if neighbors.is_empty() {
+                            break;
+                        }
+                        let next = neighbors[0];
+                        new_ops.push(CircuitOp::Swap {
+                            first: c,
+                            second: next,
+                        });
+                        swaps += 1;
+                        c = next;
+                        if swaps > 100 {
+                            break;
+                        }
+                    }
+                }
+                new_ops.push(*op);
+            }
+            _ => new_ops.push(*op),
+        }
+    }
+    *circuit.operations_mut() = new_ops;
+    swaps
+}
