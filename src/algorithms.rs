@@ -580,11 +580,9 @@ pub fn shor_factor_large(n: u64) -> Option<(u64, u64)> {
     if n.is_multiple_of(2) {
         return Some((2, n / 2));
     }
-    // Trial division up to cube root, then Pollard rho
-    for p in (3..).step_by(2).take(10000) {
-        if p * p * p > n {
-            break;
-        }
+    // Trial division up to sqrt(n) for small n
+    let limit = (n as f64).sqrt() as u64;
+    for p in (3..=limit).step_by(2) {
         if n.is_multiple_of(p) {
             return Some((p, n / p));
         }
