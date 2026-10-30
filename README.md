@@ -337,3 +337,11 @@ Licensed under the GNU General Public License v3.0 — see [LICENSE](LICENSE).
 
 ## Connection 
 Email: junshenhuangc@126.com
+
+## Contributors
+
+We welcome contributions from all hardware platforms! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+- **NVIDIA GPU** — primary development platform
+- **macOS** — CI tested, contributions welcome
+- **AMD/Intel GPU** — contributions welcome (ROCm/HIP, oneAPI)
