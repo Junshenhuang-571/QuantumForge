@@ -531,29 +531,37 @@ fn find_period(a: u64, n: u64) -> u64 {
 /// Works on any computer regardless of size.
 pub fn hhl_solve_general(a: &[Vec<f64>], b: &[f64]) -> Vec<f64> {
     let n = a.len();
-    if n == 0 || b.len() != n { return vec![]; }
+    if n == 0 || b.len() != n {
+        return vec![];
+    }
     // Gaussian elimination with partial pivoting
     let mut aug = vec![vec![0.0; n + 1]; n];
     for i in 0..n {
-        for j in 0..n { aug[i][j] = a[i][j]; }
+        for j in 0..n {
+            aug[i][j] = a[i][j];
+        }
         aug[i][n] = b[i];
     }
-#[allow(clippy::needless_range_loop)]
+    #[allow(clippy::needless_range_loop)]
     for col in 0..n {
         // Partial pivot
         let mut max_row = col;
         let mut max_val = aug[col][col].abs();
-        for r in col+1..n {
+        for r in col + 1..n {
             if aug[r][col].abs() > max_val {
                 max_val = aug[r][col].abs();
                 max_row = r;
             }
         }
-        if max_val < 1e-12 { return vec![0.0; n]; } // singular
+        if max_val < 1e-12 {
+            return vec![0.0; n];
+        } // singular
         aug.swap(col, max_row);
         // Eliminate
         for r in 0..n {
-            if r == col { continue; }
+            if r == col {
+                continue;
+            }
             let factor = aug[r][col] / aug[col][col];
             for c in col..=n {
                 aug[r][c] -= factor * aug[col][c];
@@ -565,12 +573,18 @@ pub fn hhl_solve_general(a: &[Vec<f64>], b: &[f64]) -> Vec<f64> {
 
 /// Shor factor for larger N (trial division, scales with sqrt(N)).
 pub fn shor_factor_large(n: u64) -> Option<(u64, u64)> {
-    if n < 4 { return None; }
+    if n < 4 {
+        return None;
+    }
     // Pollard's rho for larger N
-    if n.is_multiple_of(2) { return Some((2, n / 2)); }
+    if n.is_multiple_of(2) {
+        return Some((2, n / 2));
+    }
     // Trial division up to cube root, then Pollard rho
     for p in (3..).step_by(2).take(10000) {
-        if p * p * p > n { break; }
+        if p * p * p > n {
+            break;
+        }
         if n.is_multiple_of(p) {
             return Some((p, n / p));
         }
@@ -586,7 +600,9 @@ pub fn shor_factor_large(n: u64) -> Option<(u64, u64)> {
         y = f(f(y));
         let diff = x.abs_diff(y);
         d = gcd(diff, n);
-        if d == n { return None; } // failed, try different c
+        if d == n {
+            return None;
+        } // failed, try different c
     }
     if d > 1 && d < n {
         return Some((d, n / d));

@@ -824,16 +824,16 @@ pub mod python_bindings {
     }
 
     #[pyfunction]
-fn hhl_solve_general_py(rows: Vec<Vec<f64>>, b: Vec<f64>) -> Vec<f64> {
-    crate::algorithms::hhl_solve_general(&rows, &b)
-}
+    fn hhl_solve_general_py(rows: Vec<Vec<f64>>, b: Vec<f64>) -> Vec<f64> {
+        crate::algorithms::hhl_solve_general(&rows, &b)
+    }
 
-#[pyfunction]
-fn shor_factor_large_py(n: u64) -> Option<(u64, u64)> {
-    crate::algorithms::shor_factor_large(n)
-}
+    #[pyfunction]
+    fn shor_factor_large_py(n: u64) -> Option<(u64, u64)> {
+        crate::algorithms::shor_factor_large(n)
+    }
 
-/// Python module definition
+    /// Python module definition
     #[pymodule]
     pub fn quantumforge(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
         m.add_class::<PyCircuit>()?;
