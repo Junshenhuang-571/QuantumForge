@@ -264,6 +264,63 @@ impl MPS {
         }
     }
 
+    /// Reconstruct an MPS from a full state vector via sequential SVD.
+    pub fn from_state_vector(state: &[Complex64], n_sites: usize, max_bond: usize) -> Self {
+        let phys_dim = 2;
+        let mut tensors = Vec::with_capacity(n_sites);
+        let mut remaining = state.to_vec();
+        let mut bond_l = 1usize;
+
+        for site in 0..n_sites {
+            let remaining_sites = n_sites - site;
+            let _rows = bond_l * phys_dim;
+            let _cols = 1 << (remaining_sites - 1);
+            // Reshape remaining (bond_l * 2^(remaining)) into (bond_l*2, 2^(remaining-1))
+            let mat_rows = bond_l * phys_dim;
+            let mat_cols = remaining.len() / mat_rows;
+            let (u, s, vt) = svd_jacobi(&remaining, mat_rows, mat_cols);
+
+            let bond_r = s
+                .iter()
+                .filter(|&&x| x > 1e-12)
+                .count()
+                .min(max_bond)
+                .max(1);
+
+            // Build tensor: reshape U (mat_rows, bond_r) -> (bond_l, phys_dim, bond_r)
+            let mut t = Tensor::new([bond_l, phys_dim, bond_r]);
+            for bl in 0..bond_l {
+                for p in 0..phys_dim {
+                    for br in 0..bond_r {
+                        let u_idx = (bl * phys_dim + p) * bond_r + br;
+                        if u_idx < u.len() {
+                            t.set(bl, p, br, u[u_idx]);
+                        }
+                    }
+                }
+            }
+            tensors.push(t);
+
+            // Contract S and Vt for next site
+            // remaining = diag(s) * Vt, shape (bond_r, mat_cols)
+            let mut next = vec![Complex64::ZERO; bond_r * mat_cols];
+            for br in 0..bond_r {
+                for j in 0..mat_cols {
+                    next[br * mat_cols + j] = Complex64::new(s[br], 0.0) * vt[br * mat_cols + j];
+                }
+            }
+            remaining = next;
+            bond_l = bond_r;
+        }
+
+        Self {
+            tensors,
+            n_sites,
+            phys_dim,
+            max_bond,
+        }
+    }
+
     /// Create a random MPS with given bond dimension.
     pub fn random(n_sites: usize, phys_dim: usize, max_bond: usize) -> Self {
         let mut tensors = Vec::with_capacity(n_sites);
@@ -1393,7 +1450,10 @@ extern "C" __global__ void tfim_matvec(
         for i in 0..dim {
             gs[i] = Complex64::new(v_mat[(i, min_idx)], 0.0);
         }
-        self.ground_state = Some(gs);
+        self.ground_state = Some(gs.clone());
+
+        // Reconstruct MPS from ground state vector
+        self.mps = MPS::from_state_vector(&gs, n, self.mps.max_bond);
 
         Ok(min_val)
     }
