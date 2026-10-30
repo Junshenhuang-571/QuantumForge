@@ -392,7 +392,7 @@ pub fn shor_factor(n: u64) -> Option<(u64, u64)> {
 /// Runs the full quantum circuit (state prep, QPE, controlled rotation, uncompute)
 /// and returns the solution vector x (post-selected on ancilla = 1).
 pub fn hhl_solve_quantum(a: [[f64; 2]; 2], b: [f64; 2]) -> Vec<f64> {
-    use crate::{StateVector, Gate};
+    use crate::{Gate, StateVector};
     // Compute eigenvalues
     let tr = a[0][0] + a[1][1];
     let det = a[0][0] * a[1][1] - a[0][1] * a[1][0];
@@ -467,16 +467,26 @@ pub fn hhl_solve_quantum(a: [[f64; 2]; 2], b: [f64; 2]) -> Vec<f64> {
 /// Shor factor quantum: factor N by finding period of a^x mod N.
 /// Returns factors (p, q) if found, using quantum period finding + classical post-processing.
 pub fn shor_factor_quantum(n: u64) -> Option<(u64, u64)> {
-    if n < 4 { return None; }
+    if n < 4 {
+        return None;
+    }
     // Try small bases
     for a in 2..n {
-        if gcd(a, n) != 1 { continue; }
+        if gcd(a, n) != 1 {
+            continue;
+        }
         // Find period r of a^x mod n
         let r = find_period(a, n);
-        if r == 0 { continue; }
-        if !r.is_multiple_of(2) { continue; }
+        if r == 0 {
+            continue;
+        }
+        if !r.is_multiple_of(2) {
+            continue;
+        }
         let x = modpow(a, r / 2, n);
-        if x == n - 1 { continue; }
+        if x == n - 1 {
+            continue;
+        }
         let p = gcd(x + 1, n);
         let _q = gcd(x.abs_diff(n - 1), n); // careful
         if p > 1 && p < n {
