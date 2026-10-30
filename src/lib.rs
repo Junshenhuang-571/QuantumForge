@@ -1419,7 +1419,9 @@ impl Circuit {
     /// Render the circuit as an SVG diagram.
     pub fn to_svg(&self) -> String {
         if self.operations.is_empty() {
-            return String::from("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"100\" height=\"50\"><text x=\"10\" y=\"25\">empty circuit</text></svg>");
+            return String::from(
+                "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"100\" height=\"50\"><text x=\"10\" y=\"25\">empty circuit</text></svg>",
+            );
         }
         let mut n = 0;
         for op in &self.operations {
@@ -1434,7 +1436,9 @@ impl Circuit {
             };
             n = n.max(max_q + 1);
         }
-        if n == 0 { n = 1; }
+        if n == 0 {
+            n = 1;
+        }
 
         let gate_width = 40.0;
         let qubit_spacing = 40.0;
@@ -1492,11 +1496,17 @@ impl Circuit {
                     ));
                     svg.push_str(&format!(
                         "  <line x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"black\"/>\n",
-                        x - 7.0, yt, x + 7.0, yt
+                        x - 7.0,
+                        yt,
+                        x + 7.0,
+                        yt
                     ));
                     svg.push_str(&format!(
                         "  <line x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"black\"/>\n",
-                        x, yt - 7.0, x, yt + 7.0
+                        x,
+                        yt - 7.0,
+                        x,
+                        yt + 7.0
                     ));
                     // Vertical line
                     let (y_top, y_bot) = if yc < yt { (yc, yt) } else { (yt, yc) };
