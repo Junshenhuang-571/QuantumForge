@@ -149,7 +149,7 @@ pub fn hea_ansatz(num_qubits: usize, layers: usize, params: &[f64]) -> Circuit {
             }
         }
 
-        if _layer % 2 == 0 {
+        if _layer.is_multiple_of(2) {
             for i in 0..num_qubits - 1 {
                 circuit.cnot(i, i + 1);
             }
