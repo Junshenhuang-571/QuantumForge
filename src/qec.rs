@@ -71,7 +71,7 @@ impl PauliString {
                 }
             }
         }
-        anticommute_count % 2 == 0
+        anticommute_count.is_multiple_of(2)
     }
 }
 
