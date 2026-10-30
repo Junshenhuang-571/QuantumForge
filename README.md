@@ -88,6 +88,10 @@ println!("{:?}", result.counts);
 - **Variational / QML**: `ParameterizedCircuit` with data encoding, adjoint +
   parameter-shift gradients (exact and finite-shot), and Adam trainers for
   regression and classification.
+- **Algorithms**: Grover, QFT, QPE, Deutsch-Jozsa, Bernstein-Vazirani, HHL
+  (linear systems), Shor (factoring). Quantum + classical hybrid solvers.
+- **Visualization**: ASCII circuit diagrams (`draw`) and SVG export (`to_svg`).
+- **QEC**: Repetition, Shor, Steane, surface codes with MWPM decoder.
 - **Backends**: optional `cuda` (NVRTC device-resident state vectors, density
   matrices, batched shots) and `llvm` (lower scalar expressions to LLVM IR /
   runtime-JIT), both validated against the Rust reference.
