@@ -381,7 +381,7 @@ pub fn shor_factor(n: u64) -> Option<(u64, u64)> {
     }
     // Trial division for small N
     for p in 2..=(n as f64).sqrt() as u64 {
-        if n % p == 0 {
+        if n.is_multiple_of(p) {
             return Some((p, n / p));
         }
     }
