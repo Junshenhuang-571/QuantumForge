@@ -673,3 +673,38 @@ pub fn route_to_hardware(circuit: &mut Circuit, coupling: &CouplingMap) -> usize
     *circuit.operations_mut() = new_ops;
     swaps
 }
+
+/// Self-optimizing circuit: repeatedly applies optimization passes until
+/// no further reduction is achieved.
+pub fn self_optimize(circuit: &mut Circuit) -> OptimizeResult {
+    let original = circuit.operations().len();
+    let mut total_fusions = 0;
+    let mut total_cancellations = 0;
+    let mut total_identities = 0;
+    let mut iterations = 0;
+
+    loop {
+        let before = circuit.operations().len();
+        let result = optimize_circuit(circuit, &OptimizeConfig::all());
+        total_fusions += result.fusions;
+        total_cancellations += result.cancellations;
+        total_identities += result.identities_removed;
+        iterations += 1;
+
+        // Also try T-gate minimization
+        minimize_t_gates(circuit);
+
+        let after = circuit.operations().len();
+        if after >= before || iterations >= 10 {
+            break;
+        }
+    }
+
+    OptimizeResult {
+        original_ops: original,
+        optimized_ops: circuit.operations().len(),
+        fusions: total_fusions,
+        cancellations: total_cancellations,
+        identities_removed: total_identities,
+    }
+}
