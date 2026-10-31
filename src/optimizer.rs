@@ -48,6 +48,10 @@ impl OptimizeConfig {
 pub struct OptimizeResult {
     pub original_ops: usize,
     pub optimized_ops: usize,
+    pub original_two_qubit: usize,
+    pub optimized_two_qubit: usize,
+    pub original_depth: usize,
+    pub optimized_depth: usize,
     pub fusions: usize,
     pub cancellations: usize,
     pub identities_removed: usize,
@@ -63,10 +67,60 @@ impl OptimizeResult {
     }
 }
 
+/// Count two-qubit gates in a circuit.
+pub fn count_two_qubit(circuit: &Circuit) -> usize {
+    circuit
+        .operations()
+        .iter()
+        .filter(|op| {
+            matches!(
+                op,
+                CircuitOp::Cnot { .. } | CircuitOp::Cz { .. } | CircuitOp::Swap { .. }
+            )
+        })
+        .count()
+}
+
+/// Compute circuit depth (longest path through qubit dependencies).
+pub fn circuit_depth(circuit: &Circuit) -> usize {
+    let mut qubit_depth: Vec<usize> = vec![0; 256];
+    let mut max_depth = 0;
+    for op in circuit.operations() {
+        match op {
+            CircuitOp::SingleQubit { target, .. } => {
+                qubit_depth[*target] += 1;
+                max_depth = max_depth.max(qubit_depth[*target]);
+            }
+            CircuitOp::Cnot { control, target }
+            | CircuitOp::Cz {
+                first: control,
+                second: target,
+            } => {
+                let d = qubit_depth[*control].max(qubit_depth[*target]) + 1;
+                qubit_depth[*control] = d;
+                qubit_depth[*target] = d;
+                max_depth = max_depth.max(d);
+            }
+            CircuitOp::Swap { first, second } => {
+                let d = qubit_depth[*first].max(qubit_depth[*second]) + 1;
+                qubit_depth[*first] = d;
+                qubit_depth[*second] = d;
+                max_depth = max_depth.max(d);
+            }
+            _ => {}
+        }
+    }
+    max_depth
+}
+
 /// Optimize a circuit in-place, returning statistics.
 pub fn optimize_circuit(circuit: &mut Circuit, config: &OptimizeConfig) -> OptimizeResult {
+    let orig_2q = count_two_qubit(circuit);
+    let orig_depth = circuit_depth(circuit);
     let mut result = OptimizeResult {
         original_ops: circuit.operations().len(),
+        original_two_qubit: orig_2q,
+        original_depth: orig_depth,
         ..Default::default()
     };
 
@@ -89,6 +143,8 @@ pub fn optimize_circuit(circuit: &mut Circuit, config: &OptimizeConfig) -> Optim
     }
 
     result.optimized_ops = circuit.operations().len();
+    result.optimized_two_qubit = count_two_qubit(circuit);
+    result.optimized_depth = circuit_depth(circuit);
     result
 }
 
@@ -703,8 +759,76 @@ pub fn self_optimize(circuit: &mut Circuit) -> OptimizeResult {
     OptimizeResult {
         original_ops: original,
         optimized_ops: circuit.operations().len(),
+        original_two_qubit: 0,
+        optimized_two_qubit: count_two_qubit(circuit),
+        original_depth: 0,
+        optimized_depth: circuit_depth(circuit),
         fusions: total_fusions,
         cancellations: total_cancellations,
         identities_removed: total_identities,
+    }
+}
+
+/// Check if two circuits are equivalent by comparing state vectors.
+/// Global phase is allowed.
+pub fn circuits_equivalent(c1: &Circuit, c2: &Circuit, num_qubits: usize) -> bool {
+    use crate::StateVector;
+    let mut sv1 = StateVector::zero(num_qubits).unwrap();
+    let mut sv2 = StateVector::zero(num_qubits).unwrap();
+
+    // Apply all gates from c1
+    for op in c1.operations() {
+        apply_op(&mut sv1, op);
+    }
+    for op in c2.operations() {
+        apply_op(&mut sv2, op);
+    }
+
+    // Compare with global phase tolerance
+    let amps1 = sv1.amplitudes();
+    let amps2 = sv2.amplitudes();
+    if amps1.len() != amps2.len() {
+        return false;
+    }
+
+    // Find global phase from first non-zero amplitude
+    let mut phase = None;
+    for (a, b) in amps1.iter().zip(amps2.iter()) {
+        if a.norm_sqr() > 1e-12 {
+            let p = b.re * a.re + b.im * a.im; // cos(phase)
+            let q = b.im * a.re - b.re * a.im; // sin(phase)
+            let norm = (p * p + q * q).sqrt();
+            if norm < 1e-12 {
+                return false;
+            }
+            phase = Some((p / norm, q / norm));
+            break;
+        }
+    }
+    let (pc, ps) = phase.unwrap_or((1.0, 0.0));
+
+    for (a, b) in amps1.iter().zip(amps2.iter()) {
+        // b should equal a * (pc + i*ps)
+        let expected_re = a.re * pc - a.im * ps;
+        let expected_im = a.re * ps + a.im * pc;
+        if (b.re - expected_re).abs() > 1e-9 || (b.im - expected_im).abs() > 1e-9 {
+            return false;
+        }
+    }
+    true
+}
+
+fn apply_op(sv: &mut crate::StateVector, op: &CircuitOp) {
+    match op {
+        CircuitOp::SingleQubit { gate, target } => {
+            sv.apply(*gate, *target).unwrap();
+        }
+        CircuitOp::Cnot { control, target } => {
+            sv.apply_cnot(*control, *target).unwrap();
+        }
+        CircuitOp::Cz { first, second } => {
+            sv.apply_cz(*first, *second).unwrap();
+        }
+        _ => {}
     }
 }
