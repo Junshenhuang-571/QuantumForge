@@ -1213,11 +1213,49 @@ extern "C" __global__ void tfim_matvec(
     }
     w[a] = result;
 }
+
+extern "C" __global__ void vec_dot_partial(
+    const double* a, const double* b, double* partial, int dim
+) {
+    __shared__ double sdata[256];
+    int tid = threadIdx.x;
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    double val = 0.0;
+    if (i < dim) val = a[i] * b[i];
+    sdata[tid] = val;
+    __syncthreads();
+    for (int s = blockDim.x / 2; s > 0; s >>= 1) {
+        if (tid < s) sdata[tid] += sdata[tid + s];
+        __syncthreads();
+    }
+    if (tid == 0) partial[blockIdx.x] = sdata[0];
+}
+
+extern "C" __global__ void vec_axpy(
+    double* w, const double* v, double scalar, int dim
+) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < dim) w[i] -= scalar * v[i];
+}
+
+extern "C" __global__ void vec_scale(
+    double* v, double scalar, int dim
+) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < dim) v[i] /= scalar;
+}
+
+extern "C" __global__ void vec_copy(
+    double* dst, const double* src, int dim
+) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < dim) dst[i] = src[i];
+}
 "#;
 
         let ptx = compile_ptx(kernel_src).map_err(|_| "PTX compile failed")?;
         device
-            .load_ptx(ptx, "tfim", &["tfim_matvec"])
+            .load_ptx(ptx, "tfim", &["tfim_matvec", "vec_dot_partial", "vec_axpy", "vec_scale", "vec_copy"])
             .map_err(|_| "PTX load failed")?;
         let func = device
             .get_func("tfim", "tfim_matvec")
