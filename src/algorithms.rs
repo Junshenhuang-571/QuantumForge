@@ -473,86 +473,54 @@ pub fn hhl_solve_quantum(a: [[f64; 2]; 2], b: [f64; 2]) -> Vec<f64> {
 /// for systems up to 4x4 (2 data qubits). Returns normalized solution.
 #[allow(clippy::all)]
 pub fn hhl_solve_quantum_general(a: &[Vec<f64>], b: &[f64]) -> Vec<f64> {
+    use faer::diag::Diag;
+    use faer::dyn_stack::{MemBuffer, MemStack};
+    use faer::linalg::evd::{ComputeEigenvectors, self_adjoint_evd, self_adjoint_evd_scratch};
+    use faer::{Mat, Par};
+
     let n = a.len();
     if n == 0 || b.len() != n {
         return vec![];
     }
 
-    // Eigendecomposition via Jacobi for small N
     // Build matrix
-    let mut mat = a.to_vec();
-    // Jacobi eigenvalue algorithm
-    let mut v = vec![vec![0.0f64; n]; n];
+    let mut mat_a = Mat::<f64>::zeros(n, n);
     for i in 0..n {
-        v[i][i] = 1.0;
+        for j in 0..n {
+            mat_a[(i, j)] = a[i][j];
+        }
     }
 
-    // Simple Jacobi iterations
-    for _iter in 0..100 {
-        let mut max_off = 0.0f64;
-        let mut p = 0;
-        let mut q = 1;
-        for i in 0..n {
-            for j in (i + 1)..n {
-                if mat[i][j].abs() > max_off {
-                    max_off = mat[i][j].abs();
-                    p = i;
-                    q = j;
-                }
-            }
-        }
-        if max_off < 1e-12 {
-            break;
-        }
-        let theta = (mat[q][q] - mat[p][p]) / (2.0 * mat[p][q]);
-        let t = if theta >= 0.0 {
-            1.0 / (theta + (theta * theta + 1.0).sqrt())
-        } else {
-            1.0 / (theta - (theta * theta + 1.0).sqrt())
-        };
-        let c = 1.0 / (1.0 + t * t).sqrt();
-        let s = t * c;
-        // Rotate
-        for i in 0..n {
-            let a_ip = mat[i][p];
-            let a_iq = mat[i][q];
-            mat[i][p] = c * a_ip - s * a_iq;
-            mat[i][q] = s * a_ip + c * a_iq;
-        }
-        for j in 0..n {
-            let a_pj = mat[p][j];
-            let a_qj = mat[q][j];
-            mat[p][j] = c * a_pj - s * a_qj;
-            mat[q][j] = s * a_pj + c * a_qj;
-        }
-        let d_p = mat[p][p];
-        let d_q = mat[q][q];
-        mat[p][p] = c * c * d_p - 2.0 * s * c * mat[p][q] + s * s * d_q;
-        mat[q][q] = s * s * d_p + 2.0 * s * c * mat[p][q] + c * c * d_q;
-        mat[p][q] = 0.0;
-        mat[q][p] = 0.0;
-        // Update eigenvectors
-        for i in 0..n {
-            let v_ip = v[i][p];
-            let v_iq = v[i][q];
-            v[i][p] = c * v_ip - s * v_iq;
-            v[i][q] = s * v_ip + c * v_iq;
-        }
-    }
-    // Eigenvalues are diagonal
-    let eigenvalues: Vec<f64> = (0..n).map(|i| mat[i][i]).collect();
-    // Eigenvectors are columns of v
-    // v[i][k] = component i of eigenvector k
+    // Eigendecomposition using faer
+    let mut s = Diag::<f64>::zeros(n);
+    let mut v_mat = Mat::<f64>::zeros(n, n);
+    let params = Default::default();
+    let par = Par::Seq;
+    let scratch = self_adjoint_evd_scratch::<f64>(n, ComputeEigenvectors::Yes, par, params);
+    let mut mem = MemBuffer::new(scratch);
+    let stack = MemStack::new(&mut mem);
+    self_adjoint_evd(
+        mat_a.as_ref(),
+        s.as_mut(),
+        Some(v_mat.as_mut()),
+        par,
+        stack,
+        params,
+    )
+    .unwrap();
+
+    let eigenvalues: Vec<f64> = (0..n).map(|i| s.column_vector()[i]).collect();
 
     // Normalize |b>
     let norm_b: f64 = b.iter().map(|x| x * x).sum::<f64>().sqrt();
     let b_norm: Vec<f64> = b.iter().map(|x| x / norm_b).collect();
 
     // Transform |b> to eigenbasis: coeff[k] = sum_i v[i][k] * b[i]
+    // v_mat[(i, k)] = component i of eigenvector k
     let mut coeffs: Vec<f64> = vec![0.0; n];
     for k in 0..n {
         for i in 0..n {
-            coeffs[k] += v[i][k] * b_norm[i];
+            coeffs[k] += v_mat[(i, k)] * b_norm[i];
         }
     }
 
@@ -560,6 +528,7 @@ pub fn hhl_solve_quantum_general(a: &[Vec<f64>], b: &[f64]) -> Vec<f64> {
     let c_const = 1.0 / eigenvalues.iter().map(|l| l.abs()).fold(0.0f64, f64::max);
 
     // Apply controlled rotation: result coeff[k] *= c_const / lambda_k
+    // (sin(theta/2) = C/lambda, theta = 2*arcsin(C/lambda))
     let mut result_coeffs: Vec<f64> = vec![0.0; n];
     for k in 0..n {
         let lambda = eigenvalues[k];
@@ -572,7 +541,7 @@ pub fn hhl_solve_quantum_general(a: &[Vec<f64>], b: &[f64]) -> Vec<f64> {
     let mut x: Vec<f64> = vec![0.0; n];
     for i in 0..n {
         for k in 0..n {
-            x[i] += v[i][k] * result_coeffs[k];
+            x[i] += v_mat[(i, k)] * result_coeffs[k];
         }
     }
 
@@ -583,65 +552,6 @@ pub fn hhl_solve_quantum_general(a: &[Vec<f64>], b: &[f64]) -> Vec<f64> {
     } else {
         vec![0.0; n]
     }
-}
-
-pub fn shor_factor_large(n: u64) -> Option<(u64, u64)> {
-    if n < 4 {
-        return None;
-    }
-    // Trial division up to sqrt(n)
-    let limit = (n as f64).sqrt() as u64;
-    for p in 2..=limit {
-        if n.is_multiple_of(p) {
-            return Some((p, n / p));
-        }
-    }
-    // If no factor found, n is prime
-    None
-}
-
-#[allow(clippy::all)]
-/// HHL general: solve A x = b for any NxN matrix using Gaussian elimination.
-pub fn hhl_solve_general(a: &[Vec<f64>], b: &[f64]) -> Vec<f64> {
-    let n = a.len();
-    if n == 0 || b.len() != n {
-        return vec![];
-    }
-    let mut aug = vec![vec![0.0f64; n + 1]; n];
-    for i in 0..n {
-        for j in 0..n {
-            aug[i][j] = a[i][j];
-        }
-        aug[i][n] = b[i];
-    }
-    for col in 0..n {
-        let mut pivot = col;
-        let mut max_val = aug[col][col].abs();
-        for r in (col + 1)..n {
-            if aug[r][col].abs() > max_val {
-                max_val = aug[r][col].abs();
-                pivot = r;
-            }
-        }
-        if max_val < 1e-12 {
-            return vec![0.0; n];
-        }
-        aug.swap(col, pivot);
-        let pv = aug[col][col];
-        for j in col..=n {
-            aug[col][j] /= pv;
-        }
-        for r in 0..n {
-            if r == col {
-                continue;
-            }
-            let factor = aug[r][col];
-            for j in col..=n {
-                aug[r][j] -= factor * aug[col][j];
-            }
-        }
-    }
-    (0..n).map(|i| aug[i][n]).collect()
 }
 
 /// Shor quantum factor: factor N using quantum period finding simulation.
@@ -728,4 +638,48 @@ mod tests {
         let circuit = qaoa_ansatz(3, &edges, 2, &params);
         assert!(!circuit.operations().is_empty());
     }
+}
+
+#[allow(clippy::all)]
+/// HHL general: solve A x = b for any NxN matrix using Gaussian elimination.
+pub fn hhl_solve_general(a: &[Vec<f64>], b: &[f64]) -> Vec<f64> {
+    let n = a.len();
+    if n == 0 || b.len() != n {
+        return vec![];
+    }
+    let mut aug = vec![vec![0.0f64; n + 1]; n];
+    for i in 0..n {
+        for j in 0..n {
+            aug[i][j] = a[i][j];
+        }
+        aug[i][n] = b[i];
+    }
+    for col in 0..n {
+        let mut pivot = col;
+        let mut max_val = aug[col][col].abs();
+        for r in (col + 1)..n {
+            if aug[r][col].abs() > max_val {
+                max_val = aug[r][col].abs();
+                pivot = r;
+            }
+        }
+        if max_val < 1e-12 {
+            return vec![0.0; n];
+        }
+        aug.swap(col, pivot);
+        let pv = aug[col][col];
+        for j in col..=n {
+            aug[col][j] /= pv;
+        }
+        for r in 0..n {
+            if r == col {
+                continue;
+            }
+            let factor = aug[r][col];
+            for j in col..=n {
+                aug[r][j] -= factor * aug[col][j];
+            }
+        }
+    }
+    (0..n).map(|i| aug[i][n]).collect()
 }
