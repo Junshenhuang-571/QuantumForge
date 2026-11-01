@@ -1,13 +1,33 @@
-use quantumforge::tensor_network::{DMRG, MPS};
 use quantumforge::Complex64;
+use quantumforge::tensor_network::{DMRG, MPS};
 use std::time::Instant;
 
 fn zz_gate() -> [[Complex64; 4]; 4] {
     [
-        [Complex64::new(-1.0, 0.0), Complex64::ZERO, Complex64::ZERO, Complex64::ZERO],
-        [Complex64::ZERO, Complex64::new(1.0, 0.0), Complex64::ZERO, Complex64::ZERO],
-        [Complex64::ZERO, Complex64::ZERO, Complex64::new(1.0, 0.0), Complex64::ZERO],
-        [Complex64::ZERO, Complex64::ZERO, Complex64::ZERO, Complex64::new(-1.0, 0.0)],
+        [
+            Complex64::new(-1.0, 0.0),
+            Complex64::ZERO,
+            Complex64::ZERO,
+            Complex64::ZERO,
+        ],
+        [
+            Complex64::ZERO,
+            Complex64::new(1.0, 0.0),
+            Complex64::ZERO,
+            Complex64::ZERO,
+        ],
+        [
+            Complex64::ZERO,
+            Complex64::ZERO,
+            Complex64::new(1.0, 0.0),
+            Complex64::ZERO,
+        ],
+        [
+            Complex64::ZERO,
+            Complex64::ZERO,
+            Complex64::ZERO,
+            Complex64::new(-1.0, 0.0),
+        ],
     ]
 }
 
