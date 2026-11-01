@@ -216,7 +216,7 @@ GPU acceleration activates for sparse Lanczos (>=13 qubits) and batched circuit 
 
 ## Benchmark: CPU vs GPU
 
-DMRG ground-state energy for TFIM (H = -Σ Z_i Z_{i+1} - Σ X_i). Run `cargo bench` for measured timings on your hardware. GPU acceleration activates for sparse Lanczos (>=13 qubits).
+DMRG ground-state energy for TFIM (H = -Σ Z_i Z_{i+1} - Σ X_i). **Note:** for n ≤ 12, DMRG uses exact diagonalization (full 2^n eigendecomposition); for n ≥ 13, it uses sparse Lanczos (Krylov subspace). These are different algorithms — timings are not directly comparable across the 12/13 boundary. GPU acceleration activates for sparse Lanczos (>=13 qubits).
 
 ![CPU vs GPU benchmark](docs/benchmark_cpu_vs_gpu.svg)
 
