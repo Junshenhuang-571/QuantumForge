@@ -1255,7 +1255,17 @@ extern "C" __global__ void vec_copy(
 
         let ptx = compile_ptx(kernel_src).map_err(|_| "PTX compile failed")?;
         device
-            .load_ptx(ptx, "tfim", &["tfim_matvec", "vec_dot_partial", "vec_axpy", "vec_scale", "vec_copy"])
+            .load_ptx(
+                ptx,
+                "tfim",
+                &[
+                    "tfim_matvec",
+                    "vec_dot_partial",
+                    "vec_axpy",
+                    "vec_scale",
+                    "vec_copy",
+                ],
+            )
             .map_err(|_| "PTX load failed")?;
         let func = device
             .get_func("tfim", "tfim_matvec")
