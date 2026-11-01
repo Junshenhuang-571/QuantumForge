@@ -16,17 +16,17 @@
 <text x="70" y="226" text-anchor="end" font-size="9" fill="#666">1000</text>
 <text x="70" y="162" text-anchor="end" font-size="9" fill="#666">10000</text>
 <text x="70" y="98" text-anchor="end" font-size="9" fill="#666">100000</text>
-<polyline points="80,309 180,225 280,123 380,186 480,140 580,99" fill="none" stroke="#7c6af7" stroke-width="2.5" stroke-dasharray="6,3"/>
-<circle cx="80" cy="309" r="5" fill="#7c6af7"/>
+<polyline points="80,308 180,225 280,123 380,184 480,134 580,93" fill="none" stroke="#7c6af7" stroke-width="2.5" stroke-dasharray="6,3"/>
+<circle cx="80" cy="308" r="5" fill="#7c6af7"/>
 <circle cx="180" cy="225" r="5" fill="#7c6af7"/>
 <circle cx="280" cy="123" r="5" fill="#7c6af7"/>
-<circle cx="380" cy="186" r="5" fill="#7c6af7"/>
-<circle cx="480" cy="140" r="5" fill="#7c6af7"/>
-<circle cx="580" cy="99" r="5" fill="#7c6af7"/>
-<polyline points="380,166 480,144 580,104" fill="none" stroke="#f7a06a" stroke-width="2.5"/>
-<circle cx="380" cy="166" r="5" fill="#f7a06a"/>
-<circle cx="480" cy="144" r="5" fill="#f7a06a"/>
-<circle cx="580" cy="104" r="5" fill="#f7a06a"/>
+<circle cx="380" cy="184" r="5" fill="#7c6af7"/>
+<circle cx="480" cy="134" r="5" fill="#7c6af7"/>
+<circle cx="580" cy="93" r="5" fill="#7c6af7"/>
+<polyline points="380,169 480,141 580,100" fill="none" stroke="#f7a06a" stroke-width="2.5"/>
+<circle cx="380" cy="169" r="5" fill="#f7a06a"/>
+<circle cx="480" cy="141" r="5" fill="#f7a06a"/>
+<circle cx="580" cy="100" r="5" fill="#f7a06a"/>
 <line x1="330" y1="80" x2="330" y2="350" stroke="#555" stroke-width="1" stroke-dasharray="4"/>
 <text x="330" y="75" text-anchor="middle" font-size="9" fill="#888">n=12/13 boundary</text>
 <text x="205" y="75" text-anchor="middle" font-size="9" fill="#666">exact diag</text>
@@ -35,20 +35,14 @@
 <text x="440" y="272" font-size="11" fill="#aaa">CPU (sparse Lanczos / exact diag)</text>
 <rect x="420" y="280" width="14" height="14" fill="#f7a06a" rx="2"/>
 <text x="440" y="292" font-size="11" fill="#aaa">GPU (sparse Lanczos, --features gpu)</text>
-<!-- n=6: label to the right -->
-<text x="90" y="309" font-size="9" fill="#7c6af7">41 ms</text>
-<!-- n=8: label to the right -->
+<text x="90" y="308" font-size="9" fill="#7c6af7">41 ms</text>
 <text x="190" y="225" font-size="9" fill="#7c6af7">719 ms</text>
-<!-- n=10: label stays -->
 <text x="290" y="117" font-size="9" fill="#7c6af7">23432 ms</text>
-<!-- n=14: GPU top, CPU bottom -->
-<text x="380" y="160" text-anchor="middle" font-size="9" fill="#f7a06a">5312 ms</text>
-<text x="380" y="192" text-anchor="middle" font-size="9" fill="#7c6af7">2661 ms</text>
-<!-- n=16: GPU bottom, CPU top -->
-<text x="480" y="134" text-anchor="middle" font-size="9" fill="#7c6af7">12773 ms</text>
-<text x="480" y="150" text-anchor="middle" font-size="9" fill="#f7a06a">11267 ms</text>
-<!-- n=18: GPU bottom, CPU top -->
-<text x="580" y="93" text-anchor="middle" font-size="9" fill="#7c6af7">53002 ms</text>
-<text x="580" y="110" text-anchor="middle" font-size="9" fill="#f7a06a">44013 ms</text>
+<text x="380" y="190" text-anchor="middle" font-size="9" fill="#7c6af7">2924 ms</text>
+<text x="380" y="163" text-anchor="middle" font-size="9" fill="#f7a06a">4753 ms</text>
+<text x="480" y="128" text-anchor="middle" font-size="9" fill="#7c6af7">15886 ms</text>
+<text x="480" y="147" text-anchor="middle" font-size="9" fill="#f7a06a">12496 ms</text>
+<text x="580" y="87" text-anchor="middle" font-size="9" fill="#7c6af7">65221 ms</text>
+<text x="580" y="106" text-anchor="middle" font-size="9" fill="#f7a06a">50241 ms</text>
 <text x="340" y="410" font-size="9" fill="#555">Measured: debug build, single run. Reproduce: cargo run --example bench_gpu_lanczos [--features gpu]</text>
 </svg>
