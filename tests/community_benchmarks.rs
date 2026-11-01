@@ -16,7 +16,7 @@ fn qft_8q() {
             c.push(Gate::Rz(angle), j);
         }
     }
-    let mut sv = StateVector::zero(8).unwrap();
+    let sv = StateVector::zero(8).unwrap();
     let sv = c.run(sv).unwrap();
     let norm: f64 = sv.amplitudes().iter().map(|a| a.norm_sqr()).sum();
     assert!((norm - 1.0).abs() < 1e-10);
@@ -31,7 +31,7 @@ fn grover_4q() {
     }
     // Oracle: mark |1111>
     c.push(Gate::Z, 3); // simplified
-    let mut sv = StateVector::zero(4).unwrap();
+    let sv = StateVector::zero(4).unwrap();
     let sv = c.run(sv).unwrap();
     let norm: f64 = sv.amplitudes().iter().map(|a| a.norm_sqr()).sum();
     assert!((norm - 1.0).abs() < 1e-10);
@@ -44,7 +44,7 @@ fn bell_chain_4q() {
     for i in 0..3 {
         c.cnot(i, i + 1);
     }
-    let mut sv = StateVector::zero(4).unwrap();
+    let sv = StateVector::zero(4).unwrap();
     let sv = c.run(sv).unwrap();
     let amps = sv.amplitudes();
     // GHZ state: (|0000> + |1111>)/sqrt(2)
