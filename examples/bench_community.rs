@@ -3,7 +3,7 @@ use std::time::Instant;
 
 fn main() {
     println!("Circuit, Qubits, Gates, Time (ms), Norm");
-    
+
     // QFT 4q
     {
         let mut c = Circuit::new();
@@ -22,7 +22,7 @@ fn main() {
         let norm: f64 = sv.amplitudes().iter().map(|a| a.norm_sqr()).sum();
         println!("QFT, 4, {}, {:.3}, {:.10}", gates, dt, norm);
     }
-    
+
     // QFT 8q
     {
         let mut c = Circuit::new();
@@ -41,12 +41,14 @@ fn main() {
         let norm: f64 = sv.amplitudes().iter().map(|a| a.norm_sqr()).sum();
         println!("QFT, 8, {}, {:.3}, {:.10}", gates, dt, norm);
     }
-    
+
     // GHZ 4q
     {
         let mut c = Circuit::new();
         c.push(Gate::H, 0);
-        for i in 0..3 { c.cnot(i, i + 1); }
+        for i in 0..3 {
+            c.cnot(i, i + 1);
+        }
         let gates = c.operations.len();
         let t0 = Instant::now();
         let sv = StateVector::zero(4).unwrap();
@@ -55,12 +57,14 @@ fn main() {
         let norm: f64 = sv.amplitudes().iter().map(|a| a.norm_sqr()).sum();
         println!("GHZ, 4, {}, {:.3}, {:.10}", gates, dt, norm);
     }
-    
+
     // GHZ 8q
     {
         let mut c = Circuit::new();
         c.push(Gate::H, 0);
-        for i in 0..7 { c.cnot(i, i + 1); }
+        for i in 0..7 {
+            c.cnot(i, i + 1);
+        }
         let gates = c.operations.len();
         let t0 = Instant::now();
         let sv = StateVector::zero(8).unwrap();
