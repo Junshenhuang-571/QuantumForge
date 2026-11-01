@@ -934,9 +934,12 @@ pub struct DMRG {
     pub mps: MPS,
     pub max_bond: usize,
     pub truncation_tol: f64,
+    pub energy_tol: f64,
     pub max_sweeps: usize,
     /// Exact ground-state vector (populated by run_exact for small systems).
     pub ground_state: Option<Vec<Complex64>>,
+    /// Last truncation error (sum of discarded singular values).
+    pub last_truncation_error: f64,
 }
 
 impl DMRG {
@@ -945,9 +948,17 @@ impl DMRG {
             mps,
             max_bond,
             truncation_tol,
+            energy_tol: 1e-8,
             max_sweeps,
             ground_state: None,
+            last_truncation_error: 0.0,
         }
+    }
+
+    /// Create DMRG with explicit energy convergence tolerance.
+    pub fn with_energy_tol(mut self, tol: f64) -> Self {
+        self.energy_tol = tol;
+        self
     }
 
     /// Run DMRG sweeps to find ground state of a nearest-neighbor Hamiltonian.
@@ -1004,7 +1015,7 @@ impl DMRG {
 
             // Measure energy
             let energy = self.measure_energy(even_h, odd_h)?;
-            if (energy - prev_energy).abs() < self.truncation_tol {
+            if (energy - prev_energy).abs() < self.energy_tol {
                 return Ok(energy);
             }
             prev_energy = energy;
