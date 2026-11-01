@@ -35,15 +35,14 @@
 <text x="440" y="272" font-size="11" fill="#aaa">CPU (sparse Lanczos / exact diag)</text>
 <rect x="420" y="280" width="14" height="14" fill="#f7a06a" rx="2"/>
 <text x="440" y="292" font-size="11" fill="#aaa">GPU (sparse Lanczos, --features gpu)</text>
-<!-- Labels in right-down empty space -->
-<text x="420" y="160" font-size="10" fill="#7c6af7">n=6: 41 ms</text>
-<text x="420" y="175" font-size="10" fill="#7c6af7">n=8: 719 ms</text>
-<text x="420" y="190" font-size="10" fill="#7c6af7">n=10: 23432 ms</text>
-<text x="420" y="205" font-size="10" fill="#7c6af7">n=14: 2661 ms</text>
-<text x="420" y="220" font-size="10" fill="#7c6af7">n=16: 12773 ms</text>
-<text x="420" y="235" font-size="10" fill="#7c6af7">n=18: 53002 ms</text>
-<text x="540" y="160" font-size="10" fill="#f7a06a">n=14: 5312 ms</text>
-<text x="540" y="175" font-size="10" fill="#f7a06a">n=16: 11267 ms</text>
-<text x="540" y="190" font-size="10" fill="#f7a06a">n=18: 44013 ms</text>
+<text x="90" y="303" font-size="9" fill="#7c6af7">41 ms</text>
+<text x="190" y="219" font-size="9" fill="#7c6af7">719 ms</text>
+<text x="290" y="117" font-size="9" fill="#7c6af7">23432 ms</text>
+<text x="390" y="180" font-size="9" fill="#7c6af7">2661 ms</text>
+<text x="490" y="134" font-size="9" fill="#7c6af7">12773 ms</text>
+<text x="590" y="93" font-size="9" fill="#7c6af7">53002 ms</text>
+<text x="390" y="160" font-size="9" fill="#f7a06a">5312 ms</text>
+<text x="490" y="138" font-size="9" fill="#f7a06a">11267 ms</text>
+<text x="590" y="98" font-size="9" fill="#f7a06a">44013 ms</text>
 <text x="340" y="410" font-size="9" fill="#555">Measured: debug build, single run. Reproduce: cargo run --example bench_gpu_lanczos [--features gpu]</text>
 </svg>
