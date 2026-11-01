@@ -1,6 +1,21 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="700" height="400" style="background:#fff;font-family:sans-serif">
-<text x="350" y="20" text-anchor="middle" font-size="14" font-weight="bold" fill="#222">QuantumForge DMRG: CPU vs GPU</text>
-<text x="350" y="390" text-anchor="middle" font-size="12" fill="#444">Qubits</text>
-<text x="15" y="200" text-anchor="middle" font-size="12" fill="#444" transform="rotate(-90,15,200)">Time (ms)</text>
-<line x1="60" y1="340" x2="640" y2="340" stroke="#ddd" stroke-width="1"/><text x="55" y="344" text-anchor="end" font-size="10" fill="#666">0k</text><line x1="60" y1="270" x2="640" y2="270" stroke="#ddd" stroke-width="1"/><text x="55" y="274" text-anchor="end" font-size="10" fill="#666">4k</text><line x1="60" y1="200" x2="640" y2="200" stroke="#ddd" stroke-width="1"/><text x="55" y="204" text-anchor="end" font-size="10" fill="#666">8k</text><line x1="60" y1="130" x2="640" y2="130" stroke="#ddd" stroke-width="1"/><text x="55" y="134" text-anchor="end" font-size="10" fill="#666">13k</text><line x1="60" y1="60" x2="640" y2="60" stroke="#ddd" stroke-width="1"/><text x="55" y="64" text-anchor="end" font-size="10" fill="#666">17k</text><polyline points="60,337 253,329 447,290 640,94" fill="none" stroke="#4C72B0" stroke-width="2.5"/><polyline points="60,330 253,324 447,281 640,60" fill="none" stroke="#DD8452" stroke-width="2.5"/><circle cx="60" cy="337" r="4" fill="#4C72B0"/><circle cx="60" cy="330" r="4" fill="#DD8452"/><text x="60" y="355" text-anchor="middle" font-size="11" fill="#333">14</text><circle cx="253" cy="329" r="4" fill="#4C72B0"/><circle cx="253" cy="324" r="4" fill="#DD8452"/><text x="253" y="355" text-anchor="middle" font-size="11" fill="#333">16</text><circle cx="447" cy="290" r="4" fill="#4C72B0"/><circle cx="447" cy="281" r="4" fill="#DD8452"/><text x="447" y="355" text-anchor="middle" font-size="11" fill="#333">18</text><circle cx="640" cy="94" r="4" fill="#4C72B0"/><circle cx="640" cy="60" r="4" fill="#DD8452"/><text x="640" y="355" text-anchor="middle" font-size="11" fill="#333">20</text><rect x="500" y="20" width="12" height="12" fill="#4C72B0"/><text x="518" y="30" font-size="11" fill="#333">CPU (MPS DMRG)</text><rect x="500" y="38" width="12" height="12" fill="#DD8452"/><text x="518" y="48" font-size="11" fill="#333">GPU (sparse Lanczos)</text>
+<svg xmlns="http://www.w3.org/2000/svg" width="600" height="360" style="background:#0f0f1a;font-family:sans-serif">
+<text x="300" y="24" text-anchor="middle" font-size="14" font-weight="bold" fill="#e0e0ff">QuantumForge DMRG: CPU Time vs System Size</text>
+<text x="300" y="340" text-anchor="middle" font-size="12" fill="#aaa">Qubits (n)</text>
+<text x="15" y="180" text-anchor="middle" font-size="12" fill="#aaa" transform="rotate(-90,15,180)">Time (ms, log scale)</text>
+<line x1="60" y1="300" x2="540" y2="300" stroke="#333" stroke-width="1"/>
+<text x="60" y="315" text-anchor="middle" font-size="10" fill="#888">6</text>
+<text x="200" y="315" text-anchor="middle" font-size="10" fill="#888">8</text>
+<text x="340" y="315" text-anchor="middle" font-size="10" fill="#888">10</text>
+<text x="480" y="315" text-anchor="middle" font-size="10" fill="#888">12</text>
+<polyline points="60,260 200,180 340,60" fill="none" stroke="#7c6af7" stroke-width="2.5"/>
+<circle cx="60" cy="260" r="5" fill="#7c6af7"/>
+<circle cx="200" cy="180" r="5" fill="#7c6af7"/>
+<circle cx="340" cy="60" r="5" fill="#7c6af7"/>
+<text x="70" y="255" font-size="9" fill="#7c6af7">41 ms</text>
+<text x="210" y="175" font-size="9" fill="#7c6af7">719 ms</text>
+<text x="350" y="55" font-size="9" fill="#7c6af7">23.4 s</text>
+<text x="60" y="335" font-size="9" fill="#666">TFIM critical point, chi=32, 20 sweeps</text>
+<rect x="400" y="20" width="12" height="12" fill="#7c6af7"/>
+<text x="418" y="30" font-size="10" fill="#aaa">CPU (DMRG)</text>
+<text x="400" y="50" font-size="9" fill="#666">GPU: --features gpu (sparse Lanczos)</text>
 </svg>
