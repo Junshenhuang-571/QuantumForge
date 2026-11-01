@@ -1,4 +1,4 @@
-use quantumforge::{StateVector, Gate, Circuit, algorithms::*};
+use quantumforge::{Circuit, Gate, StateVector, algorithms::*};
 
 #[test]
 fn bell_state_fidelity() {

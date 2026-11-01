@@ -1,4 +1,4 @@
-use quantumforge::{StateVector, Gate};
+use quantumforge::{Gate, StateVector};
 
 #[test]
 fn cpu_statevector_norm() {
