@@ -1,4 +1,4 @@
-use quantumforge::{Circuit, Complex64, DensityMatrix, Gate, StateVector};
+use quantumforge::{Complex64, DensityMatrix, Gate, StateVector};
 
 #[test]
 fn unitarity_per_gate() {
@@ -44,5 +44,5 @@ fn density_matrix_purity() {
     sv.apply(Gate::H, 0).unwrap();
     let dm = DensityMatrix::from_state(&sv);
     let purity = dm.purity();
-    assert!(purity <= 1.0 + 1e-9 && purity >= 0.0);
+    assert!((0.0..=1.0 + 1e-9).contains(&purity));
 }
