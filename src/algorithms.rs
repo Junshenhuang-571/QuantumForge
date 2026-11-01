@@ -597,7 +597,7 @@ pub fn shor_factor_quantum(n: u64) -> Option<(u64, u64)> {
     }
 }
 
-fn gcd(a: u64, b: u64) -> u64 {
+pub fn gcd(a: u64, b: u64) -> u64 {
     if b == 0 { a } else { gcd(b, a % b) }
 }
 
@@ -682,4 +682,138 @@ pub fn hhl_solve_general(a: &[Vec<f64>], b: &[f64]) -> Vec<f64> {
         }
     }
     (0..n).map(|i| aug[i][n]).collect()
+}
+
+/// Full quantum simulation of Shor's period finding.
+/// Returns the measured period r, or None if factoring fails.
+#[allow(clippy::all)]
+pub fn shor_simulate(n: u64) -> Option<u64> {
+    use crate::{Complex64, Gate, StateVector};
+
+    if n < 4 {
+        return None;
+    }
+    let a = (2..n).find(|&x| gcd(x, n) == 1)?;
+
+    // Number of qubits for x register and f register
+    let m = ((n * n) as f64).log2().ceil() as usize;
+    let m = m.max(4).min(12); // cap at 12 for feasibility
+    let f_bits = (n as f64).log2().ceil() as usize;
+    let f_bits = f_bits.max(2);
+    let total = m + f_bits;
+    if total > 20 {
+        return None;
+    }
+
+    let num_x = 1usize << m;
+
+    // Precompute f(x) = a^x mod n
+    let mut f_table = vec![0u64; num_x];
+    for x in 0..num_x {
+        let mut val = 1u64;
+        for _ in 0..x {
+            val = (val * a) % n;
+        }
+        f_table[x] = val;
+    }
+
+    // Step 1: uniform superposition on x register
+    let mut sv = StateVector::zero(total).unwrap();
+    for i in 0..m {
+        sv.apply(Gate::H, i).unwrap();
+    }
+
+    // Step 2: modular exponentiation |x>|0> -> |x>|f(x)>
+    let mut new_amps = vec![Complex64::ZERO; 1 << total];
+    for idx in 0..(1 << total) {
+        let x = idx & ((1 << m) - 1);
+        let f_val = f_table[x] as usize;
+        let f_reg = f_val & ((1 << f_bits) - 1);
+        let new_idx = x | (f_reg << m);
+        new_amps[new_idx] = new_amps[new_idx] + sv.amplitudes()[idx];
+    }
+    for i in 0..(1 << total) {
+        sv.amplitudes_mut()[i] = new_amps[i];
+    }
+
+    // Step 3: measure f-register (collapse to most likely value)
+    let mut f_counts = vec![0.0f64; 1 << f_bits];
+    for idx in 0..(1 << total) {
+        let f_reg = (idx >> m) & ((1 << f_bits) - 1);
+        f_counts[f_reg] += sv.amplitudes()[idx].norm_sqr();
+    }
+    let mut best_f = 0usize;
+    let mut best_prob = 0.0f64;
+    for (i, &p) in f_counts.iter().enumerate() {
+        if p > best_prob {
+            best_prob = p;
+            best_f = i;
+        }
+    }
+
+    // Collapse to x-register
+    let mut x_state = vec![Complex64::ZERO; num_x];
+    let mut norm = 0.0f64;
+    for idx in 0..(1 << total) {
+        let f_reg = (idx >> m) & ((1 << f_bits) - 1);
+        if f_reg == best_f {
+            let x = idx & ((1 << m) - 1);
+            x_state[x] = sv.amplitudes()[idx];
+            norm += sv.amplitudes()[idx].norm_sqr();
+        }
+    }
+    if norm < 1e-12 {
+        return None;
+    }
+    for x in x_state.iter_mut() {
+        *x = *x * Complex64::new(1.0 / norm.sqrt(), 0.0);
+    }
+
+    // Step 4: QFT on x register
+    let mut qft_state = vec![Complex64::ZERO; num_x];
+    for k in 0..num_x {
+        let mut sum = Complex64::ZERO;
+        for x in 0..num_x {
+            let phase = 2.0 * std::f64::consts::PI * (k as f64) * (x as f64) / (num_x as f64);
+            sum = sum + x_state[x] * Complex64::new(phase.cos(), phase.sin());
+        }
+        qft_state[k] = sum * Complex64::new(1.0 / (num_x as f64).sqrt(), 0.0);
+    }
+
+    // Step 5 & 6: try all peaks above threshold, extract period via continued fractions
+    let max_amp = qft_state
+        .iter()
+        .skip(1)
+        .map(|a| a.norm_sqr())
+        .fold(0.0f64, f64::max);
+    let threshold = max_amp * 0.5;
+    let mut candidates: Vec<usize> = (1..num_x)
+        .filter(|&k| qft_state[k].norm_sqr() >= threshold)
+        .collect();
+
+    // Sort by amplitude descending
+    candidates.sort_by(|&a, &b| {
+        qft_state[b]
+            .norm_sqr()
+            .partial_cmp(&qft_state[a].norm_sqr())
+            .unwrap()
+    });
+
+    for &best_k in &candidates {
+        let r_est = (num_x as f64) / (best_k as f64);
+        let r_candidate = r_est.round() as u64;
+        for r in [r_candidate.saturating_sub(1), r_candidate, r_candidate + 1] {
+            if r == 0 || r > n as u64 {
+                continue;
+            }
+            let mut val = 1u64;
+            for _ in 0..r {
+                val = (val * a) % n;
+            }
+            if val == 1 {
+                return Some(r);
+            }
+        }
+    }
+    None
 }
