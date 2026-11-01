@@ -1137,7 +1137,7 @@ pub enum Gate {
     Rz(f64),
 }
 impl Gate {
-    pub(crate) fn matrix(self) -> (Complex64, Complex64, Complex64, Complex64) {
+    pub fn matrix(self) -> (Complex64, Complex64, Complex64, Complex64) {
         let z = Complex64::ZERO;
         let o = Complex64::ONE;
         let i = Complex64::I;
