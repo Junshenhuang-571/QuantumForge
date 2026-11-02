@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 //! Hardware backend interfaces for quantum cloud providers.
 //!
 //! Provides trait-based abstractions for submitting circuits to

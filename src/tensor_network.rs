@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 //! Tensor Network Simulation.
 //!
 //! Provides matrix product state (MPS) and tensor network simulation

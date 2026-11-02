@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 //! QuantumForge: a small, backend-neutral quantum simulation kernel.
 //!
 //! The kernel provides CPU quantum semantics plus optional CUDA and LLVM-backed

@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 //! Circuit serialization (JSON, QASM, binary).
 //!
 //! Provides save/load functionality for circuits in multiple formats.

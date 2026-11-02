@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 //! Quantum Turing Machine (QTM) — the Bernstein–Vazirani unitary formulation.
 //!
 //! A classical Turing machine is `(Q, Σ, Γ, δ, q₀, q_accept, q_reject)` with a

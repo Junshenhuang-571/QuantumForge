@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 //! Quantum algorithms library.
 //!
 //! Provides high-level implementations of standard quantum algorithms:

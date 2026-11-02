@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 //! QASM 2.0 exporter — round-trip Circuit to OpenQASM 2.0 string.
 //!
 //! Complements the QASM parser by exporting circuits to standard OpenQASM 2.0 format.

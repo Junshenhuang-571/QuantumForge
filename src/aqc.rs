@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 //! Adiabatic Quantum Computing (AQC) — the adiabatic theorem as a scheduler.
 //!
 //! AQC solves an optimization problem encoded in a "problem" Hamiltonian `H₁`
