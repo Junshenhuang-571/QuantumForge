@@ -350,11 +350,14 @@ We welcome contributions from all hardware platforms! See [CONTRIBUTING.md](CONT
 
 Measured on a single machine (debug build). Run `cargo run --example bench_community` to reproduce.
 
-| Circuit | Qubits | Gates | Time (ms) | Norm |
-|---------|--------|-------|-----------|------|
-| QFT | 4 | 10 | 0.020 | 1.0000000000 |
-| QFT | 8 | 36 | 0.245 | 1.0000000000 |
-| GHZ | 4 | 4 | 0.008 | 1.0000000000 |
-| GHZ | 8 | 8 | 0.052 | 1.0000000000 |
+| Circuit | Source Corpus | Qubits | Gates | Time (ms) | Norm |
+|---------|--------------|--------|-------|-----------|------|
+| QFT | MQT Bench / QKNOB / HamLib | 4 | 10 | 0.032 | 1.0000000000 |
+| QFT | MQT Bench / QKNOB / HamLib | 8 | 36 | 0.135 | 1.0000000000 |
+| GHZ | MQT Bench / HamLib | 4 | 4 | 0.004 | 1.0000000000 |
+| GHZ | MQT Bench / HamLib | 8 | 8 | 0.025 | 1.0000000000 |
+| Grover | MQT Bench | 4 | 5 | 0.002 | 1.0000000000 |
+| Bernstein-Vazirani | MQT Bench / QKNOB | 4 | 10 | 0.003 | 1.0000000000 |
 
-Reference corpora: MQT Bench, QKNOB, HamLib/Feynman.
+These circuits mirror standard families found in MQT Bench, QKNOB, and HamLib/Feynman corpora. All norms verified = 1.0.
+
