@@ -20,7 +20,10 @@ fn main() {
         let sv = c.run(sv).unwrap();
         let dt = t0.elapsed().as_secs_f64() * 1000.0;
         let norm: f64 = sv.amplitudes().iter().map(|a| a.norm_sqr()).sum();
-        println!("QFT, MQT/QKNOB/HamLib, {}, {}, {:.3}, {:.10}", n, gates, dt, norm);
+        println!(
+            "QFT, MQT/QKNOB/HamLib, {}, {}, {:.3}, {:.10}",
+            n, gates, dt, norm
+        );
     }
 
     // GHZ (found in MQT Bench, HamLib)
@@ -73,6 +76,9 @@ fn main() {
         let sv = c.run(sv).unwrap();
         let dt = t0.elapsed().as_secs_f64() * 1000.0;
         let norm: f64 = sv.amplitudes().iter().map(|a| a.norm_sqr()).sum();
-        println!("Bernstein-Vazirani, MQT/QKNOB, 4, {}, {:.3}, {:.10}", gates, dt, norm);
+        println!(
+            "Bernstein-Vazirani, MQT/QKNOB, 4, {}, {:.3}, {:.10}",
+            gates, dt, norm
+        );
     }
 }
