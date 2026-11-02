@@ -1273,11 +1273,9 @@ extern "C" __global__ void vec_copy(
             .ok_or("kernel not found")?;
 
         let m = if n >= 24 { 30.min(dim) } else { 100.min(dim) };
-        let mut v_prev = vec![0.0f64; dim];
-        let mut v_curr = vec![0.0f64; dim];
-        let mut v_all: Vec<Vec<f64>> = Vec::with_capacity(m);
 
         // Random initial vector
+        let mut v_curr = vec![0.0f64; dim];
         let mut seed = 42u64;
         for x in v_curr.iter_mut() {
             seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
@@ -1288,7 +1286,10 @@ extern "C" __global__ void vec_copy(
         for x in v_curr.iter_mut() {
             *x /= norm;
         }
-        v_all.push(v_curr.clone());
+
+        // Store v_all on GPU for reorthogonalization
+        let mut v_all_gpu: Vec<cudarc::driver::CudaSlice<f64>> = Vec::with_capacity(m);
+        v_all_gpu.push(device.htod_copy(v_curr.clone()).map_err(|_| "upload failed")?);
 
         let mut alpha = vec![0.0f64; m];
         let mut beta = vec![0.0f64; m];
@@ -1297,6 +1298,15 @@ extern "C" __global__ void vec_copy(
             .htod_copy(v_curr.clone())
             .map_err(|_| "upload failed")?;
         let mut w_gpu = device.alloc_zeros::<f64>(dim).map_err(|_| "alloc failed")?;
+        let mut w2_gpu = device.alloc_zeros::<f64>(dim).map_err(|_| "alloc failed")?;
+        let mut v_prev_gpu = device.alloc_zeros::<f64>(dim).map_err(|_| "alloc failed")?;
+        let n_partial = dim.div_ceil(256).max(1);
+        let mut partial_gpu = device.alloc_zeros::<f64>(n_partial).map_err(|_| "alloc failed")?;
+
+        let dot_fn = device.get_func("tfim", "vec_dot_partial").ok_or("dot kernel not found")?;
+        let axpy_fn = device.get_func("tfim", "vec_axpy").ok_or("axpy kernel not found")?;
+        let scale_fn = device.get_func("tfim", "vec_scale").ok_or("scale kernel not found")?;
+        let copy_fn = device.get_func("tfim", "vec_copy").ok_or("copy kernel not found")?;
 
         for j in 0..m {
             let cfg = LaunchConfig {
@@ -1311,41 +1321,74 @@ extern "C" __global__ void vec_copy(
             }
             device.synchronize().map_err(|_| "sync failed")?;
 
-            let w = device
-                .dtoh_sync_copy(&w_gpu)
-                .map_err(|_| "download failed")?;
+            // alpha = v · w (GPU dot)
+            unsafe {
+                dot_fn.clone().launch(cfg, (&v_gpu, &w_gpu, &mut partial_gpu, dim as i32)).map_err(|_| "dot launch failed")?;
+            }
+            device.synchronize().map_err(|_| "sync failed")?;
+            let partial: Vec<f64> = device.dtoh_sync_copy(&partial_gpu).map_err(|_| "download failed")?;
+            alpha[j] = partial.iter().sum();
 
-            alpha[j] = v_curr.iter().zip(w.iter()).map(|(a, b)| a * b).sum();
-
-            let mut w2 = w.clone();
-            for i in 0..dim {
-                w2[i] -= alpha[j] * v_curr[i];
-                if j > 0 {
-                    w2[i] -= beta[j - 1] * v_prev[i];
+            // w2 = w (copy)
+            unsafe {
+                copy_fn.clone().launch(cfg, (&mut w2_gpu, &w_gpu, dim as i32)).map_err(|_| "copy launch failed")?;
+            }
+            // w2 -= alpha * v
+            unsafe {
+                axpy_fn.clone().launch(cfg, (&mut w2_gpu, &v_gpu, alpha[j], dim as i32)).map_err(|_| "axpy launch failed")?;
+            }
+            // w2 -= beta_prev * v_prev (if j > 0)
+            if j > 0 {
+                unsafe {
+                    axpy_fn.clone().launch(cfg, (&mut w2_gpu, &v_prev_gpu, beta[j - 1], dim as i32)).map_err(|_| "axpy launch failed")?;
                 }
             }
-            // Full reorthogonalization
-            for v in &v_all {
-                let dot: f64 = w2.iter().zip(v.iter()).map(|(a, b)| a * b).sum();
-                for i in 0..dim {
-                    w2[i] -= dot * v[i];
+            device.synchronize().map_err(|_| "sync failed")?;
+
+            // Full reorthogonalization on GPU
+            for v_k in &v_all_gpu {
+                // dot = w2 · v_k
+                unsafe {
+                    dot_fn.clone().launch(cfg, (&w2_gpu, v_k, &mut partial_gpu, dim as i32)).map_err(|_| "dot launch failed")?;
                 }
+                device.synchronize().map_err(|_| "sync failed")?;
+                let partial: Vec<f64> = device.dtoh_sync_copy(&partial_gpu).map_err(|_| "download failed")?;
+                let dot: f64 = partial.iter().sum();
+
+                // w2 -= dot * v_k
+                unsafe {
+                    axpy_fn.clone().launch(cfg, (&mut w2_gpu, v_k, dot, dim as i32)).map_err(|_| "axpy launch failed")?;
+                }
+                device.synchronize().map_err(|_| "sync failed")?;
             }
-            beta[j] = w2.iter().map(|x| x * x).sum::<f64>().sqrt();
+
+            // beta = ||w2||
+            unsafe {
+                dot_fn.clone().launch(cfg, (&w2_gpu, &w2_gpu, &mut partial_gpu, dim as i32)).map_err(|_| "dot launch failed")?;
+            }
+            device.synchronize().map_err(|_| "sync failed")?;
+            let partial: Vec<f64> = device.dtoh_sync_copy(&partial_gpu).map_err(|_| "download failed")?;
+            beta[j] = partial.iter().sum::<f64>().sqrt();
 
             if beta[j] < 1e-12 {
                 break;
             }
 
-            v_prev.copy_from_slice(&v_curr);
-            for i in 0..dim {
-                v_curr[i] = w2[i] / beta[j];
+            // v_prev = v (copy on GPU)
+            unsafe {
+                copy_fn.clone().launch(cfg, (&mut v_prev_gpu, &v_gpu, dim as i32)).map_err(|_| "copy launch failed")?;
             }
-            // Store the new vector for future reorthogonalization
-            v_all.push(v_curr.clone());
-            v_gpu = device
-                .htod_copy(v_curr.clone())
-                .map_err(|_| "upload failed")?;
+            // v = w2 / beta (scale in place on w2, then copy to v)
+            unsafe {
+                scale_fn.clone().launch(cfg, (&mut w2_gpu, beta[j], dim as i32)).map_err(|_| "scale launch failed")?;
+            }
+            unsafe {
+                copy_fn.clone().launch(cfg, (&mut v_gpu, &w2_gpu, dim as i32)).map_err(|_| "copy launch failed")?;
+            }
+            device.synchronize().map_err(|_| "sync failed")?;
+
+            // Store v on GPU for future reorthogonalization
+            v_all_gpu.push(v_gpu.clone());
         }
 
         let size = m.min(dim);
@@ -1402,12 +1445,33 @@ extern "C" __global__ void vec_copy(
             }
         }
 
-        let mut min_val = a[0][0];
-        for i in 1..size {
-            if a[i][i] < min_val {
-                min_val = a[i][i];
+        use faer::diag::Diag;
+        use faer::dyn_stack::{MemBuffer, MemStack};
+        use faer::linalg::evd::{ComputeEigenvectors, self_adjoint_evd, self_adjoint_evd_scratch};
+        use faer::Par;
+        let mut mat_a = faer::Mat::<f64>::zeros(size, size);
+        for i in 0..size {
+            for j in 0..size {
+                mat_a[(i, j)] = t[i][j];
             }
         }
+        let mut s = Diag::<f64>::zeros(size);
+        let params = Default::default();
+        let par = Par::Seq;
+        let scratch = self_adjoint_evd_scratch::<f64>(size, ComputeEigenvectors::No, par, params);
+        let mut mem = MemBuffer::new(scratch);
+        let stack = MemStack::new(&mut mem);
+        self_adjoint_evd(
+            mat_a.as_ref(),
+            s.as_mut(),
+            None,
+            par,
+            stack,
+            params,
+        )
+        .unwrap();
+        let eigenvalues: Vec<f64> = (0..size).map(|i| s.column_vector()[i]).collect();
+        let min_val = eigenvalues.iter().cloned().fold(f64::INFINITY, f64::min);
 
         Ok(min_val)
     }
