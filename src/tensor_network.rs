@@ -1289,7 +1289,11 @@ extern "C" __global__ void vec_copy(
 
         // Store v_all on GPU for reorthogonalization
         let mut v_all_gpu: Vec<cudarc::driver::CudaSlice<f64>> = Vec::with_capacity(m);
-        v_all_gpu.push(device.htod_copy(v_curr.clone()).map_err(|_| "upload failed")?);
+        v_all_gpu.push(
+            device
+                .htod_copy(v_curr.clone())
+                .map_err(|_| "upload failed")?,
+        );
 
         let mut alpha = vec![0.0f64; m];
         let mut beta = vec![0.0f64; m];
@@ -1301,12 +1305,22 @@ extern "C" __global__ void vec_copy(
         let mut w2_gpu = device.alloc_zeros::<f64>(dim).map_err(|_| "alloc failed")?;
         let mut v_prev_gpu = device.alloc_zeros::<f64>(dim).map_err(|_| "alloc failed")?;
         let n_partial = dim.div_ceil(256).max(1);
-        let mut partial_gpu = device.alloc_zeros::<f64>(n_partial).map_err(|_| "alloc failed")?;
+        let mut partial_gpu = device
+            .alloc_zeros::<f64>(n_partial)
+            .map_err(|_| "alloc failed")?;
 
-        let dot_fn = device.get_func("tfim", "vec_dot_partial").ok_or("dot kernel not found")?;
-        let axpy_fn = device.get_func("tfim", "vec_axpy").ok_or("axpy kernel not found")?;
-        let scale_fn = device.get_func("tfim", "vec_scale").ok_or("scale kernel not found")?;
-        let copy_fn = device.get_func("tfim", "vec_copy").ok_or("copy kernel not found")?;
+        let dot_fn = device
+            .get_func("tfim", "vec_dot_partial")
+            .ok_or("dot kernel not found")?;
+        let axpy_fn = device
+            .get_func("tfim", "vec_axpy")
+            .ok_or("axpy kernel not found")?;
+        let scale_fn = device
+            .get_func("tfim", "vec_scale")
+            .ok_or("scale kernel not found")?;
+        let copy_fn = device
+            .get_func("tfim", "vec_copy")
+            .ok_or("copy kernel not found")?;
 
         for j in 0..m {
             let cfg = LaunchConfig {
@@ -1323,24 +1337,38 @@ extern "C" __global__ void vec_copy(
 
             // alpha = v · w (GPU dot)
             unsafe {
-                dot_fn.clone().launch(cfg, (&v_gpu, &w_gpu, &mut partial_gpu, dim as i32)).map_err(|_| "dot launch failed")?;
+                dot_fn
+                    .clone()
+                    .launch(cfg, (&v_gpu, &w_gpu, &mut partial_gpu, dim as i32))
+                    .map_err(|_| "dot launch failed")?;
             }
             device.synchronize().map_err(|_| "sync failed")?;
-            let partial: Vec<f64> = device.dtoh_sync_copy(&partial_gpu).map_err(|_| "download failed")?;
+            let partial: Vec<f64> = device
+                .dtoh_sync_copy(&partial_gpu)
+                .map_err(|_| "download failed")?;
             alpha[j] = partial.iter().sum();
 
             // w2 = w (copy)
             unsafe {
-                copy_fn.clone().launch(cfg, (&mut w2_gpu, &w_gpu, dim as i32)).map_err(|_| "copy launch failed")?;
+                copy_fn
+                    .clone()
+                    .launch(cfg, (&mut w2_gpu, &w_gpu, dim as i32))
+                    .map_err(|_| "copy launch failed")?;
             }
             // w2 -= alpha * v
             unsafe {
-                axpy_fn.clone().launch(cfg, (&mut w2_gpu, &v_gpu, alpha[j], dim as i32)).map_err(|_| "axpy launch failed")?;
+                axpy_fn
+                    .clone()
+                    .launch(cfg, (&mut w2_gpu, &v_gpu, alpha[j], dim as i32))
+                    .map_err(|_| "axpy launch failed")?;
             }
             // w2 -= beta_prev * v_prev (if j > 0)
             if j > 0 {
                 unsafe {
-                    axpy_fn.clone().launch(cfg, (&mut w2_gpu, &v_prev_gpu, beta[j - 1], dim as i32)).map_err(|_| "axpy launch failed")?;
+                    axpy_fn
+                        .clone()
+                        .launch(cfg, (&mut w2_gpu, &v_prev_gpu, beta[j - 1], dim as i32))
+                        .map_err(|_| "axpy launch failed")?;
                 }
             }
             device.synchronize().map_err(|_| "sync failed")?;
@@ -1349,25 +1377,38 @@ extern "C" __global__ void vec_copy(
             for v_k in &v_all_gpu {
                 // dot = w2 · v_k
                 unsafe {
-                    dot_fn.clone().launch(cfg, (&w2_gpu, v_k, &mut partial_gpu, dim as i32)).map_err(|_| "dot launch failed")?;
+                    dot_fn
+                        .clone()
+                        .launch(cfg, (&w2_gpu, v_k, &mut partial_gpu, dim as i32))
+                        .map_err(|_| "dot launch failed")?;
                 }
                 device.synchronize().map_err(|_| "sync failed")?;
-                let partial: Vec<f64> = device.dtoh_sync_copy(&partial_gpu).map_err(|_| "download failed")?;
+                let partial: Vec<f64> = device
+                    .dtoh_sync_copy(&partial_gpu)
+                    .map_err(|_| "download failed")?;
                 let dot: f64 = partial.iter().sum();
 
                 // w2 -= dot * v_k
                 unsafe {
-                    axpy_fn.clone().launch(cfg, (&mut w2_gpu, v_k, dot, dim as i32)).map_err(|_| "axpy launch failed")?;
+                    axpy_fn
+                        .clone()
+                        .launch(cfg, (&mut w2_gpu, v_k, dot, dim as i32))
+                        .map_err(|_| "axpy launch failed")?;
                 }
                 device.synchronize().map_err(|_| "sync failed")?;
             }
 
             // beta = ||w2||
             unsafe {
-                dot_fn.clone().launch(cfg, (&w2_gpu, &w2_gpu, &mut partial_gpu, dim as i32)).map_err(|_| "dot launch failed")?;
+                dot_fn
+                    .clone()
+                    .launch(cfg, (&w2_gpu, &w2_gpu, &mut partial_gpu, dim as i32))
+                    .map_err(|_| "dot launch failed")?;
             }
             device.synchronize().map_err(|_| "sync failed")?;
-            let partial: Vec<f64> = device.dtoh_sync_copy(&partial_gpu).map_err(|_| "download failed")?;
+            let partial: Vec<f64> = device
+                .dtoh_sync_copy(&partial_gpu)
+                .map_err(|_| "download failed")?;
             beta[j] = partial.iter().sum::<f64>().sqrt();
 
             if beta[j] < 1e-12 {
@@ -1376,14 +1417,23 @@ extern "C" __global__ void vec_copy(
 
             // v_prev = v (copy on GPU)
             unsafe {
-                copy_fn.clone().launch(cfg, (&mut v_prev_gpu, &v_gpu, dim as i32)).map_err(|_| "copy launch failed")?;
+                copy_fn
+                    .clone()
+                    .launch(cfg, (&mut v_prev_gpu, &v_gpu, dim as i32))
+                    .map_err(|_| "copy launch failed")?;
             }
             // v = w2 / beta (scale in place on w2, then copy to v)
             unsafe {
-                scale_fn.clone().launch(cfg, (&mut w2_gpu, beta[j], dim as i32)).map_err(|_| "scale launch failed")?;
+                scale_fn
+                    .clone()
+                    .launch(cfg, (&mut w2_gpu, beta[j], dim as i32))
+                    .map_err(|_| "scale launch failed")?;
             }
             unsafe {
-                copy_fn.clone().launch(cfg, (&mut v_gpu, &w2_gpu, dim as i32)).map_err(|_| "copy launch failed")?;
+                copy_fn
+                    .clone()
+                    .launch(cfg, (&mut v_gpu, &w2_gpu, dim as i32))
+                    .map_err(|_| "copy launch failed")?;
             }
             device.synchronize().map_err(|_| "sync failed")?;
 
@@ -1445,10 +1495,10 @@ extern "C" __global__ void vec_copy(
             }
         }
 
+        use faer::Par;
         use faer::diag::Diag;
         use faer::dyn_stack::{MemBuffer, MemStack};
         use faer::linalg::evd::{ComputeEigenvectors, self_adjoint_evd, self_adjoint_evd_scratch};
-        use faer::Par;
         let mut mat_a = faer::Mat::<f64>::zeros(size, size);
         for i in 0..size {
             for j in 0..size {
@@ -1461,15 +1511,7 @@ extern "C" __global__ void vec_copy(
         let scratch = self_adjoint_evd_scratch::<f64>(size, ComputeEigenvectors::No, par, params);
         let mut mem = MemBuffer::new(scratch);
         let stack = MemStack::new(&mut mem);
-        self_adjoint_evd(
-            mat_a.as_ref(),
-            s.as_mut(),
-            None,
-            par,
-            stack,
-            params,
-        )
-        .unwrap();
+        self_adjoint_evd(mat_a.as_ref(), s.as_mut(), None, par, stack, params).unwrap();
         let eigenvalues: Vec<f64> = (0..size).map(|i| s.column_vector()[i]).collect();
         let min_val = eigenvalues.iter().cloned().fold(f64::INFINITY, f64::min);
 
