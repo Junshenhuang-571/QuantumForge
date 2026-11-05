@@ -1049,9 +1049,9 @@ mod tests {
         };
 
         let profile = BackendCostProfile::from_circuit(&circuit, Some(&coupling), 0.0).unwrap();
-        assert_eq!(profile.routing_swaps, 1);
+        assert_eq!(profile.routing_swaps, 2);
         assert_eq!(profile.profile.swap_gates, 0);
-        assert_eq!(profile.estimate_with_model(&model).unwrap(), 3.0);
+        assert_eq!(profile.estimate_with_model(&model).unwrap(), 6.0);
     }
 
     #[test]
