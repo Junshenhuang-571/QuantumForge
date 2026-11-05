@@ -7,6 +7,7 @@
 //! - Redundant gate removal
 
 use crate::{Circuit, CircuitOp, Gate};
+use std::collections::HashMap;
 
 /// Optimization configuration.
 #[derive(Clone, Debug, Default)]
@@ -83,34 +84,335 @@ pub fn count_two_qubit(circuit: &Circuit) -> usize {
 
 /// Compute circuit depth (longest path through qubit dependencies).
 pub fn circuit_depth(circuit: &Circuit) -> usize {
-    let mut qubit_depth: Vec<usize> = vec![0; 256];
+    let mut qubit_depth = HashMap::<usize, usize>::new();
+    let mut classical_depth = HashMap::<usize, usize>::new();
     let mut max_depth = 0;
     for op in circuit.operations() {
         match op {
-            CircuitOp::SingleQubit { target, .. } => {
-                qubit_depth[*target] += 1;
-                max_depth = max_depth.max(qubit_depth[*target]);
+            CircuitOp::SingleQubit { target, .. } | CircuitOp::Channel { target, .. } => {
+                let depth = qubit_depth.get(target).copied().unwrap_or(0) + 1;
+                qubit_depth.insert(*target, depth);
+                max_depth = max_depth.max(depth);
             }
             CircuitOp::Cnot { control, target }
             | CircuitOp::Cz {
                 first: control,
                 second: target,
             } => {
-                let d = qubit_depth[*control].max(qubit_depth[*target]) + 1;
-                qubit_depth[*control] = d;
-                qubit_depth[*target] = d;
+                let d = qubit_depth
+                    .get(control)
+                    .copied()
+                    .unwrap_or(0)
+                    .max(qubit_depth.get(target).copied().unwrap_or(0))
+                    + 1;
+                qubit_depth.insert(*control, d);
+                qubit_depth.insert(*target, d);
                 max_depth = max_depth.max(d);
             }
             CircuitOp::Swap { first, second } => {
-                let d = qubit_depth[*first].max(qubit_depth[*second]) + 1;
-                qubit_depth[*first] = d;
-                qubit_depth[*second] = d;
+                let d = qubit_depth
+                    .get(first)
+                    .copied()
+                    .unwrap_or(0)
+                    .max(qubit_depth.get(second).copied().unwrap_or(0))
+                    + 1;
+                qubit_depth.insert(*first, d);
+                qubit_depth.insert(*second, d);
                 max_depth = max_depth.max(d);
             }
-            _ => {}
+            CircuitOp::Measure {
+                target,
+                classical_bit,
+            } => {
+                let d = qubit_depth.get(target).copied().unwrap_or(0) + 1;
+                qubit_depth.insert(*target, d);
+                classical_depth.insert(*classical_bit, d);
+                max_depth = max_depth.max(d);
+            }
+            CircuitOp::ConditionalSingleQubit {
+                classical_bit,
+                target,
+                ..
+            } => {
+                let d = qubit_depth
+                    .get(target)
+                    .copied()
+                    .unwrap_or(0)
+                    .max(classical_depth.get(classical_bit).copied().unwrap_or(0))
+                    + 1;
+                qubit_depth.insert(*target, d);
+                max_depth = max_depth.max(d);
+            }
         }
     }
     max_depth
+}
+
+/// Resource counts for comparing a circuit against a backend-specific cost model.
+///
+/// The counts are structural estimates, not device runtime predictions. In
+/// particular, depth uses logical qubit/classical dependencies and does not
+/// account for routing, native gate decomposition, or calibration data.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct CircuitCostProfile {
+    pub single_qubit_gates: usize,
+    pub cnot_gates: usize,
+    pub cz_gates: usize,
+    pub swap_gates: usize,
+    pub t_gates: usize,
+    pub tdg_gates: usize,
+    pub measurements: usize,
+    pub conditional_gates: usize,
+    pub channels: usize,
+    pub depth: usize,
+    pub qubits: usize,
+}
+
+/// Hardware-aware resource estimate with optional routing and native-basis
+/// adjustments.
+#[derive(Clone, Debug, PartialEq)]
+pub struct BackendCostProfile {
+    pub profile: CircuitCostProfile,
+    pub routing_swaps: usize,
+    pub native_gate_adjustment: f64,
+}
+
+impl Default for BackendCostProfile {
+    fn default() -> Self {
+        Self {
+            profile: CircuitCostProfile::default(),
+            routing_swaps: 0,
+            native_gate_adjustment: 0.0,
+        }
+    }
+}
+
+impl BackendCostProfile {
+    /// Estimate logical cost after applying a simple hardware-aware correction.
+    /// When a coupling map is supplied, non-adjacent CNOTs are charged with a
+    /// SWAP path estimate; a native gate adjustment is added for any backend that
+    /// makes some gates more expensive than the logical reference model.
+    pub fn from_circuit(
+        circuit: &Circuit,
+        coupling: Option<&CouplingMap>,
+        native_gate_adjustment: f64,
+    ) -> Result<Self, CircuitCostModelError> {
+        let profile = CircuitCostProfile::from_circuit(circuit);
+        let mut routing_swaps = 0;
+        if let Some(coupling) = coupling {
+            let mut routed = circuit.clone();
+            routing_swaps = route_to_hardware(&mut routed, coupling);
+        }
+        if !native_gate_adjustment.is_finite() || native_gate_adjustment < 0.0 {
+            return Err(CircuitCostModelError::InvalidWeight {
+                resource: "native_gate_adjustment",
+                weight: native_gate_adjustment,
+            });
+        }
+        Ok(Self {
+            profile,
+            routing_swaps,
+            native_gate_adjustment,
+        })
+    }
+
+    pub fn estimate_with_model(
+        &self,
+        model: &CircuitCostModel,
+    ) -> Result<f64, CircuitCostModelError> {
+        let mut profile = self.profile.clone();
+        profile.swap_gates += self.routing_swaps;
+        let base = model.estimate(&profile)?;
+        Ok(base + self.native_gate_adjustment)
+    }
+}
+
+impl CircuitCostProfile {
+    /// Count logical resources in a circuit. T and Tdg are counted separately
+    /// from other single-qubit gates so target models can price them differently.
+    pub fn from_circuit(circuit: &Circuit) -> Self {
+        let mut profile = Self {
+            depth: circuit_depth(circuit),
+            qubits: circuit.num_qubits(),
+            ..Self::default()
+        };
+        for operation in circuit.operations() {
+            match operation {
+                CircuitOp::SingleQubit { gate, .. } => match gate {
+                    Gate::T => profile.t_gates += 1,
+                    Gate::Tdg => profile.tdg_gates += 1,
+                    _ => profile.single_qubit_gates += 1,
+                },
+                CircuitOp::Cnot { .. } => profile.cnot_gates += 1,
+                CircuitOp::Cz { .. } => profile.cz_gates += 1,
+                CircuitOp::Swap { .. } => profile.swap_gates += 1,
+                CircuitOp::Measure { .. } => profile.measurements += 1,
+                CircuitOp::ConditionalSingleQubit { .. } => profile.conditional_gates += 1,
+                CircuitOp::Channel { .. } => profile.channels += 1,
+            }
+        }
+        profile
+    }
+
+    pub fn total_gates(&self) -> usize {
+        self.single_qubit_gates
+            + self.cnot_gates
+            + self.cz_gates
+            + self.swap_gates
+            + self.t_gates
+            + self.tdg_gates
+            + self.measurements
+            + self.conditional_gates
+            + self.channels
+    }
+}
+
+/// Weights for a transparent, target-specific logical resource estimate.
+///
+/// This is a comparison aid, not a physical hardware cost model. Set weights
+/// from the target backend's documented costs; the default prices each logical
+/// gate equally and ignores depth and qubit footprint.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CircuitCostModel {
+    pub single_qubit_gate: f64,
+    pub cnot_gate: f64,
+    pub cz_gate: f64,
+    pub swap_gate: f64,
+    pub t_gate: f64,
+    pub tdg_gate: f64,
+    pub measurement: f64,
+    pub conditional_gate: f64,
+    pub channel: f64,
+    pub depth: f64,
+    pub qubit: f64,
+}
+
+impl Default for CircuitCostModel {
+    fn default() -> Self {
+        Self {
+            single_qubit_gate: 1.0,
+            cnot_gate: 1.0,
+            cz_gate: 1.0,
+            swap_gate: 1.0,
+            t_gate: 1.0,
+            tdg_gate: 1.0,
+            measurement: 1.0,
+            conditional_gate: 1.0,
+            channel: 1.0,
+            depth: 0.0,
+            qubit: 0.0,
+        }
+    }
+}
+
+impl CircuitCostModel {
+    /// Estimate a relative cost from a structural profile.
+    ///
+    /// T/Tdg, depth, and qubit count are explicit terms so users can emphasize
+    /// fault-tolerant or hardware-specific resources. Weights are not
+    /// normalized; only comparisons made with the same model are meaningful.
+    /// Negative or non-finite weights and overflowing estimates are rejected.
+    pub fn estimate(&self, profile: &CircuitCostProfile) -> Result<f64, CircuitCostModelError> {
+        let weights = [
+            ("single_qubit_gate", self.single_qubit_gate),
+            ("cnot_gate", self.cnot_gate),
+            ("cz_gate", self.cz_gate),
+            ("swap_gate", self.swap_gate),
+            ("t_gate", self.t_gate),
+            ("tdg_gate", self.tdg_gate),
+            ("measurement", self.measurement),
+            ("conditional_gate", self.conditional_gate),
+            ("channel", self.channel),
+            ("depth", self.depth),
+            ("qubit", self.qubit),
+        ];
+        for (resource, weight) in weights {
+            if !weight.is_finite() || weight < 0.0 {
+                return Err(CircuitCostModelError::InvalidWeight { resource, weight });
+            }
+        }
+
+        let estimate = profile.single_qubit_gates as f64 * self.single_qubit_gate
+            + profile.cnot_gates as f64 * self.cnot_gate
+            + profile.cz_gates as f64 * self.cz_gate
+            + profile.swap_gates as f64 * self.swap_gate
+            + profile.t_gates as f64 * self.t_gate
+            + profile.tdg_gates as f64 * self.tdg_gate
+            + profile.measurements as f64 * self.measurement
+            + profile.conditional_gates as f64 * self.conditional_gate
+            + profile.channels as f64 * self.channel
+            + profile.depth as f64 * self.depth
+            + profile.qubits as f64 * self.qubit;
+        if !estimate.is_finite() {
+            return Err(CircuitCostModelError::NonFiniteEstimate);
+        }
+        Ok(estimate)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum CircuitCostModelError {
+    InvalidWeight { resource: &'static str, weight: f64 },
+    NonFiniteEstimate,
+}
+
+impl std::fmt::Display for CircuitCostModelError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InvalidWeight { resource, weight } => {
+                write!(
+                    f,
+                    "cost weight for {resource} must be finite and nonnegative, got {weight}"
+                )
+            }
+            Self::NonFiniteEstimate => write!(f, "circuit cost estimate is not finite"),
+        }
+    }
+}
+
+impl std::error::Error for CircuitCostModelError {}
+
+/// Outcome of comparing an optimized candidate against the original circuit.
+#[derive(Clone, Debug)]
+pub struct CostAwareOptimizeResult {
+    pub original_profile: CircuitCostProfile,
+    pub candidate_profile: CircuitCostProfile,
+    pub original_cost: f64,
+    pub candidate_cost: f64,
+    pub applied: bool,
+    pub optimization: OptimizeResult,
+}
+
+/// Optimize a copy and keep the rewrite only when it strictly lowers modeled cost.
+///
+/// The function never mutates the input. If the candidate ties or costs more,
+/// the returned circuit is unchanged and `applied` is false.
+pub fn optimize_for_cost_model(
+    circuit: &Circuit,
+    config: &OptimizeConfig,
+    model: &CircuitCostModel,
+) -> Result<(Circuit, CostAwareOptimizeResult), CircuitCostModelError> {
+    let original_profile = CircuitCostProfile::from_circuit(circuit);
+    let original_cost = model.estimate(&original_profile)?;
+
+    let mut candidate = circuit.clone();
+    let optimization = optimize_circuit(&mut candidate, config);
+    let candidate_profile = CircuitCostProfile::from_circuit(&candidate);
+    let candidate_cost = model.estimate(&candidate_profile)?;
+    let applied = candidate_cost < original_cost;
+    let selected = if applied { candidate } else { circuit.clone() };
+
+    Ok((
+        selected,
+        CostAwareOptimizeResult {
+            original_profile,
+            candidate_profile,
+            original_cost,
+            candidate_cost,
+            applied,
+            optimization,
+        },
+    ))
 }
 
 /// Optimize a circuit in-place, returning statistics.
@@ -134,6 +436,9 @@ pub fn optimize_circuit(circuit: &mut Circuit, config: &OptimizeConfig) -> Optim
 
     if config.fuse_rotations {
         result.fusions = fuse_rotations(circuit);
+        if config.remove_identity {
+            result.identities_removed += remove_identity_gates(circuit);
+        }
     }
 
     if config.commute_gates {
@@ -150,26 +455,21 @@ pub fn optimize_circuit(circuit: &mut Circuit, config: &OptimizeConfig) -> Optim
 
 /// Remove identity gates (I, Rx(0), Ry(0), Rz(0), Rz(2π), etc.).
 fn remove_identity_gates(circuit: &mut Circuit) -> usize {
-    let ops = circuit.operations();
-    let mut to_remove = Vec::new();
-
-    for (i, op) in ops.iter().enumerate() {
-        if is_identity_op(op) {
-            to_remove.push(i);
-        }
-    }
-
-    // Remove in reverse order to preserve indices
-    for &i in to_remove.iter().rev() {
-        circuit.operations_mut().remove(i);
-    }
-
-    to_remove.len()
+    let ops = circuit.operations_mut();
+    let original_len = ops.len();
+    ops.retain(|op| !is_identity_op(op));
+    original_len - ops.len()
 }
 
 fn is_identity_op(op: &CircuitOp) -> bool {
     match op {
-        CircuitOp::SingleQubit { gate, .. } => matches!(gate, Gate::I),
+        CircuitOp::SingleQubit { gate, .. } => match gate {
+            Gate::I => true,
+            Gate::Rx(angle) | Gate::Ry(angle) | Gate::Rz(angle) => {
+                normalize_angle(*angle).abs() < 1e-10
+            }
+            _ => false,
+        },
         _ => false,
     }
 }
@@ -177,30 +477,42 @@ fn is_identity_op(op: &CircuitOp) -> bool {
 /// Cancel adjacent inverse gate pairs on the same qubit.
 /// Examples: H·H, X·X, Y·Y, Z·Z, S·S†, T·T†, Rx(a)·Rx(-a), etc.
 fn cancel_inverse_pairs(circuit: &mut Circuit) -> usize {
-    let ops = circuit.operations_mut();
+    let ops = circuit.operations();
+    let mut reduced = Vec::with_capacity(ops.len());
     let mut cancellations = 0;
-    let mut i = 0;
-
-    while i + 1 < ops.len() {
-        if can_cancel_pair(&ops[i], &ops[i + 1]) {
-            // Remove both gates
-            ops.remove(i + 1);
-            ops.remove(i);
+    for op in ops.iter().copied() {
+        if reduced
+            .last()
+            .is_some_and(|previous| can_cancel_pair(previous, &op))
+        {
+            reduced.pop();
             cancellations += 1;
-            // Don't increment i - check if new pair forms with previous
-            if i > 0 {
-                i = i.saturating_sub(1);
-            }
-            continue;
+        } else {
+            reduced.push(op);
         }
-        i += 1;
     }
-
+    *circuit.operations_mut() = reduced;
     cancellations
 }
 
 /// Check if two adjacent operations are cancellable inverse pairs.
 fn can_cancel_pair(op1: &CircuitOp, op2: &CircuitOp) -> bool {
+    if matches!(
+        (op1, op2),
+        (CircuitOp::Cnot { control: c1, target: t1 }, CircuitOp::Cnot { control: c2, target: t2 })
+            if c1 == c2 && t1 == t2
+    ) || matches!(
+        (op1, op2),
+        (CircuitOp::Cz { first: f1, second: s1 }, CircuitOp::Cz { first: f2, second: s2 })
+            if (f1 == f2 && s1 == s2) || (f1 == s2 && s1 == f2)
+    ) || matches!(
+        (op1, op2),
+        (CircuitOp::Swap { first: f1, second: s1 }, CircuitOp::Swap { first: f2, second: s2 })
+            if (f1 == f2 && s1 == s2) || (f1 == s2 && s1 == f2)
+    ) {
+        return true;
+    }
+
     if let (
         CircuitOp::SingleQubit {
             gate: g1,
@@ -254,43 +566,27 @@ fn are_inverses(g1: Gate, g2: Gate) -> bool {
 /// Rx(a)·Rx(b) = Rx(a+b), same for Ry, Rz.
 /// Also fuses Rz into adjacent rotations where possible.
 fn fuse_rotations(circuit: &mut Circuit) -> usize {
-    let ops = circuit.operations_mut();
+    let ops = circuit.operations();
+    let mut fused_ops = Vec::with_capacity(ops.len());
     let mut fusions = 0;
-    let mut i = 0;
-
-    while i + 1 < ops.len() {
-        // Look for same-qubit consecutive single-qubit gates
+    for op in ops.iter().copied() {
         if let (
-            CircuitOp::SingleQubit {
-                gate: g1,
-                target: t1,
-            },
-            CircuitOp::SingleQubit {
-                gate: g2,
-                target: t2,
-            },
-        ) = (&ops[i], &ops[i + 1])
+            Some(CircuitOp::SingleQubit {
+                gate: previous_gate,
+                target: previous_target,
+            }),
+            CircuitOp::SingleQubit { gate, target },
+        ) = (fused_ops.last_mut(), op)
+            && *previous_target == target
+            && let Some(fused) = try_fuse_gates(*previous_gate, gate)
         {
-            #[allow(clippy::collapsible_if)]
-            if t1 == t2 {
-                if let Some(fused) = try_fuse_gates(*g1, *g2) {
-                    ops[i] = CircuitOp::SingleQubit {
-                        gate: fused,
-                        target: *t1,
-                    };
-                    ops.remove(i + 1);
-                    fusions += 1;
-                    // Check if we can fuse further back
-                    if i > 0 {
-                        i = i.saturating_sub(1);
-                    }
-                    continue;
-                }
-            }
+            *previous_gate = fused;
+            fusions += 1;
+        } else {
+            fused_ops.push(op);
         }
-        i += 1;
     }
-
+    *circuit.operations_mut() = fused_ops;
     fusions
 }
 
@@ -472,10 +768,35 @@ pub fn optimize_circuit_default(circuit: &mut Circuit) -> OptimizeResult {
     optimize_circuit(circuit, &OptimizeConfig::all())
 }
 
+impl Circuit {
+    /// Return an optimized copy and the optimization statistics.
+    ///
+    /// Optimize once and reuse the returned circuit when executing it many
+    /// times; optimization has its own cost and should not be repeated for
+    /// every shot or simulation.
+    pub fn optimized(&self) -> (Self, OptimizeResult) {
+        let mut circuit = self.clone();
+        let result = optimize_circuit_default(&mut circuit);
+        (circuit, result)
+    }
+
+    /// Optimize a copy of this circuit and execute it on `state`.
+    ///
+    /// For repeated execution, call [`Self::optimized`] once and reuse the
+    /// returned circuit instead of paying the optimization cost each time.
+    pub fn run_optimized(
+        &self,
+        state: crate::StateVector,
+    ) -> Result<(crate::StateVector, OptimizeResult), crate::QuantumError> {
+        let (circuit, result) = self.optimized();
+        Ok((circuit.run(state)?, result))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Circuit, Gate};
+    use crate::{Circuit, Gate, StateVector};
 
     #[test]
     fn test_identity_removal() {
@@ -524,6 +845,25 @@ mod tests {
     }
 
     #[test]
+    fn removes_zero_rotations_and_rotations_fused_to_identity() {
+        let mut circuit = Circuit::new();
+        circuit.push(Gate::Rx(0.0), 0);
+        circuit.push(Gate::Rz(0.25), 1);
+        circuit.push(Gate::Rz(-0.25), 1);
+
+        let config = OptimizeConfig {
+            fuse_rotations: true,
+            cancel_inverses: false,
+            remove_identity: true,
+            commute_gates: false,
+        };
+        let result = optimize_circuit(&mut circuit, &config);
+        assert_eq!(result.identities_removed, 2);
+        assert_eq!(result.cancellations, 0);
+        assert!(circuit.operations().is_empty());
+    }
+
+    #[test]
     fn test_s_self_inverse() {
         let mut circuit = Circuit::new();
         circuit.push(Gate::S, 0);
@@ -553,6 +893,252 @@ mod tests {
         // Both should produce |0⟩
         assert!((before.amplitudes()[0].re - 1.0).abs() < 1e-10);
         assert!((after.amplitudes()[0].re - 1.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn cancellation_pass_handles_long_inverse_sequences() {
+        let mut circuit = Circuit::new();
+        for _ in 0..2_000 {
+            circuit.push(Gate::H, 0);
+            circuit.push(Gate::H, 0);
+        }
+
+        let result = optimize_circuit(&mut circuit, &OptimizeConfig::conservative());
+        assert_eq!(result.cancellations, 2_000);
+        assert!(circuit.operations().is_empty());
+    }
+
+    #[test]
+    fn depth_tracks_large_qubit_indices_and_measurement_feed_forward() {
+        let mut circuit = Circuit::new();
+        circuit.push(Gate::H, 300);
+        circuit.measure(0, 7);
+        circuit.if_classical_bit(7, 1, Gate::X, 2);
+
+        assert_eq!(circuit_depth(&circuit), 2);
+    }
+
+    #[test]
+    fn self_optimize_reports_original_costs() {
+        let mut circuit = Circuit::new();
+        circuit.push(Gate::H, 0);
+        circuit.push(Gate::H, 0);
+        circuit.cnot(0, 1);
+
+        let result = self_optimize(&mut circuit);
+        assert_eq!(result.original_ops, 3);
+        assert_eq!(result.optimized_ops, 1);
+        assert_eq!(result.original_two_qubit, 1);
+        assert_eq!(result.optimized_two_qubit, 1);
+        assert_eq!(result.original_depth, 3);
+        assert_eq!(result.optimized_depth, 1);
+    }
+
+    #[test]
+    fn cancels_adjacent_self_inverse_two_qubit_gates() {
+        let mut circuit = Circuit::new();
+        circuit.cnot(0, 1);
+        circuit.cnot(0, 1);
+        circuit.cz(0, 1);
+        circuit.cz(0, 1);
+        circuit.swap(0, 1);
+        circuit.swap(0, 1);
+
+        let result = optimize_circuit(&mut circuit, &OptimizeConfig::conservative());
+        assert_eq!(result.cancellations, 3);
+        assert!(circuit.operations().is_empty());
+    }
+
+    #[test]
+    fn t_gate_minimization_reports_removed_t_gates() {
+        let mut circuit = Circuit::new();
+        circuit.push(Gate::T, 0);
+        circuit.push(Gate::T, 0);
+        circuit.push(Gate::Tdg, 1);
+        circuit.push(Gate::Tdg, 1);
+
+        assert_eq!(minimize_t_gates(&mut circuit), 4);
+        assert_eq!(
+            circuit.operations(),
+            &[
+                CircuitOp::SingleQubit {
+                    gate: Gate::S,
+                    target: 0,
+                },
+                CircuitOp::SingleQubit {
+                    gate: Gate::Sdg,
+                    target: 1,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn optimized_execution_preserves_state_and_reports_reduction() {
+        let mut circuit = Circuit::new();
+        circuit.push(Gate::H, 0);
+        circuit.push(Gate::H, 0);
+        circuit.push(Gate::X, 1);
+        let initial = StateVector::zero(2).unwrap();
+        let expected = circuit.run(initial.clone()).unwrap();
+
+        let (actual, result) = circuit.run_optimized(initial).unwrap();
+        assert_eq!(result.original_ops, 3);
+        assert_eq!(result.optimized_ops, 1);
+        for (expected, actual) in expected.amplitudes().iter().zip(actual.amplitudes()) {
+            assert!((expected.re - actual.re).abs() < 1e-10);
+            assert!((expected.im - actual.im).abs() < 1e-10);
+        }
+    }
+
+    #[test]
+    fn cost_profile_counts_logical_resources_and_depth() {
+        let mut circuit = Circuit::new();
+        circuit.push(Gate::H, 0);
+        circuit.push(Gate::T, 1);
+        circuit.push(Gate::Tdg, 1);
+        circuit.cnot(0, 1);
+        circuit.measure(1, 0);
+        circuit.if_classical_bit(0, 1, Gate::X, 0);
+
+        let profile = CircuitCostProfile::from_circuit(&circuit);
+        assert_eq!(profile.single_qubit_gates, 1);
+        assert_eq!(profile.t_gates, 1);
+        assert_eq!(profile.tdg_gates, 1);
+        assert_eq!(profile.cnot_gates, 1);
+        assert_eq!(profile.measurements, 1);
+        assert_eq!(profile.conditional_gates, 1);
+        assert_eq!(profile.channels, 0);
+        assert_eq!(profile.qubits, 2);
+        assert_eq!(profile.depth, 5);
+        assert_eq!(profile.total_gates(), 6);
+    }
+
+    #[test]
+    fn cost_model_can_emphasize_two_qubit_gates_and_depth() {
+        let mut circuit = Circuit::new();
+        circuit.push(Gate::H, 0);
+        circuit.cnot(0, 1);
+        circuit.cz(1, 2);
+        let profile = CircuitCostProfile::from_circuit(&circuit);
+        let model = CircuitCostModel {
+            single_qubit_gate: 0.0,
+            cnot_gate: 10.0,
+            cz_gate: 8.0,
+            depth: 2.0,
+            qubit: 3.0,
+            ..CircuitCostModel::default()
+        };
+
+        assert_eq!(
+            model.estimate(&profile).unwrap(),
+            10.0 + 8.0 + 2.0 * 3.0 + 3.0 * 3.0
+        );
+    }
+
+    #[test]
+    fn backend_cost_profile_counts_routing_swaps_once() {
+        let mut circuit = Circuit::new();
+        circuit.cnot(0, 2);
+        let coupling = CouplingMap::linear(3);
+        let model = CircuitCostModel {
+            cnot_gate: 0.0,
+            swap_gate: 3.0,
+            ..CircuitCostModel::default()
+        };
+
+        let profile = BackendCostProfile::from_circuit(&circuit, Some(&coupling), 0.0).unwrap();
+        assert_eq!(profile.routing_swaps, 1);
+        assert_eq!(profile.profile.swap_gates, 0);
+        assert_eq!(profile.estimate_with_model(&model).unwrap(), 3.0);
+    }
+
+    #[test]
+    fn optimization_cost_profiles_show_t_count_reduction() {
+        let mut circuit = Circuit::new();
+        circuit.push(Gate::T, 0);
+        circuit.push(Gate::T, 0);
+        circuit.push(Gate::Tdg, 1);
+        circuit.push(Gate::Tdg, 1);
+        let fault_tolerant = CircuitCostModel {
+            single_qubit_gate: 0.0,
+            t_gate: 1.0,
+            tdg_gate: 1.0,
+            ..CircuitCostModel::default()
+        };
+
+        let before = fault_tolerant
+            .estimate(&CircuitCostProfile::from_circuit(&circuit))
+            .unwrap();
+        optimize_circuit(&mut circuit, &OptimizeConfig::all());
+        let after = fault_tolerant
+            .estimate(&CircuitCostProfile::from_circuit(&circuit))
+            .unwrap();
+
+        assert_eq!(before, 4.0);
+        assert_eq!(after, 0.0);
+    }
+
+    #[test]
+    fn cost_aware_optimization_applies_only_strict_improvements() {
+        let mut circuit = Circuit::new();
+        circuit.push(Gate::T, 0);
+        circuit.push(Gate::T, 0);
+        let model = CircuitCostModel::default();
+        let (optimized, decision) =
+            optimize_for_cost_model(&circuit, &OptimizeConfig::all(), &model).unwrap();
+
+        assert!(decision.applied);
+        assert_eq!(decision.original_cost, 2.0);
+        assert_eq!(decision.candidate_cost, 1.0);
+        assert_eq!(optimized.operations().len(), 1);
+        assert_eq!(circuit.operations().len(), 2);
+
+        let t_weighted = CircuitCostModel {
+            single_qubit_gate: 100.0,
+            t_gate: 1.0,
+            tdg_gate: 1.0,
+            ..CircuitCostModel::default()
+        };
+        let (unchanged, decision) =
+            optimize_for_cost_model(&circuit, &OptimizeConfig::all(), &t_weighted).unwrap();
+        assert!(!decision.applied);
+        assert_eq!(decision.candidate_cost, 100.0);
+        assert_eq!(unchanged.operations(), circuit.operations());
+    }
+
+    #[test]
+    fn cost_model_rejects_negative_nonfinite_and_overflowing_costs() {
+        let profile = CircuitCostProfile {
+            single_qubit_gates: 2,
+            ..CircuitCostProfile::default()
+        };
+        let negative = CircuitCostModel {
+            cnot_gate: -1.0,
+            ..CircuitCostModel::default()
+        };
+        assert!(matches!(
+            negative.estimate(&profile),
+            Err(CircuitCostModelError::InvalidWeight { .. })
+        ));
+
+        let non_finite = CircuitCostModel {
+            depth: f64::NAN,
+            ..CircuitCostModel::default()
+        };
+        assert!(matches!(
+            non_finite.estimate(&profile),
+            Err(CircuitCostModelError::InvalidWeight { .. })
+        ));
+
+        let overflowing = CircuitCostModel {
+            single_qubit_gate: f64::MAX,
+            ..CircuitCostModel::default()
+        };
+        assert_eq!(
+            overflowing.estimate(&profile),
+            Err(CircuitCostModelError::NonFiniteEstimate)
+        );
     }
 }
 
@@ -586,52 +1172,17 @@ pub fn t_gate_count(circuit: &Circuit) -> TGateStats {
     stats
 }
 
-/// Minimize T-gates by merging consecutive Rz rotations on the same qubit
-/// into a single Rz, then converting Rz(π/4 * k) to T/Tdg when k is 1 or 7.
+/// Reduce adjacent T/Tdg pairs and fuse neighboring rotations.
+///
+/// Returns the number of T/Tdg gates removed. This is a local peephole pass,
+/// not a general Clifford+T synthesis algorithm.
 pub fn minimize_t_gates(circuit: &mut Circuit) -> usize {
-    let before = t_gate_count(circuit).t_count + t_gate_count(circuit).tdg_count;
-    // Merge consecutive Rz on same qubit
-    let ops = circuit.operations().to_vec();
-    let mut new_ops: Vec<CircuitOp> = Vec::new();
-    let mut i = 0;
-    while i < ops.len() {
-        if let CircuitOp::SingleQubit {
-            gate: Gate::Rz(a),
-            target: t1,
-        } = &ops[i]
-        {
-            // Look ahead for consecutive Rz on same qubit
-            let mut total = *a;
-            let mut j = i + 1;
-            while j < ops.len() {
-                if let CircuitOp::SingleQubit {
-                    gate: Gate::Rz(b),
-                    target: t2,
-                } = &ops[j]
-                    && t1 == t2
-                {
-                    total += *b;
-                    j += 1;
-                    continue;
-                }
-                break;
-            }
-            if j > i + 1 {
-                // Merged
-                new_ops.push(CircuitOp::SingleQubit {
-                    gate: Gate::Rz(total),
-                    target: *t1,
-                });
-                i = j;
-                continue;
-            }
-        }
-        new_ops.push(ops[i]);
-        i += 1;
-    }
-    *circuit.operations_mut() = new_ops;
-    let after = t_gate_count(circuit).t_count + t_gate_count(circuit).tdg_count;
-    before.saturating_sub(after)
+    let before = t_gate_count(circuit);
+    fuse_rotations(circuit);
+    remove_identity_gates(circuit);
+    cancel_inverse_pairs(circuit);
+    let after = t_gate_count(circuit);
+    (before.t_count + before.tdg_count).saturating_sub(after.t_count + after.tdg_count)
 }
 
 /// Hardware coupling map: list of (physical_qubit_a, physical_qubit_b) edges.
@@ -734,24 +1285,22 @@ pub fn route_to_hardware(circuit: &mut Circuit, coupling: &CouplingMap) -> usize
 /// no further reduction is achieved.
 pub fn self_optimize(circuit: &mut Circuit) -> OptimizeResult {
     let original = circuit.operations().len();
+    let original_two_qubit = count_two_qubit(circuit);
+    let original_depth = circuit_depth(circuit);
     let mut total_fusions = 0;
     let mut total_cancellations = 0;
     let mut total_identities = 0;
     let mut iterations = 0;
 
     loop {
-        let before = circuit.operations().len();
+        let before = circuit.operations().to_vec();
         let result = optimize_circuit(circuit, &OptimizeConfig::all());
         total_fusions += result.fusions;
         total_cancellations += result.cancellations;
         total_identities += result.identities_removed;
         iterations += 1;
 
-        // Also try T-gate minimization
-        minimize_t_gates(circuit);
-
-        let after = circuit.operations().len();
-        if after >= before || iterations >= 10 {
+        if circuit.operations() == before || iterations >= 10 {
             break;
         }
     }
@@ -759,9 +1308,9 @@ pub fn self_optimize(circuit: &mut Circuit) -> OptimizeResult {
     OptimizeResult {
         original_ops: original,
         optimized_ops: circuit.operations().len(),
-        original_two_qubit: 0,
+        original_two_qubit,
         optimized_two_qubit: count_two_qubit(circuit),
-        original_depth: 0,
+        original_depth,
         optimized_depth: circuit_depth(circuit),
         fusions: total_fusions,
         cancellations: total_cancellations,

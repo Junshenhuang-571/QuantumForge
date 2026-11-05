@@ -213,7 +213,7 @@ pub fn shor_code() -> QecCode {
 }
 
 /// Build Steane's 7-qubit code.
-/// CSS code from [7,4,3] classical Hamming code.
+/// CSS code from the \[7,4,3\] classical Hamming code.
 pub fn steane_code() -> QecCode {
     let n = 7;
     let mut stabilizers = Vec::new();

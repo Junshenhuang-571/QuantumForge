@@ -1,0 +1,9 @@
+unit: qtm-runtime
+commit: false
+candidate_splits:
+  - id: "src/qtm.rs:1-150"
+    drivers: [concern_split, lifecycle_split]
+    rationale: "The QTM implementation combines configuration, transition rules, and machine execution in one model; separating transition-table generation from machine execution would clarify runtime behavior."
+    source_slice:
+      file: "src/qtm.rs"
+      lines: [1, 150]

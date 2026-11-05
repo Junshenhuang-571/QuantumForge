@@ -1,0 +1,23 @@
+unit: cli-repl
+side_effects:
+  - source_loc: "src/bin/qf.rs:89"
+    effect: "updates the live circuit state, state vector, and density matrix for the session"
+    must_preserve: true
+branches:
+  - source_loc: "src/bin/qf.rs:213"
+    condition: "command matches help, quit, draw, run, or algorithm dispatch"
+    behavior: "routes to the matching command handler or exits the prompt loop"
+    must_preserve: true
+error_paths:
+  - source_loc: "src/bin/qf.rs:343"
+    trigger: "unknown command or malformed instruction"
+    outcome: "prints an error and keeps the REPL running"
+    contract: "unknown command: <value> (type 'help')"
+    must_preserve: true
+concurrency:
+  model: sync
+  tx_boundary:
+    source_loc: "src/bin/qf.rs:213"
+    scope: "single command evaluation and local state mutation"
+    isolation: "single-threaded REPL loop"
+    must_preserve: true

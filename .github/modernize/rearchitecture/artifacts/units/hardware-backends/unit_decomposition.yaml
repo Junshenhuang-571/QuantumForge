@@ -1,0 +1,9 @@
+unit: hardware-backends
+commit: false
+candidate_splits:
+  - id: "src/hardware.rs:1-220"
+    drivers: [protocol_split, concern_split]
+    rationale: "The file mixes provider abstraction, device metadata, job lifecycle management, and provider-specific client implementations; splitting the trait surface from provider adapters would isolate the stable API from cloud-specific behavior."
+    source_slice:
+      file: "src/hardware.rs"
+      lines: [1, 220]

@@ -1,0 +1,9 @@
+unit: qec-subsystem
+commit: false
+candidate_splits:
+  - id: "src/qec.rs:1-180"
+    drivers: [concern_split, data_ownership_split]
+    rationale: "The same file mixes code metadata, stabilizer definitions, and recovery strategies; separating code definitions from syndrome-recovery logic would clarify ownership without changing semantics."
+    source_slice:
+      file: "src/qec.rs"
+      lines: [1, 180]

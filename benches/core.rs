@@ -4,9 +4,10 @@
 //!
 //! Run with: `cargo bench --bench core`
 
-use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
+use criterion::{BatchSize, BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
 use quantumforge::analytic::{ExactComplex, Pauli, PauliSum, PauliWord, Rational};
-use quantumforge::{DensityMatrix, Gate, SmallRng, StateVector};
+use quantumforge::optimizer::{OptimizeConfig, optimize_circuit};
+use quantumforge::{Circuit, DensityMatrix, Gate, SmallRng, StateVector};
 
 fn bench_state_vector(c: &mut Criterion) {
     let mut group = c.benchmark_group("state_vector");
@@ -118,6 +119,63 @@ fn bench_pauli_sum(c: &mut Criterion) {
     });
 }
 
+fn bench_circuit_optimization(c: &mut Criterion) {
+    let mut group = c.benchmark_group("circuit_optimization");
+    for &pairs in &[128usize, 512, 2048] {
+        let mut source = Circuit::new();
+        for _ in 0..pairs {
+            source.push(Gate::H, 0);
+            source.push(Gate::H, 0);
+        }
+        group.bench_with_input(
+            BenchmarkId::new("cancel_inverse_pairs", pairs),
+            &source,
+            |b, source| {
+                b.iter_batched(
+                    || source.clone(),
+                    |mut circuit| {
+                        let result =
+                            optimize_circuit(&mut circuit, &OptimizeConfig::conservative());
+                        black_box((circuit, result));
+                    },
+                    BatchSize::SmallInput,
+                );
+            },
+        );
+    }
+
+    let pairs = 512;
+    let mut redundant = Circuit::new();
+    for _ in 0..pairs {
+        redundant.push(Gate::H, 0);
+        redundant.push(Gate::H, 0);
+    }
+    let (optimized, _) = redundant.optimized();
+    let initial = StateVector::zero(12).unwrap();
+    group.bench_function("run_redundant_512_pairs", |b| {
+        b.iter_batched(
+            || initial.clone(),
+            |state| black_box(redundant.run(state).unwrap()),
+            BatchSize::SmallInput,
+        );
+    });
+    group.bench_function("run_preoptimized_512_pairs", |b| {
+        b.iter_batched(
+            || initial.clone(),
+            |state| black_box(optimized.run(state).unwrap()),
+            BatchSize::SmallInput,
+        );
+    });
+    group.bench_function("optimize_then_run_512_pairs", |b| {
+        b.iter_batched(
+            || (redundant.clone(), initial.clone()),
+            |(circuit, state)| black_box(circuit.run_optimized(state).unwrap()),
+            BatchSize::SmallInput,
+        );
+    });
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_state_vector,
@@ -125,5 +183,6 @@ criterion_group!(
     bench_measurement,
     bench_exact_rational,
     bench_pauli_sum,
+    bench_circuit_optimization,
 );
 criterion_main!(benches);

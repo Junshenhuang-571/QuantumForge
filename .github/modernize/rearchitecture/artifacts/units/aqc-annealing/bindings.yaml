@@ -1,0 +1,4 @@
+unit: aqc-annealing
+bindings: []
+reason: "The annealing model is internal to the Rust computational layer and does not use external framework wiring."
+runtime_config: []

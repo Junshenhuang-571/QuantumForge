@@ -1,0 +1,23 @@
+unit: qtm-runtime
+side_effects:
+  - source_loc: "src/qtm.rs:1"
+    effect: "updates the quantum Turing machine configuration and transition model"
+    must_preserve: true
+branches:
+  - source_loc: "src/qtm.rs:30"
+    condition: "configuration mode (counter, scan, erase)"
+    behavior: "selects a different reversible transition table for the machine configuration"
+    must_preserve: true
+error_paths:
+  - source_loc: "src/qtm.rs:50"
+    trigger: "invalid machine configuration or unsupported transition"
+    outcome: "returns a QtmError instead of silently proceeding"
+    contract: "machine configuration validation"
+    must_preserve: true
+concurrency:
+  model: sync
+  tx_boundary:
+    source_loc: "src/qtm.rs:30"
+    scope: "one transition evaluation against a local configuration state"
+    isolation: "in-memory machine state"
+    must_preserve: true

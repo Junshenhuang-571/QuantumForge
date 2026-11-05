@@ -1,0 +1,4 @@
+unit: tensor-network-runtime
+bindings: []
+reason: "This solver layer is numerically driven and not surfaced through framework annotations or config-driven wiring."
+runtime_config: []

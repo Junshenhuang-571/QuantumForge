@@ -1,0 +1,9 @@
+unit: python-bindings
+commit: false
+candidate_splits:
+  - id: "src/python.rs:1-120"
+    drivers: [protocol_split, concern_split]
+    rationale: "The Python layer currently binds multiple object families and conversion logic into one module; separating wrapper classes from conversion helpers would improve maintainability without altering the public API."
+    source_slice:
+      file: "src/python.rs"
+      lines: [1, 120]

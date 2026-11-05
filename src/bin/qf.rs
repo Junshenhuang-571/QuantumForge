@@ -1891,8 +1891,8 @@ impl Session {
                     let dm = self.density.as_ref().unwrap();
                     let dim = dm.dimension();
                     let mut amps = vec![Complex64::ZERO; dim];
-                    for i in 0..dim {
-                        amps[i] = dm.entries()[i * dim + i];
+                    for (i, amplitude) in amps.iter_mut().enumerate() {
+                        *amplitude = dm.entries()[i * dim + i];
                     }
                     self.state = StateVector::from_amplitudes(amps).unwrap();
                     println!("CUDA: density matrix circuit completed, state updated");
@@ -3201,7 +3201,6 @@ fn evaluate_gpu(
     input: f64,
     weights: &[f64],
 ) -> Result<f64, String> {
-    use quantumforge::cuda::CudaDeviceState;
     use quantumforge::{RotationAxis, StateVector};
     let n = qnn.num_qubits;
     let mut device_state = backend
@@ -3232,7 +3231,7 @@ fn evaluate_gpu(
             .map_err(|e| format!("{e}"))?;
     }
     let sv = device_state.download().map_err(|e| format!("{e}"))?;
-    Ok(sv.expectation_z(0).map_err(|e| format!("{e}"))?)
+    sv.expectation_z(0).map_err(|e| format!("{e}"))
 }
 
 #[cfg(feature = "cuda")]
@@ -3254,8 +3253,6 @@ fn run_qnn_gpu(qnn: &VariationalQnn, data: &[(f64, f64)], cfg: &QnnConfig) {
         let mut m = vec![0.0; n_params];
         let mut v = vec![0.0; n_params];
         for t in 1..=cfg.steps {
-            // loss + gradient via GPU
-            let mut loss = 0.0;
             let mut gradient = vec![0.0; n_params];
             for &(input, target) in data {
                 let pred = match evaluate_gpu(&backend, qnn, input, &weights) {
@@ -3266,7 +3263,6 @@ fn run_qnn_gpu(qnn: &VariationalQnn, data: &[(f64, f64)], cfg: &QnnConfig) {
                     }
                 };
                 let residual = pred - target;
-                loss += residual * residual;
                 // parameter-shift gradient
                 let shift = std::f64::consts::FRAC_PI_2;
                 for i in 0..n_params {
@@ -3463,9 +3459,9 @@ fn run_classification(data: &[(Vec<f64>, f64)], label: &str, config: &TrainConfi
 /// - ising: pure Ising, H = -Σ Z_i Z_{i+1}
 /// - heisenberg: XXX Heisenberg chain, H = Σ (X_i X_{i+1} + Y_i Y_{i+1} + Z_i Z_{i+1})
 /// - xxz: anisotropic XXZ ring, H = Σ (X_iX_{i+1} + Y_iY_{i+1} - ½ Z_iZ_{i+1})
-/// - ising2d: 2D Ising on square lattice, H = -Σ_{<ij>} Z_i Z_j  (perfect square qubit count)
-/// - heisenberg2d: 2D Heisenberg on square lattice, H = Σ_{<ij>} (X_iX_j+Y_iY_j+Z_iZ_j)
-/// - ising3d: 3D Ising on cubic lattice, H = -Σ_{<ij>} Z_i Z_j  (perfect cube qubit count)
+/// - ising2d: 2D Ising on square lattice, H = -Σ over nearest-neighbor pairs (i,j) of Z_i Z_j
+/// - heisenberg2d: 2D Heisenberg on square lattice, summed over nearest-neighbor pairs (i,j)
+/// - ising3d: 3D Ising on cubic lattice, summed over nearest-neighbor pairs (i,j)
 ///   H = Σ (c†ᵢc_{i+1} + h.c.) + U Σ n_i n_{i+1} = -½Σ(X_iX_{i+1}+Y_iY_{i+1}) + ¼Σ(I_iI_{i+1} - Z_iZ_{i+1})
 ///
 /// Returns None for unknown names or qubit counts < 2 (no bonds to form).

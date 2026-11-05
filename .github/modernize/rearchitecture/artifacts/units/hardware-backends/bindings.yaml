@@ -1,0 +1,15 @@
+unit: hardware-backends
+bindings:
+  - type: di-registration
+    name: "HardwareBackend trait"
+    source_loc: "src/hardware.rs:8"
+    target: "provider-specific backend implementations"
+    must_appear_in_target: true
+    notes: "The provider-neutral contract is the binding surface between local execution and external hardware APIs."
+runtime_config:
+  - key: "api_token / api_key / instance"
+    source_loc: "src/hardware.rs:120"
+    source: "code-config"
+    default_value: "none"
+    must_appear_in_target: true
+    notes: "Provider credentials are runtime configuration values; they are not embedded in the backend contract."
