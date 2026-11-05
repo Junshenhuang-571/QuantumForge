@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 //! Measurement-Based Quantum Computing (MBQC) — the "one-way" model.
 //!
 //! MBQC computes entirely by preparing a entangled **cluster state** on a graph

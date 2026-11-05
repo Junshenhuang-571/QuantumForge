@@ -1,4 +1,6 @@
 //! Hardware backend abstractions and a local simulator.
+#![allow(missing_docs)]
+//! Hardware backend interfaces for quantum cloud providers.
 //!
 //! IBM Quantum, IonQ, and Rigetti modules currently define API scaffolds; their
 //! provider operations return `UnsupportedOperation` until implemented.

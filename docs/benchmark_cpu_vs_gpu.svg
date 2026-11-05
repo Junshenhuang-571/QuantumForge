@@ -1,6 +1,48 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="700" height="400" style="background:#fff;font-family:sans-serif">
-<text x="350" y="20" text-anchor="middle" font-size="14" font-weight="bold" fill="#222">QuantumForge DMRG: CPU vs GPU</text>
-<text x="350" y="390" text-anchor="middle" font-size="12" fill="#444">Qubits</text>
-<text x="15" y="200" text-anchor="middle" font-size="12" fill="#444" transform="rotate(-90,15,200)">Time (ms)</text>
-<line x1="60" y1="340" x2="640" y2="340" stroke="#ddd" stroke-width="1"/><text x="55" y="344" text-anchor="end" font-size="10" fill="#666">0k</text><line x1="60" y1="270" x2="640" y2="270" stroke="#ddd" stroke-width="1"/><text x="55" y="274" text-anchor="end" font-size="10" fill="#666">4k</text><line x1="60" y1="200" x2="640" y2="200" stroke="#ddd" stroke-width="1"/><text x="55" y="204" text-anchor="end" font-size="10" fill="#666">8k</text><line x1="60" y1="130" x2="640" y2="130" stroke="#ddd" stroke-width="1"/><text x="55" y="134" text-anchor="end" font-size="10" fill="#666">13k</text><line x1="60" y1="60" x2="640" y2="60" stroke="#ddd" stroke-width="1"/><text x="55" y="64" text-anchor="end" font-size="10" fill="#666">17k</text><polyline points="60,337 253,329 447,290 640,94" fill="none" stroke="#4C72B0" stroke-width="2.5"/><polyline points="60,330 253,324 447,281 640,60" fill="none" stroke="#DD8452" stroke-width="2.5"/><circle cx="60" cy="337" r="4" fill="#4C72B0"/><circle cx="60" cy="330" r="4" fill="#DD8452"/><text x="60" y="355" text-anchor="middle" font-size="11" fill="#333">14</text><circle cx="253" cy="329" r="4" fill="#4C72B0"/><circle cx="253" cy="324" r="4" fill="#DD8452"/><text x="253" y="355" text-anchor="middle" font-size="11" fill="#333">16</text><circle cx="447" cy="290" r="4" fill="#4C72B0"/><circle cx="447" cy="281" r="4" fill="#DD8452"/><text x="447" y="355" text-anchor="middle" font-size="11" fill="#333">18</text><circle cx="640" cy="94" r="4" fill="#4C72B0"/><circle cx="640" cy="60" r="4" fill="#DD8452"/><text x="640" y="355" text-anchor="middle" font-size="11" fill="#333">20</text><rect x="500" y="20" width="12" height="12" fill="#4C72B0"/><text x="518" y="30" font-size="11" fill="#333">CPU (MPS DMRG)</text><rect x="500" y="38" width="12" height="12" fill="#DD8452"/><text x="518" y="48" font-size="11" fill="#333">GPU (sparse Lanczos)</text>
+<svg xmlns="http://www.w3.org/2000/svg" width="680" height="420" style="background:#0f0f1a;font-family:sans-serif">
+<text x="340" y="28" text-anchor="middle" font-size="15" font-weight="bold" fill="#e0e0ff">QuantumForge: CPU vs GPU Sparse Lanczos (TFIM)</text>
+<text x="340" y="48" text-anchor="middle" font-size="11" fill="#888">Transverse Field Ising Model at critical point, bond dimension chi=32</text>
+<text x="340" y="390" text-anchor="middle" font-size="12" fill="#aaa">Qubits (n)</text>
+<text x="22" y="210" text-anchor="middle" font-size="12" fill="#aaa" transform="rotate(-90,22,210)">Runtime (ms, log scale)</text>
+<line x1="80" y1="350" x2="620" y2="350" stroke="#444" stroke-width="1"/>
+<text x="80" y="368" text-anchor="middle" font-size="11" fill="#888">6</text>
+<text x="180" y="368" text-anchor="middle" font-size="11" fill="#888">8</text>
+<text x="280" y="368" text-anchor="middle" font-size="11" fill="#888">10</text>
+<text x="380" y="368" text-anchor="middle" font-size="11" fill="#888">14</text>
+<text x="480" y="368" text-anchor="middle" font-size="11" fill="#888">16</text>
+<text x="580" y="368" text-anchor="middle" font-size="11" fill="#888">18</text>
+<line x1="80" y1="350" x2="80" y2="80" stroke="#444" stroke-width="1"/>
+<text x="70" y="354" text-anchor="end" font-size="9" fill="#666">10</text>
+<text x="70" y="290" text-anchor="end" font-size="9" fill="#666">100</text>
+<text x="70" y="226" text-anchor="end" font-size="9" fill="#666">1000</text>
+<text x="70" y="162" text-anchor="end" font-size="9" fill="#666">10000</text>
+<text x="70" y="98" text-anchor="end" font-size="9" fill="#666">100000</text>
+<polyline points="80,308 180,225 280,123 380,184 480,134 580,93" fill="none" stroke="#7c6af7" stroke-width="2.5" stroke-dasharray="6,3"/>
+<circle cx="80" cy="308" r="5" fill="#7c6af7"/>
+<circle cx="180" cy="225" r="5" fill="#7c6af7"/>
+<circle cx="280" cy="123" r="5" fill="#7c6af7"/>
+<circle cx="380" cy="184" r="5" fill="#7c6af7"/>
+<circle cx="480" cy="134" r="5" fill="#7c6af7"/>
+<circle cx="580" cy="93" r="5" fill="#7c6af7"/>
+<polyline points="380,169 480,141 580,100" fill="none" stroke="#f7a06a" stroke-width="2.5"/>
+<circle cx="380" cy="169" r="5" fill="#f7a06a"/>
+<circle cx="480" cy="141" r="5" fill="#f7a06a"/>
+<circle cx="580" cy="100" r="5" fill="#f7a06a"/>
+<line x1="330" y1="80" x2="330" y2="350" stroke="#555" stroke-width="1" stroke-dasharray="4"/>
+<text x="330" y="75" text-anchor="middle" font-size="9" fill="#888">n=12/13 boundary</text>
+<text x="205" y="75" text-anchor="middle" font-size="9" fill="#666">exact diag</text>
+<text x="455" y="75" text-anchor="middle" font-size="9" fill="#666">sparse Lanczos</text>
+<rect x="420" y="260" width="14" height="14" fill="#7c6af7" rx="2"/>
+<text x="440" y="272" font-size="11" fill="#aaa">CPU (sparse Lanczos / exact diag)</text>
+<rect x="420" y="280" width="14" height="14" fill="#f7a06a" rx="2"/>
+<text x="440" y="292" font-size="11" fill="#aaa">GPU (sparse Lanczos, --features gpu)</text>
+<text x="90" y="308" font-size="9" fill="#7c6af7">41 ms</text>
+<text x="190" y="225" font-size="9" fill="#7c6af7">719 ms</text>
+<text x="290" y="117" font-size="9" fill="#7c6af7">23432 ms</text>
+<text x="380" y="190" text-anchor="middle" font-size="9" fill="#7c6af7">2924 ms</text>
+<text x="380" y="163" text-anchor="middle" font-size="9" fill="#f7a06a">4753 ms</text>
+<text x="480" y="128" text-anchor="middle" font-size="9" fill="#7c6af7">15886 ms</text>
+<text x="480" y="147" text-anchor="middle" font-size="9" fill="#f7a06a">12496 ms</text>
+<text x="580" y="87" text-anchor="middle" font-size="9" fill="#7c6af7">65221 ms</text>
+<text x="580" y="106" text-anchor="middle" font-size="9" fill="#f7a06a">50241 ms</text>
+<text x="340" y="410" font-size="9" fill="#555">Measured: debug build, single run. Reproduce: cargo run --example bench_gpu_lanczos [--features gpu]</text>
 </svg>

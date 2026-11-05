@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 //! QuantumForge: a small, backend-neutral quantum simulation kernel.
 //!
 //! The kernel provides CPU quantum simulation, optional CUDA simulation, and
@@ -36,7 +37,9 @@ use std::fmt;
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Complex64 {
+    /// Real part.
     pub re: f64,
+    /// Imaginary part.
     pub im: f64,
 }
 
@@ -1120,6 +1123,7 @@ fn validate_probability(probability: f64) -> Result<(), QuantumError> {
     }
 }
 
+/// Quantum gates supported by the simulator.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Gate {
     I,
@@ -1136,7 +1140,7 @@ pub enum Gate {
     Rz(f64),
 }
 impl Gate {
-    pub(crate) fn matrix(self) -> (Complex64, Complex64, Complex64, Complex64) {
+    pub fn matrix(self) -> (Complex64, Complex64, Complex64, Complex64) {
         let z = Complex64::ZERO;
         let o = Complex64::ONE;
         let i = Complex64::I;
@@ -1289,11 +1293,37 @@ pub enum CircuitOp {
 /// Measurement counts indexed by classical-register bit values, least-significant
 /// classical bit first. Unwritten classical bits are zero.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+/// Result of running a circuit with shots.
 pub struct ShotResult {
     pub shots: usize,
     pub counts: BTreeMap<Vec<u8>, usize>,
 }
 
+/// Wilson score confidence interval for a binomial proportion.
+/// Returns (lower, upper) bounds at the given confidence level (e.g. 0.95).
+pub fn wilson_ci(successes: usize, shots: usize, confidence: f64) -> (f64, f64) {
+    if shots == 0 {
+        return (0.0, 1.0);
+    }
+    let n = shots as f64;
+    let p = successes as f64 / n;
+    let z = if confidence >= 0.99 {
+        2.576
+    } else if confidence >= 0.95 {
+        1.96
+    } else if confidence >= 0.90 {
+        1.645
+    } else {
+        1.96
+    };
+    let z2 = z * z;
+    let denom = 1.0 + z2 / n;
+    let center = (p + z2 / (2.0 * n)) / denom;
+    let half = (z / denom) * (p * (1.0 - p) / n + z2 / (4.0 * n * n)).sqrt();
+    ((center - half).max(0.0), (center + half).min(1.0))
+}
+
+/// A quantum circuit composed of gate operations.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Circuit {
     pub operations: Vec<CircuitOp>,

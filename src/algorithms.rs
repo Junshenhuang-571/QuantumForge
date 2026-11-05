@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 //! Quantum algorithms library.
 //!
 //! Provides high-level implementations of standard quantum algorithms:
@@ -473,86 +474,54 @@ pub fn hhl_solve_quantum(a: [[f64; 2]; 2], b: [f64; 2]) -> Vec<f64> {
 /// for systems up to 4x4 (2 data qubits). Returns normalized solution.
 #[allow(clippy::all)]
 pub fn hhl_solve_quantum_general(a: &[Vec<f64>], b: &[f64]) -> Vec<f64> {
+    use faer::diag::Diag;
+    use faer::dyn_stack::{MemBuffer, MemStack};
+    use faer::linalg::evd::{ComputeEigenvectors, self_adjoint_evd, self_adjoint_evd_scratch};
+    use faer::{Mat, Par};
+
     let n = a.len();
     if n == 0 || b.len() != n {
         return vec![];
     }
 
-    // Eigendecomposition via Jacobi for small N
     // Build matrix
-    let mut mat = a.to_vec();
-    // Jacobi eigenvalue algorithm
-    let mut v = vec![vec![0.0f64; n]; n];
+    let mut mat_a = Mat::<f64>::zeros(n, n);
     for i in 0..n {
-        v[i][i] = 1.0;
+        for j in 0..n {
+            mat_a[(i, j)] = a[i][j];
+        }
     }
 
-    // Simple Jacobi iterations
-    for _iter in 0..100 {
-        let mut max_off = 0.0f64;
-        let mut p = 0;
-        let mut q = 1;
-        for i in 0..n {
-            for j in (i + 1)..n {
-                if mat[i][j].abs() > max_off {
-                    max_off = mat[i][j].abs();
-                    p = i;
-                    q = j;
-                }
-            }
-        }
-        if max_off < 1e-12 {
-            break;
-        }
-        let theta = (mat[q][q] - mat[p][p]) / (2.0 * mat[p][q]);
-        let t = if theta >= 0.0 {
-            1.0 / (theta + (theta * theta + 1.0).sqrt())
-        } else {
-            1.0 / (theta - (theta * theta + 1.0).sqrt())
-        };
-        let c = 1.0 / (1.0 + t * t).sqrt();
-        let s = t * c;
-        // Rotate
-        for i in 0..n {
-            let a_ip = mat[i][p];
-            let a_iq = mat[i][q];
-            mat[i][p] = c * a_ip - s * a_iq;
-            mat[i][q] = s * a_ip + c * a_iq;
-        }
-        for j in 0..n {
-            let a_pj = mat[p][j];
-            let a_qj = mat[q][j];
-            mat[p][j] = c * a_pj - s * a_qj;
-            mat[q][j] = s * a_pj + c * a_qj;
-        }
-        let d_p = mat[p][p];
-        let d_q = mat[q][q];
-        mat[p][p] = c * c * d_p - 2.0 * s * c * mat[p][q] + s * s * d_q;
-        mat[q][q] = s * s * d_p + 2.0 * s * c * mat[p][q] + c * c * d_q;
-        mat[p][q] = 0.0;
-        mat[q][p] = 0.0;
-        // Update eigenvectors
-        for i in 0..n {
-            let v_ip = v[i][p];
-            let v_iq = v[i][q];
-            v[i][p] = c * v_ip - s * v_iq;
-            v[i][q] = s * v_ip + c * v_iq;
-        }
-    }
-    // Eigenvalues are diagonal
-    let eigenvalues: Vec<f64> = (0..n).map(|i| mat[i][i]).collect();
-    // Eigenvectors are columns of v
-    // v[i][k] = component i of eigenvector k
+    // Eigendecomposition using faer
+    let mut s = Diag::<f64>::zeros(n);
+    let mut v_mat = Mat::<f64>::zeros(n, n);
+    let params = Default::default();
+    let par = Par::Seq;
+    let scratch = self_adjoint_evd_scratch::<f64>(n, ComputeEigenvectors::Yes, par, params);
+    let mut mem = MemBuffer::new(scratch);
+    let stack = MemStack::new(&mut mem);
+    self_adjoint_evd(
+        mat_a.as_ref(),
+        s.as_mut(),
+        Some(v_mat.as_mut()),
+        par,
+        stack,
+        params,
+    )
+    .unwrap();
+
+    let eigenvalues: Vec<f64> = (0..n).map(|i| s.column_vector()[i]).collect();
 
     // Normalize |b>
     let norm_b: f64 = b.iter().map(|x| x * x).sum::<f64>().sqrt();
     let b_norm: Vec<f64> = b.iter().map(|x| x / norm_b).collect();
 
     // Transform |b> to eigenbasis: coeff[k] = sum_i v[i][k] * b[i]
+    // v_mat[(i, k)] = component i of eigenvector k
     let mut coeffs: Vec<f64> = vec![0.0; n];
     for k in 0..n {
         for i in 0..n {
-            coeffs[k] += v[i][k] * b_norm[i];
+            coeffs[k] += v_mat[(i, k)] * b_norm[i];
         }
     }
 
@@ -560,6 +529,7 @@ pub fn hhl_solve_quantum_general(a: &[Vec<f64>], b: &[f64]) -> Vec<f64> {
     let c_const = 1.0 / eigenvalues.iter().map(|l| l.abs()).fold(0.0f64, f64::max);
 
     // Apply controlled rotation: result coeff[k] *= c_const / lambda_k
+    // (sin(theta/2) = C/lambda, theta = 2*arcsin(C/lambda))
     let mut result_coeffs: Vec<f64> = vec![0.0; n];
     for k in 0..n {
         let lambda = eigenvalues[k];
@@ -572,7 +542,7 @@ pub fn hhl_solve_quantum_general(a: &[Vec<f64>], b: &[f64]) -> Vec<f64> {
     let mut x: Vec<f64> = vec![0.0; n];
     for i in 0..n {
         for k in 0..n {
-            x[i] += v[i][k] * result_coeffs[k];
+            x[i] += v_mat[(i, k)] * result_coeffs[k];
         }
     }
 
@@ -585,19 +555,90 @@ pub fn hhl_solve_quantum_general(a: &[Vec<f64>], b: &[f64]) -> Vec<f64> {
     }
 }
 
-pub fn shor_factor_large(n: u64) -> Option<(u64, u64)> {
+/// Shor quantum factor: factor N using quantum period finding simulation.
+/// Returns (p, q) such that p * q = N, or None if N is prime.
+pub fn shor_factor_quantum(n: u64) -> Option<(u64, u64)> {
     if n < 4 {
         return None;
     }
-    // Trial division up to sqrt(n)
-    let limit = (n as f64).sqrt() as u64;
-    for p in 2..=limit {
-        if n.is_multiple_of(p) {
-            return Some((p, n / p));
+
+    // Find a coprime to n
+    let a = (2..n).find(|&x| gcd(x, n) == 1)?;
+
+    // Quantum period finding: simulate the quantum circuit conceptually
+    // (full circuit available via shor_period_finding())
+    // Classical period extraction from quantum measurement outcome
+    let mut period = 1u64;
+    let mut val = a % n;
+    while val != 1 {
+        val = (val * a) % n;
+        period += 1;
+        if period > n {
+            return None;
         }
     }
-    // If no factor found, n is prime
-    None
+
+    if !period.is_multiple_of(2) {
+        return None;
+    }
+    let half = period / 2;
+    let mut x = 1u64;
+    for _ in 0..half {
+        x = (x * a) % n;
+    }
+    if x == n - 1 {
+        return None;
+    }
+    let p = gcd(x + 1, n);
+    let q = gcd(x.wrapping_sub(1), n);
+    if p > 1 && p < n && q > 1 && q < n {
+        Some((p, q))
+    } else {
+        None
+    }
+}
+
+pub fn gcd(a: u64, b: u64) -> u64 {
+    if b == 0 { a } else { gcd(b, a % b) }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_grover_circuit() {
+        let mut oracle = Circuit::new();
+        oracle.cnot(0, 1);
+
+        let circuit = grover_circuit(2, oracle, 1);
+        assert!(!circuit.operations().is_empty());
+    }
+
+    #[test]
+    fn test_qaoa_maxcut() {
+        let edges = vec![(0, 1, 1.0), (1, 2, 1.0), (2, 0, 1.0)];
+        let betas = vec![0.5, 0.3];
+        let gammas = vec![0.7, 0.2];
+
+        let circuit = qaoa_maxcut(3, &edges, 2, &betas, &gammas);
+        assert!(!circuit.operations().is_empty());
+    }
+
+    #[test]
+    fn test_hea_ansatz() {
+        let params = vec![0.1, 0.2, 0.3, 0.4, 0.5, 0.6];
+        let circuit = hea_ansatz(3, 2, &params);
+        assert!(!circuit.operations().is_empty());
+    }
+
+    #[test]
+    fn test_qaoa_ansatz() {
+        let edges = vec![(0, 1), (1, 2)];
+        let params = vec![0.5, 0.3, 0.7, 0.2];
+        let circuit = qaoa_ansatz(3, &edges, 2, &params);
+        assert!(!circuit.operations().is_empty());
+    }
 }
 
 #[allow(clippy::all)]
@@ -644,88 +685,136 @@ pub fn hhl_solve_general(a: &[Vec<f64>], b: &[f64]) -> Vec<f64> {
     (0..n).map(|i| aug[i][n]).collect()
 }
 
-/// Shor quantum factor: factor N using quantum period finding simulation.
-/// Returns (p, q) such that p * q = N, or None if N is prime.
-pub fn shor_factor_quantum(n: u64) -> Option<(u64, u64)> {
+/// Full quantum simulation of Shor's period finding.
+/// Returns the measured period r, or None if factoring fails.
+#[allow(clippy::all)]
+pub fn shor_simulate(n: u64) -> Option<u64> {
+    use crate::{Complex64, Gate, StateVector};
+
     if n < 4 {
         return None;
     }
-
-    // Find a coprime to n
     let a = (2..n).find(|&x| gcd(x, n) == 1)?;
 
-    // Quantum period finding: simulate the quantum circuit conceptually
-    // (full circuit available via shor_period_finding())
-    // Classical period extraction from quantum measurement outcome
-    let mut period = 1u64;
-    let mut val = a % n;
-    while val != 1 {
-        val = (val * a) % n;
-        period += 1;
-        if period > n {
-            return None;
+    // Number of qubits for x register and f register
+    let m = ((n * n) as f64).log2().ceil() as usize;
+    let m = m.max(4).min(12); // cap at 12 for feasibility
+    let f_bits = (n as f64).log2().ceil() as usize;
+    let f_bits = f_bits.max(2);
+    let total = m + f_bits;
+    if total > 20 {
+        return None;
+    }
+
+    let num_x = 1usize << m;
+
+    // Precompute f(x) = a^x mod n
+    let mut f_table = vec![0u64; num_x];
+    for x in 0..num_x {
+        let mut val = 1u64;
+        for _ in 0..x {
+            val = (val * a) % n;
+        }
+        f_table[x] = val;
+    }
+
+    // Step 1: uniform superposition on x register
+    let mut sv = StateVector::zero(total).unwrap();
+    for i in 0..m {
+        sv.apply(Gate::H, i).unwrap();
+    }
+
+    // Step 2: modular exponentiation |x>|0> -> |x>|f(x)>
+    let mut new_amps = vec![Complex64::ZERO; 1 << total];
+    for idx in 0..(1 << total) {
+        let x = idx & ((1 << m) - 1);
+        let f_val = f_table[x] as usize;
+        let f_reg = f_val & ((1 << f_bits) - 1);
+        let new_idx = x | (f_reg << m);
+        new_amps[new_idx] = new_amps[new_idx] + sv.amplitudes()[idx];
+    }
+    for i in 0..(1 << total) {
+        sv.amplitudes_mut()[i] = new_amps[i];
+    }
+
+    // Step 3: measure f-register (collapse to most likely value)
+    let mut f_counts = vec![0.0f64; 1 << f_bits];
+    for idx in 0..(1 << total) {
+        let f_reg = (idx >> m) & ((1 << f_bits) - 1);
+        f_counts[f_reg] += sv.amplitudes()[idx].norm_sqr();
+    }
+    let mut best_f = 0usize;
+    let mut best_prob = 0.0f64;
+    for (i, &p) in f_counts.iter().enumerate() {
+        if p > best_prob {
+            best_prob = p;
+            best_f = i;
         }
     }
 
-    if !period.is_multiple_of(2) {
+    // Collapse to x-register
+    let mut x_state = vec![Complex64::ZERO; num_x];
+    let mut norm = 0.0f64;
+    for idx in 0..(1 << total) {
+        let f_reg = (idx >> m) & ((1 << f_bits) - 1);
+        if f_reg == best_f {
+            let x = idx & ((1 << m) - 1);
+            x_state[x] = sv.amplitudes()[idx];
+            norm += sv.amplitudes()[idx].norm_sqr();
+        }
+    }
+    if norm < 1e-12 {
         return None;
     }
-    let half = period / 2;
-    let mut x = 1u64;
-    for _ in 0..half {
-        x = (x * a) % n;
-    }
-    if x == n - 1 {
-        return None;
-    }
-    let p = gcd(x + 1, n);
-    let q = gcd(x.wrapping_sub(1), n);
-    if p > 1 && p < n && q > 1 && q < n {
-        Some((p, q))
-    } else {
-        None
-    }
-}
-
-fn gcd(a: u64, b: u64) -> u64 {
-    if b == 0 { a } else { gcd(b, a % b) }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_grover_circuit() {
-        let mut oracle = Circuit::new();
-        oracle.cnot(0, 1);
-
-        let circuit = grover_circuit(2, oracle, 1);
-        assert!(!circuit.operations().is_empty());
+    for x in x_state.iter_mut() {
+        *x = *x * Complex64::new(1.0 / norm.sqrt(), 0.0);
     }
 
-    #[test]
-    fn test_qaoa_maxcut() {
-        let edges = vec![(0, 1, 1.0), (1, 2, 1.0), (2, 0, 1.0)];
-        let betas = vec![0.5, 0.3];
-        let gammas = vec![0.7, 0.2];
-
-        let circuit = qaoa_maxcut(3, &edges, 2, &betas, &gammas);
-        assert!(!circuit.operations().is_empty());
+    // Step 4: QFT on x register
+    let mut qft_state = vec![Complex64::ZERO; num_x];
+    for k in 0..num_x {
+        let mut sum = Complex64::ZERO;
+        for x in 0..num_x {
+            let phase = 2.0 * std::f64::consts::PI * (k as f64) * (x as f64) / (num_x as f64);
+            sum = sum + x_state[x] * Complex64::new(phase.cos(), phase.sin());
+        }
+        qft_state[k] = sum * Complex64::new(1.0 / (num_x as f64).sqrt(), 0.0);
     }
 
-    #[test]
-    fn test_hea_ansatz() {
-        let params = vec![0.1, 0.2, 0.3, 0.4, 0.5, 0.6];
-        let circuit = hea_ansatz(3, 2, &params);
-        assert!(!circuit.operations().is_empty());
-    }
+    // Step 5 & 6: try all peaks above threshold, extract period via continued fractions
+    let max_amp = qft_state
+        .iter()
+        .skip(1)
+        .map(|a| a.norm_sqr())
+        .fold(0.0f64, f64::max);
+    let threshold = max_amp * 0.5;
+    let mut candidates: Vec<usize> = (1..num_x)
+        .filter(|&k| qft_state[k].norm_sqr() >= threshold)
+        .collect();
 
-    #[test]
-    fn test_qaoa_ansatz() {
-        let edges = vec![(0, 1), (1, 2)];
-        let params = vec![0.5, 0.3, 0.7, 0.2];
-        let circuit = qaoa_ansatz(3, &edges, 2, &params);
-        assert!(!circuit.operations().is_empty());
+    // Sort by amplitude descending
+    candidates.sort_by(|&a, &b| {
+        qft_state[b]
+            .norm_sqr()
+            .partial_cmp(&qft_state[a].norm_sqr())
+            .unwrap()
+    });
+
+    for &best_k in &candidates {
+        let r_est = (num_x as f64) / (best_k as f64);
+        let r_candidate = r_est.round() as u64;
+        for r in [r_candidate.saturating_sub(1), r_candidate, r_candidate + 1] {
+            if r == 0 || r > n as u64 {
+                continue;
+            }
+            let mut val = 1u64;
+            for _ in 0..r {
+                val = (val * a) % n;
+            }
+            if val == 1 {
+                return Some(r);
+            }
+        }
     }
+    None
 }

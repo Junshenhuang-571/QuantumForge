@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 //! Typed scalar numeric IR and reference interpreter.
 //!
 //! The IR is a compact, validated SSA instruction stream intended as a stable

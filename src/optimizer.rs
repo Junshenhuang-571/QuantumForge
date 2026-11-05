@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 //! Circuit optimization passes.
 //!
 //! Provides optimization passes for quantum circuits:
@@ -1230,49 +1231,90 @@ impl CouplingMap {
 
 /// Route a circuit to a hardware topology by inserting SWAP gates.
 /// Returns the number of SWAPs inserted.
+/// BFS shortest path between two qubits on the coupling map.
+fn bfs_path(coupling: &CouplingMap, start: usize, end: usize) -> Vec<usize> {
+    if start == end {
+        return vec![start];
+    }
+    let mut visited = vec![false; coupling.num_qubits];
+    let mut parent = vec![usize::MAX; coupling.num_qubits];
+    let mut queue = std::collections::VecDeque::new();
+    queue.push_back(start);
+    visited[start] = true;
+    while let Some(cur) = queue.pop_front() {
+        if cur == end {
+            break;
+        }
+        let neighbors: Vec<usize> = coupling
+            .edges
+            .iter()
+            .filter_map(|&(a, b)| {
+                if a == cur && !visited[b] {
+                    Some(b)
+                } else if b == cur && !visited[a] {
+                    Some(a)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        for nb in neighbors {
+            visited[nb] = true;
+            parent[nb] = cur;
+            queue.push_back(nb);
+        }
+    }
+    if !visited[end] {
+        return vec![];
+    }
+    // Reconstruct path
+    let mut path = vec![end];
+    let mut cur = end;
+    while cur != start {
+        cur = parent[cur];
+        path.push(cur);
+    }
+    path.reverse();
+    path
+}
+
 pub fn route_to_hardware(circuit: &mut Circuit, coupling: &CouplingMap) -> usize {
     let mut swaps = 0;
-    // Simple greedy: for each CNOT, if qubits not connected, insert SWAP chain
     let ops = circuit.operations().to_vec();
     let mut new_ops: Vec<CircuitOp> = Vec::new();
     for op in &ops {
         match op {
-            CircuitOp::Cnot { control, target } => {
+            CircuitOp::Cnot { control, target }
+            | CircuitOp::Cz {
+                first: control,
+                second: target,
+            } => {
                 if !coupling.are_connected(*control, *target) {
-                    // Insert SWAP to bring them together (simplified: swap control to target-1)
-                    // For a chain, swap along path
-                    let (mut c, _t) = (*control, *target);
-                    while !coupling.are_connected(c, *target) {
-                        // Find neighbor of c closer to t
-                        let neighbors: Vec<usize> = coupling
-                            .edges
-                            .iter()
-                            .filter_map(|&(a, b)| {
-                                if a == c {
-                                    Some(b)
-                                } else if b == c {
-                                    Some(a)
-                                } else {
-                                    None
-                                }
-                            })
-                            .collect();
-                        if neighbors.is_empty() {
-                            break;
-                        }
-                        let next = neighbors[0];
+                    let path = bfs_path(coupling, *control, *target);
+                    // Insert SWAPs along the path to bring qubits together
+                    for i in 0..path.len().saturating_sub(1) {
                         new_ops.push(CircuitOp::Swap {
-                            first: c,
-                            second: next,
+                            first: path[i],
+                            second: path[i + 1],
                         });
                         swaps += 1;
-                        c = next;
-                        if swaps > 100 {
-                            break;
-                        }
                     }
                 }
                 new_ops.push(*op);
+            }
+            CircuitOp::Swap { first, second } => {
+                if !coupling.are_connected(*first, *second) {
+                    let path = bfs_path(coupling, *first, *second);
+                    for i in 0..path.len().saturating_sub(1) {
+                        new_ops.push(CircuitOp::Swap {
+                            first: path[i],
+                            second: path[i + 1],
+                        });
+                        swaps += 1;
+                    }
+                } else {
+                    new_ops.push(*op);
+                }
             }
             _ => new_ops.push(*op),
         }

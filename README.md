@@ -276,7 +276,7 @@ GPU acceleration activates for sparse Lanczos (>=13 qubits) and batched circuit 
 
 ## Benchmark: CPU vs GPU
 
-DMRG ground-state energy for TFIM (H = -Σ Z_i Z_{i+1} - Σ X_i). Run `cargo bench` for measured timings on your hardware. GPU acceleration activates for sparse Lanczos (>=13 qubits).
+DMRG ground-state energy for TFIM (H = -Σ Z_i Z_{i+1} - Σ X_i). **Note:** for n ≤ 12, DMRG uses exact diagonalization (full 2^n eigendecomposition); for n ≥ 13, it uses sparse Lanczos (Krylov subspace). These are different algorithms — timings are not directly comparable across the 12/13 boundary. GPU acceleration activates for sparse Lanczos (>=13 qubits).
 
 ![CPU vs GPU benchmark](docs/benchmark_cpu_vs_gpu.svg)
 
@@ -456,3 +456,22 @@ We welcome contributions from all hardware platforms! See [CONTRIBUTING.md](CONT
 - **NVIDIA GPU** — primary development platform
 - **macOS** — CI tested, contributions welcome
 - **AMD/Intel GPU** — contributions welcome (ROCm/HIP, oneAPI)
+
+### Community Circuit Benchmarks (Real MQT Bench Circuits)
+
+Measured on a single machine (debug build). Circuits downloaded from MQT Bench and transpiled to basic gates. Run `cargo run --example bench_mqt` to reproduce.
+
+| Circuit | Qubits | Gates | Time (ms) | Norm |
+|---------|--------|-------|-----------|------|
+| GHZ | 4 | 4 | 0.003 | 1.0000000000 |
+| GHZ | 8 | 8 | 0.086 | 1.0000000000 |
+| Grover | 4 | 164 | 0.046 | 1.0000000000 |
+| Bernstein-Vazirani | 4 | 10 | 0.006 | 1.0000000000 |
+| Bernstein-Vazirani | 8 | 24 | 0.095 | 1.0000000000 |
+| Deutsch-Jozsa | 4 | 15 | 0.016 | 1.0000000000 |
+| Deutsch-Jozsa | 8 | 33 | 0.141 | 1.0000000000 |
+| QFT | 4 | 76 | 0.036 | 1.0000000000 |
+| QFT | 8 | 328 | 1.150 | 1.0000000000 |
+
+All circuits from MQT Bench (munich-quantum-toolkit/bench), transpiled to basic gates. All norms verified = 1.0.
+
