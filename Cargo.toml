@@ -1,6 +1,6 @@
 [package]
 name = "quantumforge"
-version = "0.2.4"
+version = "0.2.5"
 edition = "2024"
 description = "A Rust quantum simulation toolkit with CPU and CUDA circuit simulation, LLVM scalar JIT, VQE/QML, MBQC, adiabatic QC, and unitary Turing machines."
 license = "Apache-2.0"
