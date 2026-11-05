@@ -1,0 +1,35 @@
+user_intent:
+  raw_request: "Analyze the current architecture and map the major runtime boundaries."
+  inferred_acceptance:
+    - "document the public runtime surface"
+    - "preserve the current computational model"
+  cleanup_required: false
+strategy: minimal_runtime
+runtime_reachable:
+  - src/lib.rs
+  - src/bin/qf.rs
+  - src/parser.rs
+  - src/algorithms.rs
+  - src/tensor_network.rs
+  - src/qec.rs
+  - src/mbqc.rs
+  - src/aqc.rs
+  - src/qtm.rs
+  - src/hardware.rs
+must_rewrite: []
+copy_as_is:
+  - src/analytic.rs
+  - src/quantum.rs
+  - src/parser.rs
+  - src/qasm.rs
+  - src/qasm_export.rs
+  - src/serialize.rs
+legacy_allowed_to_remain:
+  - src/cuda.rs
+  - src/llvm_backend.rs
+  - src/python.rs
+implementation_rule: >
+  This analysis is documentation-driven rather than a rewrite. The implementation scope is therefore
+  the current runtime boundary, not every source file in the repository. Source anchors establish
+  evidence of behavior; they do not automatically become rewrite targets.
+full_rewrite_reason: null

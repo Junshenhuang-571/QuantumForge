@@ -1,8 +1,9 @@
+//! Hardware backend abstractions and a local simulator.
 #![allow(missing_docs)]
 //! Hardware backend interfaces for quantum cloud providers.
 //!
-//! Provides trait-based abstractions for submitting circuits to
-//! IBM Quantum, IonQ, and Rigetti QCS backends.
+//! IBM Quantum, IonQ, and Rigetti modules currently define API scaffolds; their
+//! provider operations return `UnsupportedOperation` until implemented.
 
 use crate::{Circuit, CircuitOp, Gate, QuantumError};
 use serde::{Deserialize, Serialize};
@@ -336,8 +337,8 @@ pub mod rigetti {
 /// Local simulator backend (always available, no credentials needed).
 pub mod local {
     use super::{
-        DeviceInfo, HardwareBackend, JobHandle, JobRequest, JobResults, JobStatus, QuantumError,
-        Result,
+        CircuitOp, DeviceInfo, HardwareBackend, JobHandle, JobRequest, JobResults, JobStatus,
+        QuantumError, Result,
     };
     #[cfg(feature = "cuda")]
     use crate::cuda::CudaBackend;
@@ -362,25 +363,78 @@ pub mod local {
             return Self;
         }
 
+        /// Execute and measure every qubit with the default reproducible seed (42).
+        /// Use [`Self::run_circuit_with_seed`] to choose a seed.
         pub fn run_circuit(&self, circuit: &Circuit, shots: usize) -> Result<Vec<u64>> {
+            self.run_circuit_with_seed(circuit, shots, 42)
+        }
+
+        /// Execute the circuit and sample all qubits using a reproducible seed.
+        ///
+        /// The returned bitstrings are encoded little-endian in `u64` values.
+        /// At most 64 qubits can be represented by this return type.
+        pub fn run_circuit_with_seed(
+            &self,
+            circuit: &Circuit,
+            shots: usize,
+            seed: u64,
+        ) -> Result<Vec<u64>> {
             let n = circuit.num_qubits();
-            let mut results = Vec::with_capacity(shots);
-            for _ in 0..shots {
-                let state = StateVector::zero(n)?;
-                let final_state = circuit.run(state)?;
-                // Measure all qubits
-                let mut outcome = 0u64;
-                for q in 0..n {
-                    let prob1: f64 = final_state
-                        .amplitudes()
-                        .iter()
-                        .enumerate()
-                        .filter(|(idx, _)| (idx >> q) & 1 == 1)
-                        .map(|(_, a)| a.norm_sqr())
-                        .sum();
-                    outcome |= if prob1 > 0.5 { 1u64 << q } else { 0 };
+            if n > u64::BITS as usize {
+                return Err(QuantumError::UnsupportedOperation(
+                    "local backend results support at most 64 qubits".into(),
+                ));
+            }
+
+            let mut classical_offset = 0;
+            for operation in circuit.operations() {
+                let bit = match operation {
+                    CircuitOp::Measure { classical_bit, .. }
+                    | CircuitOp::ConditionalSingleQubit { classical_bit, .. } => {
+                        Some(*classical_bit)
+                    }
+                    _ => None,
+                };
+                if let Some(bit) = bit {
+                    if bit >= 4096 {
+                        return Err(QuantumError::ClassicalBitOutOfRange(bit));
+                    }
+                    classical_offset = classical_offset.max(bit + 1);
                 }
-                results.push(outcome);
+            }
+            if n > 4096 - classical_offset {
+                return Err(QuantumError::ClassicalBitOutOfRange(4096));
+            }
+            let mut measured_circuit = circuit.clone();
+            for qubit in 0..n {
+                measured_circuit.operations_mut().push(CircuitOp::Measure {
+                    target: qubit,
+                    classical_bit: classical_offset + qubit,
+                });
+            }
+
+            let initial_state = StateVector::zero(n)?;
+            #[cfg(feature = "cuda")]
+            let sample = if let Some(cuda_backend) = &self.cuda_backend {
+                cuda_backend
+                    .run_circuit_shots(&initial_state, &measured_circuit, shots, seed)
+                    .map_err(|error| QuantumError::UnsupportedOperation(error.to_string()))?
+            } else {
+                measured_circuit.run_shots(&initial_state, shots, seed)?
+            };
+            #[cfg(not(feature = "cuda"))]
+            let sample = measured_circuit.run_shots(&initial_state, shots, seed)?;
+            let mut results = Vec::with_capacity(shots);
+            for (bits, count) in sample.counts {
+                let outcome = (0..n).fold(0u64, |value, qubit| {
+                    value | (u64::from(bits[classical_offset + qubit]) << qubit)
+                });
+                results.extend(std::iter::repeat_n(outcome, count));
+            }
+            let mut rng = crate::SmallRng::seeded(seed ^ 0x5341_4d50_4c45);
+            for index in (1..results.len()).rev() {
+                let other = ((u128::from(rng.next_u64()) * (index as u128 + 1)) >> 64) as usize;
+                results.swap(index, other);
             }
             Ok(results)
         }
@@ -707,5 +761,23 @@ mod tests {
         let quil = transpile::to_quil(&circuit);
         assert!(quil.contains("H 0"));
         assert!(quil.contains("CNOT 0 1"));
+    }
+
+    #[test]
+    fn local_backend_samples_bell_state_reproducibly() {
+        let backend = local::LocalBackend::new();
+        let mut circuit = Circuit::new();
+        circuit.push(Gate::H, 0);
+        circuit.cnot(0, 1);
+
+        let first = backend.run_circuit_with_seed(&circuit, 512, 1234).unwrap();
+        let second = backend.run_circuit_with_seed(&circuit, 512, 1234).unwrap();
+
+        assert_eq!(first, second);
+        assert_eq!(first.len(), 512);
+        assert!(first.iter().all(|outcome| matches!(outcome, 0 | 3)));
+        assert!(first.contains(&0));
+        assert!(first.contains(&3));
+        assert!(first.windows(2).any(|pair| pair[0] != pair[1]));
     }
 }

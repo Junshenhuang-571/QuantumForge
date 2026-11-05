@@ -1,5 +1,16 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- Add user-visible changes here as they are merged.
+
+### Changed
+- Add behavior or API changes here, including migration notes.
+
+### Fixed
+- Add user-visible bug fixes here.
+
 ## [0.2.3] - 2026-10-30
 
 ### Added

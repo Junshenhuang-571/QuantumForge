@@ -1,14 +1,13 @@
 #![allow(missing_docs)]
 //! QuantumForge: a small, backend-neutral quantum simulation kernel.
 //!
-//! The kernel provides CPU quantum semantics plus optional CUDA and LLVM-backed
-//! native execution paths. Backends preserve the behavior of the Rust reference.
+//! The kernel provides CPU quantum simulation, optional CUDA simulation, and
+//! optional LLVM JIT compilation for scalar numeric expressions.
 
 pub mod analytic;
 pub mod aqc;
 #[cfg(feature = "cuda")]
 pub mod cuda;
-#[cfg(feature = "gpu")]
 #[cfg(feature = "llvm")]
 pub mod llvm_backend;
 pub mod mbqc;
@@ -3538,7 +3537,7 @@ impl SmallRng {
 /// Variational Quantum Neural Network with configurable depth and width.
 ///
 /// Architecture: Ry(input) on all qubits -> CNOT ring -> Ry(weights) on all qubits
-/// Repeated for `layers` times. Final readout: <Z> on qubit 0.
+/// Repeated for `layers` times. Final readout: `<Z>` on qubit 0.
 #[derive(Clone, Debug, Default)]
 pub struct VariationalQnn {
     pub num_qubits: usize,

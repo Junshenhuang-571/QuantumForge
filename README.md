@@ -1,11 +1,51 @@
 # QuantumForge
 
-A quantum-computation kernel in Rust: an **exact-rational analytic core**, a
-**CPU simulator** (state vectors + density matrices + seeded shots), an
-**interactive REPL**, and optional **CUDA / LLVM** execution backends — all
-sharing one set of semantics.
+A pre-1.0 quantum-computing toolkit in Rust: an **exact-rational analytic
+core**, a **CPU simulator** (state vectors + density matrices + seeded shots),
+an **interactive REPL**, and optional **CUDA simulation / LLVM scalar JIT**
+features.
 
 [![CI](https://github.com/Junshenhuang-571/QuantumForge/actions/workflows/ci.yml/badge.svg)](https://github.com/Junshenhuang-571/QuantumForge/actions/workflows/ci.yml)
+
+QuantumForge is for researchers, students, and developers who want a Rust
+environment for learning and prototyping gate-model simulation, variational
+algorithms, MBQC, adiabatic evolution, and reversible quantum Turing machines.
+It is a classical simulator and research toolkit, not a quantum-hardware
+runtime.
+
+## Why this project matters
+
+QuantumForge is designed to be more than a toy simulator. It aims to provide:
+
+- a shared semantic layer across multiple quantum paradigms
+- exact symbolic reasoning alongside numerical simulation
+- a REPL for fast exploration and education
+- optional acceleration for larger workloads
+- a library API that can be embedded in Rust applications
+
+## Who it's for
+
+- researchers exploring quantum algorithms and Hamiltonians
+- students learning quantum computing concepts hands-on
+- developers prototyping simulation and optimization workflows
+- teams building domain-specific quantum tooling around a Rust core
+
+## Project health snapshot
+
+The CPU simulator, command-line tools, and core algorithm modules are usable
+today, but the project is pre-1.0 and evolving. In particular:
+
+- state-vector simulation uses memory exponential in the qubit count; density
+  matrices grow faster and are intended for small systems
+- CUDA accelerates selected simulation paths; LLVM JIT compiles scalar numeric
+  expressions, not quantum circuits
+- IBM Quantum, IonQ, and Rigetti provider modules are interface scaffolds; job
+  submission and device discovery are not implemented
+- results and algorithms should be treated as research/educational tools, not
+  independently validated scientific or production outputs
+
+Contributions and issue reports are welcome; the current focus is on reliable
+onboarding, explicit API expectations, and correctness across supported paths.
 
 QuantumForge spans **five models of quantum computation** under one roof:
 
@@ -22,10 +62,12 @@ problem Hamiltonian, or tape size rather than running a fixed demo. The headline
 feature is the `qf` REPL: build circuits incrementally, draw them as ASCII
 diagrams, run and measure them, and run variational algorithms (VQE, QML
 training) with results cross-checked against exact ground-state energies.
-179 tests back the semantics in the default build (incl. 23 property-based /
-robustness tests and REPL end-to-end).
+The default test suite covers core semantics, robustness properties, and REPL
+end-to-end behavior.
 
 ## Quickstart
+
+For a guided install and walkthrough, see [docs/getting-started.md](docs/getting-started.md).
 
 Install and run the interactive REPL:
 
@@ -42,21 +84,24 @@ cd QuantumForge
 cargo run --bin qf
 ```
 
-Then build and draw a circuit:
+Then build a Bell state, measure both qubits, and sample reproducible outcomes:
 
 ```
-qf> qubits 3
+qf> qubits 2
 qf> add H[0]
 qf> add CNOT[0,1]
-qf> add Ry[Pi/4,2]
+qf> add Measure[0,0]
+qf> add Measure[1,1]
 qf> draw
-q0 ───H──────•──────────
-q1 ──────────⊕──────────
-q2 ──────────────Ry0.79─
+qf> shots 8 42
+  |00>  4
+  |11>  4
 legend: ─ wire  • control  ⊕ target(X)  │ span  x swap  M measure
-qf> run
-qf> measure
 ```
+
+The `shots` command reruns the circuit from `|0...0>` and uses the supplied seed
+to make the sample reproducible. To inspect the state without sampling, use
+`run` followed by `state`.
 
 Or use it as a library:
 
@@ -69,12 +114,22 @@ let result = circuit.run_shots(&initial, 1000, 42).unwrap();
 println!("{:?}", result.counts);
 ```
 
+## Example gallery
+
+A few quick starting points:
+
+- `examples/hello_world.rs` — minimal Bell-state example
+- `examples/cost_aware_optimization.rs` — compare a rewrite against a
+  target-weighted logical cost model
+- `examples/qtm_probe.rs` — QTM exploration code
+- `examples/gpu_bench.rs` — GPU benchmark entry point
+
 ## Highlights
 
-- **Exact, not floating-point guesswork.** The analytic core
-  (`PauliSum` / `ExactComplex` / `Rational`) does exact rational arithmetic, so
-  VQE converges to the *exact* ground-state energy to machine precision and
-  gradients agree two independent ways (adjoint vs parameter-shift).
+- **Exact symbolic arithmetic where supported.** The analytic core
+  (`PauliSum` / `ExactComplex` / `Rational`) represents supported expressions
+  exactly. Variational optimization and state-vector simulation use floating
+  point; VQE outcomes depend on the ansatz, optimizer, and convergence.
 - **Interactive `qf` REPL** — live state, `draw` renders a real circuit diagram
   with vertical connectors across wires:
   ```
@@ -91,6 +146,10 @@ println!("{:?}", result.counts);
 - **Algorithms**: Grover, QFT, QPE, Deutsch-Jozsa, Bernstein-Vazirani, HHL
   (linear systems), Shor (factoring). Quantum + classical hybrid solvers.
 - **Visualization**: ASCII circuit diagrams (`draw`) and SVG export (`to_svg`).
+- **Circuit optimization**: conservative and iterative rewrite passes, with
+  before/after gate, depth, and qubit statistics. `CircuitCostProfile` and
+  `CircuitCostModel` let you compare candidates using target-specific logical
+  resource weights; they are estimates, not device timing predictions.
 - **QEC**: Repetition, Shor, Steane, surface codes with MWPM decoder.
 - **Backends**: optional `cuda` (NVRTC device-resident state vectors, density
   matrices, batched shots) and `llvm` (lower scalar expressions to LLVM IR /
@@ -126,7 +185,8 @@ qf> add CNOT[0,1]
 qf> add Ry[Pi/4,2]
 qf> draw                       # ASCII circuit diagram
 qf> run
-qf> measure                    # seeded shots -> reproducible counts
+qf> add Measure[0,0]
+qf> shots 1000 42              # seeded shots -> reproducible counts
 ```
 
 Core commands: `qubits`, `circuit`, `draw`, `add`, `clear`, `run`, `noisy`,
@@ -243,10 +303,10 @@ Syndrome measurement complete. Ancilla qubits measured.
 ## Command-line binary
 
 ```bash
-cargo run -- quantumforge demo                          # one-qubit sim + QNN training
-cargo run -- quantumforge eval "2 + 3*Pi"
-cargo run -- quantumforge simplify "x + x + 2 + 3"
-cargo run -- quantumforge shots 2 1000 42 'Circuit[H[0], CNOT[0,1], Measure[0,0]]'
+cargo run --bin main -- demo                            # one-qubit sim + QNN training
+cargo run --bin main -- eval "2 + 3*Pi"
+cargo run --bin main -- simplify "x + x + 2 + 3"
+cargo run --bin main -- shots 2 1000 42 'Circuit[H[0], CNOT[0,1], Measure[0,0], Measure[1,1]]'
 ```
 
 With feature flags: `llvm-ir` / `jit-eval` (llvm), `cuda-demo` (cuda).
@@ -265,6 +325,50 @@ let result = circuit.run_shots(&initial, 1000, 42).unwrap();
 Key types: `Circuit` / `Gate` / `NoiseChannel`, `StateVector`, `DensityMatrix`,
 `ParameterizedCircuit` (QML), `VariationalQnn`, and the analytic module's
 `PauliSum` / `ExactComplex` / `Rational` / `ScalarExpr`.
+
+### Compare circuit optimization costs
+
+The optimizer reports structural resources so you can judge a rewrite against
+your backend's priorities. For example, a fault-tolerant workload can assign a
+higher weight to T gates, while a device with expensive entangling operations
+can emphasize CNOT, CZ, and SWAP counts:
+
+```rust
+use quantumforge::{Circuit, Gate};
+use quantumforge::optimizer::{
+    CircuitCostModel, OptimizeConfig, optimize_for_cost_model,
+};
+
+let mut circuit = Circuit::new();
+circuit.push(Gate::H, 0);
+circuit.push(Gate::H, 0);
+circuit.cnot(0, 1);
+
+let model = CircuitCostModel {
+    cnot_gate: 10.0,
+    depth: 2.0,
+    ..CircuitCostModel::default()
+};
+let (optimized, decision) =
+    optimize_for_cost_model(&circuit, &OptimizeConfig::all(), &model)?;
+println!(
+    "selected ops {}, candidate ops {}, estimated cost {} -> {} (applied: {})",
+    optimized.operations().len(),
+    decision.optimization.optimized_ops,
+    decision.original_cost,
+    decision.candidate_cost,
+    decision.applied,
+);
+# Ok::<(), quantumforge::optimizer::CircuitCostModelError>(())
+```
+
+The profile counts logical gates and dependency depth; it does not include
+routing overhead, native gate decomposition, pulse schedules, or calibration
+data. Set weights from the target's documented costs and compare circuits
+using the same model. The optimizer remains a local rewrite pass, not a
+hardware-aware global synthesis engine. `optimize_for_cost_model` returns the
+original circuit unless the configured rewrite strictly lowers the estimated
+cost; invalid or non-finite weights are rejected.
 
 ## QASM 2.0 support
 
@@ -314,7 +418,7 @@ src/mbqc.rs           Measurement-Based QC (cluster states + measurement pattern
 src/aqc.rs            Adiabatic QC (H(s) schedule driver + ground-state tracking)
 src/cuda.rs           CUDA backend (feature = cuda)
 src/llvm_backend.rs   LLVM IR + JIT (feature = llvm)
-tests/                129 integration tests (incl. property-based + REPL end-to-end)
+tests/                integration tests (incl. property-based + REPL end-to-end)
 benches/core.rs       criterion benchmarks (state-vector, density, exact core)
 RUST_CAS_ROADMAP.md   design notes and progress log
 ```
@@ -331,9 +435,16 @@ cargo clippy --all-targets -- -D warnings
 cargo test
 ```
 
+## Project policies
+
+- [API stability policy](API_STABILITY.md)
+- [Roadmap](ROADMAP.md)
+- [Release checklist](docs/releasing.md)
+- [Contributing guide](CONTRIBUTING.md)
+
 ## License
 
-Licensed under the GNU General Public License v3.0 — see [LICENSE](LICENSE).
+Licensed under the Apache License, Version 2.0 — see [LICENSE](LICENSE).
 
 ## Connection 
 Email: junshenhuangc@126.com

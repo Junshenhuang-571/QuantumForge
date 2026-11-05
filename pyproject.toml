@@ -4,7 +4,7 @@ build-backend = "maturin.BuildBackend"
 
 [project]
 name = "quantumforge"
-version = "0.2.0"
+version = "0.2.4"
 description = "Exact-rational quantum simulation kernel: CPU, CUDA, LLVM backends with circuits, VQE, MBQC, AQC, QTM, QEC, tensor networks"
 readme = "README.md"
 license = {text = "Apache-2.0"}
@@ -28,4 +28,3 @@ manylinux = "2014"
 [project.optional-dependencies]
 cuda = []
 llvm = []
-

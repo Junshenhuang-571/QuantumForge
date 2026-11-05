@@ -1,0 +1,9 @@
+unit: cli-repl
+commit: false
+candidate_splits:
+  - id: "src/bin/qf.rs:213-342"
+    drivers: [concern_split, lifecycle_split]
+    rationale: "The REPL interleaves command parsing, state mutation, CLI output, and algorithm-specific execution in one loop; splitting routing from execution would separate concerns while preserving the same external contract."
+    source_slice:
+      file: "src/bin/qf.rs"
+      lines: [213, 342]

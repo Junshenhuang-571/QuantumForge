@@ -1,0 +1,23 @@
+unit: mbqc-model
+side_effects:
+  - source_loc: "src/mbqc.rs:1"
+    effect: "creates and updates cluster states for adaptive measurement patterns"
+    must_preserve: true
+branches:
+  - source_loc: "src/mbqc.rs:24"
+    condition: "measurement basis selection or pattern adaptation"
+    behavior: "switches basis and by-product correction strategy depending on the pattern"
+    must_preserve: true
+error_paths:
+  - source_loc: "src/mbqc.rs:48"
+    trigger: "invalid cluster configuration or measurement pattern"
+    outcome: "returns an error instead of partial pattern execution"
+    contract: "pattern validation failure"
+    must_preserve: true
+concurrency:
+  model: sync
+  tx_boundary:
+    source_loc: "src/mbqc.rs:24"
+    scope: "measurement pattern evaluation and local correction updates"
+    isolation: "single-threaded state update"
+    must_preserve: true

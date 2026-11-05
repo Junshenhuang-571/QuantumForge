@@ -1,0 +1,23 @@
+unit: qec-subsystem
+side_effects:
+  - source_loc: "src/qec.rs:1"
+    effect: "constructs logical code layouts and encoding circuits for QEC workflows"
+    must_preserve: true
+branches:
+  - source_loc: "src/qec.rs:25"
+    condition: "code family selection (bitflip, phaseflip, shor, steane, surface)"
+    behavior: "chooses a different stabilizer and recovery operation set for the selected code"
+    must_preserve: true
+error_paths:
+  - source_loc: "src/qec.rs:77"
+    trigger: "unsupported or malformed QEC configuration"
+    outcome: "rejects malformed code configuration before execution"
+    contract: "deterministic validation errors"
+    must_preserve: true
+concurrency:
+  model: sync
+  tx_boundary:
+    source_loc: "src/qec.rs:25"
+    scope: "single QEC code encoding or syndrome extraction pass"
+    isolation: "in-memory state mutation"
+    must_preserve: true

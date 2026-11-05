@@ -1,0 +1,73 @@
+modules:
+  - name: core-quantum-state
+    kind: god-class
+    source_loc: "src/lib.rs:1"
+    used_by_units:
+      - core-circuit-runtime
+      - variational-qml
+      - tensor-network-runtime
+      - qec-subsystem
+      - mbqc-model
+      - aqc-annealing
+      - qtm-runtime
+    fields:
+      - name: Complex64
+        type: "crate::Complex64"
+      - name: StateVector
+        type: "crate::StateVector"
+      - name: DensityMatrix
+        type: "crate::DensityMatrix"
+      - name: Circuit
+        type: "crate::Circuit"
+      - name: Gate
+        type: "crate::Gate"
+      - name: QuantumError
+        type: "crate::QuantumError"
+    god_class: true
+    split_candidate: true
+    migration_strategy: split
+    notes: "This is the central computational surface and is reused across nearly every execution domain."
+
+  - name: parser-serialization
+    kind: utility
+    source_loc: "src/parser.rs:1"
+    used_by_units:
+      - core-circuit-runtime
+      - cli-repl
+      - python-bindings
+      - hardware-backends
+    fields:
+      - name: parse_circuit
+        type: "fn(&str) -> Result<Circuit, ParseError>"
+      - name: SerializedCircuit
+        type: "crate::SerializedCircuit"
+      - name: SerializedOp
+        type: "crate::SerializedOp"
+    god_class: false
+    split_candidate: false
+    migration_strategy: copy
+    notes: "Shared parsing and serialization support for REPL and backend interoperability."
+
+  - name: backend-interfaces
+    kind: utility
+    source_loc: "src/hardware.rs:1"
+    used_by_units:
+      - hardware-backends
+      - variational-qml
+      - tensor-network-runtime
+      - python-bindings
+    fields:
+      - name: HardwareBackend
+        type: "trait HardwareBackend"
+      - name: DeviceInfo
+        type: "crate::hardware::DeviceInfo"
+      - name: JobRequest
+        type: "crate::hardware::JobRequest"
+      - name: JobHandle
+        type: "crate::hardware::JobHandle"
+      - name: JobResults
+        type: "crate::hardware::JobResults"
+    god_class: false
+    split_candidate: false
+    migration_strategy: wrap
+    notes: "A provider-neutral backend contract used across execution, CLI, and Python-facing wrappers."

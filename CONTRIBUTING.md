@@ -11,12 +11,37 @@ cargo build
 cargo test
 ```
 
+For a guided first-run walkthrough, see [docs/getting-started.md](docs/getting-started.md).
+
+## Local workflow
+
+```bash
+cargo fmt --all
+cargo clippy --all-targets -- -D warnings
+cargo test --workspace --lib --tests
+cargo bench
+```
+
+## Benchmarking and performance validation
+
+Use benchmarks for meaningful performance-sensitive work:
+
+```bash
+cargo bench --bench core
+cargo run --example gpu_bench --features gpu
+```
+
+If you are changing numerical algorithms, tensor-network routines, or backend kernels, include benchmark evidence alongside the code change.
+
 ## Guidelines
 
 - All code must pass `cargo fmt`, `cargo clippy -- -D warnings`, and `cargo test`
 - Add tests for new functionality
 - Update documentation for public API changes
 - Keep commits focused and atomic
+- Follow the [API stability policy](API_STABILITY.md) for public API changes
+- Use the repository issue forms to report bugs or propose features
+- Update `CHANGELOG.md` for user-visible changes
 
 ## Pull Request Process
 

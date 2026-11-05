@@ -1,0 +1,9 @@
+unit: cli-repl
+bindings:
+  - type: cli
+    name: "qf> <command>"
+    source_loc: "src/bin/qf.rs:214"
+    target: "Session.dispatch"
+    must_appear_in_target: true
+    notes: "interactive command dispatch on the first token of the line"
+runtime_config: []

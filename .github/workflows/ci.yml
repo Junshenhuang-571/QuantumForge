@@ -6,11 +6,14 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  check:
+  lint-and-test:
     name: ${{ matrix.os }} / rust ${{ matrix.rust }}
     runs-on: ${{ matrix.os }}
     strategy:
@@ -44,8 +47,11 @@ jobs:
       - name: Clippy (deny warnings)
         run: cargo clippy --all-targets -- -D warnings
 
-      - name: Build
-        run: cargo build --verbose
+      - name: Build workspace
+        run: cargo build --workspace --verbose
 
-      - name: Test
-        run: cargo test --verbose
+      - name: Test workspace
+        run: cargo test --workspace --lib --tests --verbose
+
+      - name: Build docs
+        run: cargo doc --workspace --no-deps --verbose

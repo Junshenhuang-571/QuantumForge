@@ -1,0 +1,9 @@
+unit: mbqc-model
+commit: false
+candidate_splits:
+  - id: "src/mbqc.rs:1-140"
+    drivers: [concern_split, lifecycle_split]
+    rationale: "Pattern generation and execution semantics are intertwined; separating pattern construction from measurement execution would reduce accidental coupling between the cluster graph and control flow."
+    source_slice:
+      file: "src/mbqc.rs"
+      lines: [1, 140]

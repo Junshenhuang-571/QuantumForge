@@ -1,0 +1,26 @@
+unit: core-circuit-runtime
+side_effects:
+  - source_loc: "src/lib.rs:356"
+    effect: "mutates the amplitude vector or density matrix during gate application"
+    must_preserve: true
+  - source_loc: "src/lib.rs:1120"
+    effect: "creates measurement results from a statevector or density matrix"
+    must_preserve: true
+branches:
+  - source_loc: "src/lib.rs:251"
+    condition: "state size is zero, invalid, or qubit index is out of range"
+    behavior: "returns QuantumError instead of partial execution"
+    must_preserve: true
+error_paths:
+  - source_loc: "src/lib.rs:204"
+    trigger: "invalid qubit count or non-power-of-two state length"
+    outcome: "returns a typed QuantumError"
+    contract: "QuantumError variants such as ZeroQubits and StateSizeNotPowerOfTwo"
+    must_preserve: true
+concurrency:
+  model: sync
+  tx_boundary:
+    source_loc: "src/lib.rs:356"
+    scope: "single gate application and immediate state update"
+    isolation: "in-process mutable state"
+    must_preserve: true
