@@ -641,7 +641,18 @@ impl ScalarExpr {
             Self::Cos(x) => Self::Cos(Box::new(x.expand())),
             Self::Exp(x) => Self::Exp(Box::new(x.expand())),
             Self::Log(x) => Self::Log(Box::new(x.expand())),
-            Self::Pow(x, e) => Self::Pow(Box::new(x.expand()), *e),
+            Self::Pow(x, e) => {
+                if *e >= 2 {
+                    // Convert Pow(x, n) to x * x * ... * x, then expand.
+                    let mut factors = vec![x.expand()];
+                    for _ in 1..*e {
+                        factors.push(x.expand());
+                    }
+                    Self::Mul(factors).expand()
+                } else {
+                    Self::Pow(Box::new(x.expand()), *e)
+                }
+            }
             other => other.clone(),
         }
     }
