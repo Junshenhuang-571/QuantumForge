@@ -1,4 +1,9 @@
 #![allow(missing_docs)]
+//! # Contributing
+//!
+//! Contributions are welcome! See [CONTRIBUTING.md](https://github.com/Junshenhuang-571/QuantumForge/blob/main/CONTRIBUTING.md)
+//! for development setup, code style, and PR process. Good first issues include
+//! adding doc comments, test coverage, and examples.
 //! QuantumForge: a small, backend-neutral quantum simulation kernel.
 //!
 //! The kernel provides CPU quantum simulation, optional CUDA simulation, and
