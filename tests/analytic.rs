@@ -1,8 +1,7 @@
 use quantumforge::Complex64;
 use quantumforge::analytic::{
-    AnalyticError, Assumptions, ExactComplex, ExprPattern, NamedConstant, NumericPauliError, Pauli,
-    PauliSum, PauliWord, Rational, RewriteRule, ScalarExpr, Simplifier, SymbolicPauliSum,
-    UnboundSymbol,
+    Assumptions, ExactComplex, ExprPattern, NamedConstant, NumericPauliError, Pauli, PauliSum,
+    PauliWord, Rational, RewriteRule, ScalarExpr, Simplifier, SymbolicPauliSum, UnboundSymbol,
 };
 use quantumforge::quantum::{HilbertSpace, Ket, SparseKet};
 use std::collections::HashMap;

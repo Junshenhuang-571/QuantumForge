@@ -540,8 +540,11 @@ pub mod python_bindings {
             params: Vec<f64>,
             qubits: usize,
         ) -> PyResult<(f64, Vec<f64>)> {
-            let data: Vec<(Vec<f64>, f64)> =
-                data_x.into_iter().zip(data_y).map(|(x, y)| (vec![x], y)).collect();
+            let data: Vec<(Vec<f64>, f64)> = data_x
+                .into_iter()
+                .zip(data_y)
+                .map(|(x, y)| (vec![x], y))
+                .collect();
             self.inner
                 .mse_loss_and_gradient(&data, &params, qubits, SingleQubitObservable::Z, 0)
                 .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))
@@ -554,7 +557,13 @@ pub mod python_bindings {
             qubits: usize,
         ) -> PyResult<Vec<f64>> {
             self.inner
-                .parameter_shift_gradient_with_inputs(&inputs, &params, qubits, SingleQubitObservable::Z, 0)
+                .parameter_shift_gradient_with_inputs(
+                    &inputs,
+                    &params,
+                    qubits,
+                    SingleQubitObservable::Z,
+                    0,
+                )
                 .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))
         }
     }

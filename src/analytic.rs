@@ -340,14 +340,16 @@ impl fmt::Display for NumericPauliError {
 }
 impl Error for NumericPauliError {}
 
-
 fn split_coeff(expr: &ScalarExpr) -> (Vec<ScalarExpr>, Option<ExactComplex>) {
     if let ScalarExpr::Mul(factors) = expr {
         let mut coeff = None;
         let mut skel = Vec::new();
         for f in factors {
-            if let ScalarExpr::Exact(v) = f { coeff = Some(*v); }
-            else { skel.push(f.clone()); }
+            if let ScalarExpr::Exact(v) = f {
+                coeff = Some(*v);
+            } else {
+                skel.push(f.clone());
+            }
         }
         (skel, coeff)
     } else if let ScalarExpr::Exact(v) = expr {
@@ -410,42 +412,60 @@ impl ScalarExpr {
                 let mut flat: Vec<Self> = Vec::new();
                 for t in terms {
                     let c = t.canonicalize();
-                    if let Self::Add(inner) = c { flat.extend(inner); } else { flat.push(c); }
+                    if let Self::Add(inner) = c {
+                        flat.extend(inner);
+                    } else {
+                        flat.push(c);
+                    }
                 }
                 let mut exact_sum = ExactComplex::ZERO;
                 let mut has_exact = false;
                 let mut rest: Vec<Self> = Vec::new();
                 for t in flat {
-                    if let Self::Exact(v) = t { has_exact = true; if let Ok(s) = exact_sum.checked_add(v) { exact_sum = s; } }
-                    else { rest.push(t); }
+                    if let Self::Exact(v) = t {
+                        has_exact = true;
+                        if let Ok(s) = exact_sum.checked_add(v) {
+                            exact_sum = s;
+                        }
+                    } else {
+                        rest.push(t);
+                    }
                 }
-                if has_exact && exact_sum != ExactComplex::ZERO { rest.push(Self::Exact(exact_sum)); }
+                if has_exact && exact_sum != ExactComplex::ZERO {
+                    rest.push(Self::Exact(exact_sum));
+                }
                 // Combine like terms: group by skeleton, sum coefficients.
                 let mut combined: Vec<Self> = Vec::new();
                 let mut used = vec![false; rest.len()];
                 for i in 0..rest.len() {
-                    if used[i] { continue; }
+                    if used[i] {
+                        continue;
+                    }
                     // Extract skeleton and coefficient.
                     let (skel_i, coeff_i) = split_coeff(&rest[i]);
                     let mut total_coeff = coeff_i;
                     for j in (i + 1)..rest.len() {
-                        if used[j] { continue; }
+                        if used[j] {
+                            continue;
+                        }
                         let (skel_j, coeff_j) = split_coeff(&rest[j]);
                         if skel_i == skel_j {
                             used[j] = true;
                             // Add coefficients.
                             let ci = total_coeff.unwrap_or(ExactComplex::ONE);
                             let cj = coeff_j.unwrap_or(ExactComplex::ONE);
-                            if let Ok(s) = ci.checked_add(cj) { total_coeff = Some(s); }
+                            if let Ok(s) = ci.checked_add(cj) {
+                                total_coeff = Some(s);
+                            }
                         }
                     }
                     used[i] = true;
                     // Rebuild term.
                     let mut factors: Vec<Self> = Vec::new();
-                    if let Some(c) = total_coeff {
-                        if c != ExactComplex::ONE || skel_i.is_empty() {
-                            factors.push(Self::Exact(c));
-                        }
+                    if let Some(c) = total_coeff
+                        && (c != ExactComplex::ONE || skel_i.is_empty())
+                    {
+                        factors.push(Self::Exact(c));
                     }
                     factors.extend(skel_i.clone());
                     if factors.is_empty() {
@@ -459,32 +479,54 @@ impl ScalarExpr {
                 let mut rest = combined;
                 rest.retain(|t| !matches!(t, Self::Exact(v) if *v == ExactComplex::ZERO));
                 rest.sort();
-                if rest.is_empty() { Self::Exact(ExactComplex::ZERO) }
-                else if rest.len() == 1 { rest.pop().unwrap() }
-                else { Self::Add(rest) }
+                if rest.is_empty() {
+                    Self::Exact(ExactComplex::ZERO)
+                } else if rest.len() == 1 {
+                    rest.pop().unwrap()
+                } else {
+                    Self::Add(rest)
+                }
             }
             Self::Mul(factors) => {
                 let mut flat: Vec<Self> = Vec::new();
                 for f in factors {
                     let c = f.canonicalize();
-                    if let Self::Mul(inner) = c { flat.extend(inner); } else { flat.push(c); }
+                    if let Self::Mul(inner) = c {
+                        flat.extend(inner);
+                    } else {
+                        flat.push(c);
+                    }
                 }
                 let mut exact_prod = ExactComplex::ONE;
                 let mut has_exact = false;
                 let mut rest: Vec<Self> = Vec::new();
                 for f in flat {
-                    if let Self::Exact(v) = f { has_exact = true; if let Ok(p) = exact_prod.checked_mul(v) { exact_prod = p; } }
-                    else { rest.push(f); }
+                    if let Self::Exact(v) = f {
+                        has_exact = true;
+                        if let Ok(p) = exact_prod.checked_mul(v) {
+                            exact_prod = p;
+                        }
+                    } else {
+                        rest.push(f);
+                    }
                 }
                 if has_exact {
-                    if exact_prod == ExactComplex::ZERO { return Self::Exact(ExactComplex::ZERO); }
-                    if exact_prod != ExactComplex::ONE { rest.push(Self::Exact(exact_prod)); }
+                    if exact_prod == ExactComplex::ZERO {
+                        return Self::Exact(ExactComplex::ZERO);
+                    }
+                    if exact_prod != ExactComplex::ONE {
+                        rest.push(Self::Exact(exact_prod));
+                    }
                 }
                 rest.retain(|f| !matches!(f, Self::Exact(v) if *v == ExactComplex::ONE));
                 rest.sort();
-                if rest.is_empty() { Self::Exact(ExactComplex::ONE) }
-                else if rest.len() == 1 { rest.pop().unwrap() }
-                else { Self::Mul(rest) }
+                if rest.is_empty() {
+                    Self::Exact(ExactComplex::ONE)
+                } else if rest.len() == 1 {
+                    rest.pop().unwrap()
+                } else {
+                    Self::Mul(rest)
+                }
             }
         }
     }
@@ -496,38 +538,69 @@ impl ScalarExpr {
         fn count(expr: &ScalarExpr, counts: &mut HashMap<ScalarExpr, usize>) {
             *counts.entry(expr.clone()).or_insert(0) += 1;
             match expr {
-                ScalarExpr::Abs(x) | ScalarExpr::Sqrt(x) | ScalarExpr::Sin(x) | ScalarExpr::Cos(x)
-                | ScalarExpr::Exp(x) | ScalarExpr::Log(x) => count(x, counts),
+                ScalarExpr::Abs(x)
+                | ScalarExpr::Sqrt(x)
+                | ScalarExpr::Sin(x)
+                | ScalarExpr::Cos(x)
+                | ScalarExpr::Exp(x)
+                | ScalarExpr::Log(x) => count(x, counts),
                 ScalarExpr::Pow(x, _) => count(x, counts),
-                ScalarExpr::Add(xs) | ScalarExpr::Mul(xs) => { for x in xs { count(x, counts); } }
+                ScalarExpr::Add(xs) | ScalarExpr::Mul(xs) => {
+                    for x in xs {
+                        count(x, counts);
+                    }
+                }
                 _ => {}
             }
         }
         count(self, &mut counts);
         let mut subs: HashMap<String, Self> = HashMap::new();
         let mut counter = 0usize;
-        fn replace(expr: &ScalarExpr, counts: &HashMap<ScalarExpr, usize>, subs: &mut HashMap<String, ScalarExpr>, counter: &mut usize) -> ScalarExpr {
-            if let Some(&c) = counts.get(expr) {
-                if c > 1 && !matches!(expr, ScalarExpr::Exact(_) | ScalarExpr::Symbol(_) | ScalarExpr::Constant(_)) {
-                    for (name, val) in subs.iter() {
-                        if val == expr { return ScalarExpr::Symbol(name.clone()); }
+        fn replace(
+            expr: &ScalarExpr,
+            counts: &HashMap<ScalarExpr, usize>,
+            subs: &mut HashMap<String, ScalarExpr>,
+            counter: &mut usize,
+        ) -> ScalarExpr {
+            if let Some(&c) = counts.get(expr)
+                && c > 1
+                && !matches!(
+                    expr,
+                    ScalarExpr::Exact(_) | ScalarExpr::Symbol(_) | ScalarExpr::Constant(_)
+                )
+            {
+                for (name, val) in subs.iter() {
+                    if val == expr {
+                        return ScalarExpr::Symbol(name.clone());
                     }
-                    let name = format!("__cse_{}", *counter);
-                    *counter += 1;
-                    subs.insert(name.clone(), expr.clone());
-                    return ScalarExpr::Symbol(name);
                 }
+                let name = format!("__cse_{}", *counter);
+                *counter += 1;
+                subs.insert(name.clone(), expr.clone());
+                return ScalarExpr::Symbol(name);
             }
             match expr {
                 ScalarExpr::Abs(x) => ScalarExpr::Abs(Box::new(replace(x, counts, subs, counter))),
-                ScalarExpr::Sqrt(x) => ScalarExpr::Sqrt(Box::new(replace(x, counts, subs, counter))),
+                ScalarExpr::Sqrt(x) => {
+                    ScalarExpr::Sqrt(Box::new(replace(x, counts, subs, counter)))
+                }
                 ScalarExpr::Sin(x) => ScalarExpr::Sin(Box::new(replace(x, counts, subs, counter))),
                 ScalarExpr::Cos(x) => ScalarExpr::Cos(Box::new(replace(x, counts, subs, counter))),
                 ScalarExpr::Exp(x) => ScalarExpr::Exp(Box::new(replace(x, counts, subs, counter))),
                 ScalarExpr::Log(x) => ScalarExpr::Log(Box::new(replace(x, counts, subs, counter))),
-                ScalarExpr::Pow(x, e) => ScalarExpr::Pow(Box::new(replace(x, counts, subs, counter)), *e),
-                ScalarExpr::Add(xs) => ScalarExpr::Add(xs.iter().map(|x| replace(x, counts, subs, counter)).collect()),
-                ScalarExpr::Mul(xs) => ScalarExpr::Mul(xs.iter().map(|x| replace(x, counts, subs, counter)).collect()),
+                ScalarExpr::Pow(x, e) => {
+                    ScalarExpr::Pow(Box::new(replace(x, counts, subs, counter)), *e)
+                }
+                ScalarExpr::Add(xs) => ScalarExpr::Add(
+                    xs.iter()
+                        .map(|x| replace(x, counts, subs, counter))
+                        .collect(),
+                ),
+                ScalarExpr::Mul(xs) => ScalarExpr::Mul(
+                    xs.iter()
+                        .map(|x| replace(x, counts, subs, counter))
+                        .collect(),
+                ),
                 other => other.clone(),
             }
         }
@@ -559,7 +632,9 @@ impl ScalarExpr {
                 }
                 Self::Mul(expanded)
             }
-            Self::Add(terms) => Self::Add(terms.iter().map(|t| t.expand()).collect()).canonicalize(),
+            Self::Add(terms) => {
+                Self::Add(terms.iter().map(|t| t.expand()).collect()).canonicalize()
+            }
             Self::Abs(x) => Self::Abs(Box::new(x.expand())),
             Self::Sqrt(x) => Self::Sqrt(Box::new(x.expand())),
             Self::Sin(x) => Self::Sin(Box::new(x.expand())),
@@ -579,7 +654,12 @@ impl ScalarExpr {
             Self::Exact(_) | Self::Symbol(_) | Self::Constant(_) => true,
             Self::Add(xs) | Self::Mul(xs) => xs.iter().all(|x| x.is_polynomial()),
             Self::Pow(x, e) => *e >= 0 && x.is_polynomial(),
-            Self::Abs(_) | Self::Sqrt(_) | Self::Sin(_) | Self::Cos(_) | Self::Exp(_) | Self::Log(_) => false,
+            Self::Abs(_)
+            | Self::Sqrt(_)
+            | Self::Sin(_)
+            | Self::Cos(_)
+            | Self::Exp(_)
+            | Self::Log(_) => false,
         }
     }
     /// Verify a known identity: returns Ok(true) if expanding and canonicalizing

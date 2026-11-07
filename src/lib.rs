@@ -211,17 +211,28 @@ pub struct ExactStateVector {
 
 impl ExactStateVector {
     pub fn zero(qubits: usize) -> Result<Self, QuantumError> {
-        if qubits == 0 { return Err(QuantumError::ZeroQubits); }
+        if qubits == 0 {
+            return Err(QuantumError::ZeroQubits);
+        }
         let mut amplitudes = vec![crate::analytic::ExactComplex::ZERO; 1usize << qubits];
         amplitudes[0] = crate::analytic::ExactComplex::ONE;
         Ok(Self { amplitudes, qubits })
     }
 
-    pub fn amplitudes(&self) -> &[crate::analytic::ExactComplex] { &self.amplitudes }
-    pub fn qubits(&self) -> usize { self.qubits }
+    pub fn amplitudes(&self) -> &[crate::analytic::ExactComplex] {
+        &self.amplitudes
+    }
+    pub fn qubits(&self) -> usize {
+        self.qubits
+    }
 
     pub fn apply_x(&mut self, qubit: usize) -> Result<(), QuantumError> {
-        if qubit >= self.qubits { return Err(QuantumError::QubitOutOfRange { qubit, qubits: self.qubits }); }
+        if qubit >= self.qubits {
+            return Err(QuantumError::QubitOutOfRange {
+                qubit,
+                qubits: self.qubits,
+            });
+        }
         let n = 1usize << self.qubits;
         let step = 1usize << qubit;
         let mut i = 0;
@@ -235,12 +246,22 @@ impl ExactStateVector {
     }
 
     pub fn apply_z(&mut self, qubit: usize) -> Result<(), QuantumError> {
-        if qubit >= self.qubits { return Err(QuantumError::QubitOutOfRange { qubit, qubits: self.qubits }); }
+        if qubit >= self.qubits {
+            return Err(QuantumError::QubitOutOfRange {
+                qubit,
+                qubits: self.qubits,
+            });
+        }
         let n = 1usize << self.qubits;
         let step = 1usize << qubit;
         for i in 0..n {
             if (i >> qubit) & 1 == 1 {
-                self.amplitudes[i] = self.amplitudes[i].checked_mul(crate::analytic::ExactComplex { re: crate::analytic::Rational::MINUS_ONE, im: crate::analytic::Rational::ZERO }).unwrap_or(self.amplitudes[i]);
+                self.amplitudes[i] = self.amplitudes[i]
+                    .checked_mul(crate::analytic::ExactComplex {
+                        re: crate::analytic::Rational::MINUS_ONE,
+                        im: crate::analytic::Rational::ZERO,
+                    })
+                    .unwrap_or(self.amplitudes[i]);
             }
         }
         let _ = step;
@@ -248,7 +269,12 @@ impl ExactStateVector {
     }
 
     pub fn apply_cnot(&mut self, control: usize, target: usize) -> Result<(), QuantumError> {
-        if control >= self.qubits || target >= self.qubits { return Err(QuantumError::QubitOutOfRange { qubit: control.max(target), qubits: self.qubits }); }
+        if control >= self.qubits || target >= self.qubits {
+            return Err(QuantumError::QubitOutOfRange {
+                qubit: control.max(target),
+                qubits: self.qubits,
+            });
+        }
         let n = 1usize << self.qubits;
         for i in 0..n {
             if (i >> control) & 1 == 1 {
@@ -262,21 +288,41 @@ impl ExactStateVector {
     }
 
     pub fn apply_cz(&mut self, q0: usize, q1: usize) -> Result<(), QuantumError> {
-        if q0 >= self.qubits || q1 >= self.qubits { return Err(QuantumError::QubitOutOfRange { qubit: q0.max(q1), qubits: self.qubits }); }
+        if q0 >= self.qubits || q1 >= self.qubits {
+            return Err(QuantumError::QubitOutOfRange {
+                qubit: q0.max(q1),
+                qubits: self.qubits,
+            });
+        }
         let n = 1usize << self.qubits;
         for i in 0..n {
             if (i >> q0) & 1 == 1 && (i >> q1) & 1 == 1 {
-                self.amplitudes[i] = self.amplitudes[i].checked_mul(crate::analytic::ExactComplex { re: crate::analytic::Rational::MINUS_ONE, im: crate::analytic::Rational::ZERO }).unwrap_or(self.amplitudes[i]);
+                self.amplitudes[i] = self.amplitudes[i]
+                    .checked_mul(crate::analytic::ExactComplex {
+                        re: crate::analytic::Rational::MINUS_ONE,
+                        im: crate::analytic::Rational::ZERO,
+                    })
+                    .unwrap_or(self.amplitudes[i]);
             }
         }
         Ok(())
     }
 
     pub fn norm_sqr(&self) -> crate::analytic::Rational {
-        self.amplitudes.iter().map(|a| {
-            a.re.checked_mul(a.re).unwrap_or(crate::analytic::Rational::ZERO)
-                .checked_add(a.im.checked_mul(a.im).unwrap_or(crate::analytic::Rational::ZERO)).unwrap_or(crate::analytic::Rational::ZERO)
-        }).fold(crate::analytic::Rational::ZERO, |acc, x| acc.checked_add(x).unwrap_or(acc))
+        self.amplitudes
+            .iter()
+            .map(|a| {
+                a.re.checked_mul(a.re)
+                    .unwrap_or(crate::analytic::Rational::ZERO)
+                    .checked_add(
+                        a.im.checked_mul(a.im)
+                            .unwrap_or(crate::analytic::Rational::ZERO),
+                    )
+                    .unwrap_or(crate::analytic::Rational::ZERO)
+            })
+            .fold(crate::analytic::Rational::ZERO, |acc, x| {
+                acc.checked_add(x).unwrap_or(acc)
+            })
     }
 }
 
@@ -409,8 +455,7 @@ impl StateVector {
                     idx |= 1 << q;
                 }
             }
-            self.amplitudes
-                .swap(idx, idx ^ first_mask ^ second_mask);
+            self.amplitudes.swap(idx, idx ^ first_mask ^ second_mask);
         }
         Ok(())
     }
@@ -845,8 +890,7 @@ impl DensityMatrix {
             for inner in 0..n {
                 let u = unitary.entries()[row * n + inner];
                 for col in 0..n {
-                    temp[row * n + col] = temp[row * n + col]
-                        + u * self.entries[inner * n + col];
+                    temp[row * n + col] = temp[row * n + col] + u * self.entries[inner * n + col];
                 }
             }
         }
@@ -856,8 +900,8 @@ impl DensityMatrix {
             for inner in 0..n {
                 let t = temp[row * n + inner];
                 for col in 0..n {
-                    evolved[row * n + col] = evolved[row * n + col]
-                        + t * unitary.entries()[col * n + inner].conj();
+                    evolved[row * n + col] =
+                        evolved[row * n + col] + t * unitary.entries()[col * n + inner].conj();
                 }
             }
         }
@@ -3671,8 +3715,15 @@ impl VariationalQnn {
                 actual: weights.len(),
             });
         }
-        let circuit = crate::algorithms_templates::QnnBuilder::new(self.num_qubits, self.layers).build();
-        circuit.expectation_with_inputs(&[input], weights, self.num_qubits, SingleQubitObservable::Z, 0)
+        let circuit =
+            crate::algorithms_templates::QnnBuilder::new(self.num_qubits, self.layers).build();
+        circuit.expectation_with_inputs(
+            &[input],
+            weights,
+            self.num_qubits,
+            SingleQubitObservable::Z,
+            0,
+        )
     }
 
     /// Exact parameter-shift derivative for each weight.
@@ -3683,8 +3734,15 @@ impl VariationalQnn {
                 actual: weights.len(),
             });
         }
-        let circuit = crate::algorithms_templates::QnnBuilder::new(self.num_qubits, self.layers).build();
-        circuit.parameter_shift_gradient_with_inputs(&[input], weights, self.num_qubits, SingleQubitObservable::Z, 0)
+        let circuit =
+            crate::algorithms_templates::QnnBuilder::new(self.num_qubits, self.layers).build();
+        circuit.parameter_shift_gradient_with_inputs(
+            &[input],
+            weights,
+            self.num_qubits,
+            SingleQubitObservable::Z,
+            0,
+        )
     }
 
     /// Mean squared error and gradients with respect to all weights.
@@ -3834,5 +3892,3 @@ impl Adam {
         Ok(())
     }
 }
-
-

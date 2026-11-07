@@ -913,7 +913,10 @@ mod recovery_tests {
     fn test_mwpm_zero_syndrome() {
         let code = repetition_code_bitflip(3);
         let result = mwpm_decode(&code.stabilizers, 0);
-        assert!(result.is_empty(), "zero syndrome should give empty correction");
+        assert!(
+            result.is_empty(),
+            "zero syndrome should give empty correction"
+        );
     }
 
     #[test]
@@ -935,7 +938,10 @@ mod recovery_tests {
         // for a non-zero syndrome.
         let syn = 1u32 ^ 3u32; // errors on qubits 0 and 1
         let result = mwpm_decode(stabs, syn);
-        assert!(!result.is_empty(), "multi-error syndrome should produce correction");
+        assert!(
+            !result.is_empty(),
+            "multi-error syndrome should produce correction"
+        );
         // The correction weight should be <= 2 (MWPM finds minimum)
         assert!(result.len() <= 2, "correction should have at most 2 errors");
     }
@@ -967,11 +973,11 @@ mod recovery_tests {
         // Just verify we get some non-trivial syndromes
         assert!(!syndromes.is_empty(), "should have non-trivial syndromes");
     }
-        #[test]
-        fn test_pauli_string() {
-            let mut p = PauliString::new(3);
-            p.set(0, 1);
-            p.set(1, 3);
+    #[test]
+    fn test_pauli_string() {
+        let mut p = PauliString::new(3);
+        p.set(0, 1);
+        p.set(1, 3);
         assert_eq!(p.to_string(), "XZI");
         assert_eq!(p.weight(), 2);
     }

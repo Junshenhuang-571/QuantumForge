@@ -286,11 +286,7 @@ impl QuantumTuringMachine {
     /// repeatedly: `U_δ^t`.  For erasing machines (gap > 0) this method
     /// returns an error because multi-step coherent evolution requires an
     /// unbounded history tape (see module docs).
-    pub fn run_steps(
-        &self,
-        initial: &StateVector,
-        steps: usize,
-    ) -> Result<StateVector, QtmError> {
+    pub fn run_steps(&self, initial: &StateVector, steps: usize) -> Result<StateVector, QtmError> {
         if self.reversibility_gap() != 0 {
             return Err(QtmError::NotReversible);
         }

@@ -340,10 +340,10 @@ pub mod local {
         CircuitOp, DeviceInfo, HardwareBackend, JobHandle, JobRequest, JobResults, JobStatus,
         QuantumError, Result,
     };
-    use std::collections::HashMap;
     #[cfg(feature = "cuda")]
     use crate::cuda::CudaBackend;
     use crate::{Circuit, StateVector};
+    use std::collections::HashMap;
 
     /// Local CPU/GPU simulator backend.
     #[cfg(feature = "cuda")]
@@ -558,7 +558,8 @@ pub mod local {
             let seed = job.seed.unwrap_or(42);
             let shots = job.shots;
             let start = Instant::now();
-            let raw = self.run_circuit_with_seed(&circuit, shots, seed)
+            let raw = self
+                .run_circuit_with_seed(&circuit, shots, seed)
                 .map_err(|e| QuantumError::UnsupportedOperation(e.to_string()))?;
             let elapsed = start.elapsed();
 
@@ -567,8 +568,8 @@ pub mod local {
             for &bits in &raw {
                 let n = circuit.num_qubits();
                 let mut bytes = vec![0u8; n];
-                for i in 0..n {
-                    bytes[i] = ((bits >> i) & 1) as u8;
+                for (i, b) in bytes.iter_mut().enumerate().take(n) {
+                    *b = ((bits >> i) & 1) as u8;
                 }
                 *counts.entry(bytes).or_insert(0) += 1;
             }
@@ -598,22 +599,16 @@ pub mod local {
 
         fn job_status(&self, handle: &JobHandle) -> Result<JobStatus> {
             let store = super::LOCAL_JOB_STORE.lock().unwrap();
-            store
-                .get(&handle.id)
-                .map(|r| r.status)
-                .ok_or_else(|| {
-                    QuantumError::UnsupportedOperation(format!("unknown job: {}", handle.id))
-                })
+            store.get(&handle.id).map(|r| r.status).ok_or_else(|| {
+                QuantumError::UnsupportedOperation(format!("unknown job: {}", handle.id))
+            })
         }
 
         fn job_results(&self, handle: &JobHandle) -> Result<JobResults> {
             let store = super::LOCAL_JOB_STORE.lock().unwrap();
-            store
-                .get(&handle.id)
-                .cloned()
-                .ok_or_else(|| {
-                    QuantumError::UnsupportedOperation(format!("unknown job: {}", handle.id))
-                })
+            store.get(&handle.id).cloned().ok_or_else(|| {
+                QuantumError::UnsupportedOperation(format!("unknown job: {}", handle.id))
+            })
         }
 
         fn cancel_job(&self, handle: &JobHandle) -> Result<()> {
@@ -632,8 +627,9 @@ pub mod local {
 }
 
 use std::sync::Mutex as StdMutex;
-static LOCAL_JOB_STORE: std::sync::LazyLock<StdMutex<std::collections::HashMap<String, JobResults>>> =
-    std::sync::LazyLock::new(|| StdMutex::new(std::collections::HashMap::new()));
+static LOCAL_JOB_STORE: std::sync::LazyLock<
+    StdMutex<std::collections::HashMap<String, JobResults>>,
+> = std::sync::LazyLock::new(|| StdMutex::new(std::collections::HashMap::new()));
 
 fn uuid_simple() -> u64 {
     use std::time::SystemTime;

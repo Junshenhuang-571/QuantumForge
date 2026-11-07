@@ -4,7 +4,9 @@
 //! Provides ready-to-use implementations of common quantum algorithms
 //! with convenient builder-style APIs.
 
-use crate::{Circuit, CircuitOp, Gate, ParameterizedCircuit, QuantumError, RotationAxis, StateVector};
+use crate::{
+    Circuit, CircuitOp, Gate, ParameterizedCircuit, QuantumError, RotationAxis, StateVector,
+};
 use std::collections::HashMap;
 
 /// Grover's search algorithm.

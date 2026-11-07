@@ -492,9 +492,7 @@ impl ClusterState {
         let input_set: std::collections::HashSet<usize> = inputs.iter().copied().collect();
         let output_set: std::collections::HashSet<usize> = outputs.iter().copied().collect();
 
-        let interior: Vec<usize> = (0..n)
-            .filter(|v| !output_set.contains(v))
-            .collect();
+        let interior: Vec<usize> = (0..n).filter(|v| !output_set.contains(v)).collect();
 
         let mut adj = vec![vec![false; n]; n];
         for &(i, j) in &self.edges {
@@ -530,7 +528,10 @@ impl ClusterState {
                 return false;
             }
             for mask in 1usize..(1usize << m) {
-                let s: Vec<usize> = (0..m).filter(|&i| mask & (1 << i) != 0).map(|i| future[i]).collect();
+                let s: Vec<usize> = (0..m)
+                    .filter(|&i| mask & (1 << i) != 0)
+                    .map(|i| future[i])
+                    .collect();
                 let odd = odd_neighbourhood(&s);
                 if odd.contains(&v) {
                     found = true;
@@ -557,11 +558,7 @@ impl ClusterState {
         }
         let mut layer = vec![0usize; n];
         for i in 0..n {
-            let max_dep_layer = deps[i]
-                .iter()
-                .map(|&d| layer[d] + 1)
-                .max()
-                .unwrap_or(0);
+            let max_dep_layer = deps[i].iter().map(|&d| layer[d] + 1).max().unwrap_or(0);
             layer[i] = max_dep_layer;
         }
         layer.iter().copied().max().unwrap_or(0) + 1
