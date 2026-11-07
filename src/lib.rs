@@ -199,8 +199,85 @@ impl From<crate::cuda::CudaError> for QuantumError {
 #[derive(Clone, Debug, PartialEq)]
 /// A quantum state vector over 2^n amplitudes.
 pub struct StateVector {
-    amplitudes: Vec<Complex64>,
-    qubits: usize,
+    pub amplitudes: Vec<Complex64>,
+    pub qubits: usize,
+}
+
+#[derive(Clone, Debug)]
+pub struct ExactStateVector {
+    pub amplitudes: Vec<crate::analytic::ExactComplex>,
+    pub qubits: usize,
+}
+
+impl ExactStateVector {
+    pub fn zero(qubits: usize) -> Result<Self, QuantumError> {
+        if qubits == 0 { return Err(QuantumError::ZeroQubits); }
+        let mut amplitudes = vec![crate::analytic::ExactComplex::ZERO; 1usize << qubits];
+        amplitudes[0] = crate::analytic::ExactComplex::ONE;
+        Ok(Self { amplitudes, qubits })
+    }
+
+    pub fn amplitudes(&self) -> &[crate::analytic::ExactComplex] { &self.amplitudes }
+    pub fn qubits(&self) -> usize { self.qubits }
+
+    pub fn apply_x(&mut self, qubit: usize) -> Result<(), QuantumError> {
+        if qubit >= self.qubits { return Err(QuantumError::QubitOutOfRange { qubit, qubits: self.qubits }); }
+        let n = 1usize << self.qubits;
+        let step = 1usize << qubit;
+        let mut i = 0;
+        while i < n {
+            for j in i..(i + step) {
+                self.amplitudes.swap(j, j + step);
+            }
+            i += 2 * step;
+        }
+        Ok(())
+    }
+
+    pub fn apply_z(&mut self, qubit: usize) -> Result<(), QuantumError> {
+        if qubit >= self.qubits { return Err(QuantumError::QubitOutOfRange { qubit, qubits: self.qubits }); }
+        let n = 1usize << self.qubits;
+        let step = 1usize << qubit;
+        for i in 0..n {
+            if (i >> qubit) & 1 == 1 {
+                self.amplitudes[i] = self.amplitudes[i].checked_mul(crate::analytic::ExactComplex { re: crate::analytic::Rational::MINUS_ONE, im: crate::analytic::Rational::ZERO }).unwrap_or(self.amplitudes[i]);
+            }
+        }
+        let _ = step;
+        Ok(())
+    }
+
+    pub fn apply_cnot(&mut self, control: usize, target: usize) -> Result<(), QuantumError> {
+        if control >= self.qubits || target >= self.qubits { return Err(QuantumError::QubitOutOfRange { qubit: control.max(target), qubits: self.qubits }); }
+        let n = 1usize << self.qubits;
+        for i in 0..n {
+            if (i >> control) & 1 == 1 {
+                let j = i ^ (1 << target);
+                if j > i {
+                    self.amplitudes.swap(i, j);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub fn apply_cz(&mut self, q0: usize, q1: usize) -> Result<(), QuantumError> {
+        if q0 >= self.qubits || q1 >= self.qubits { return Err(QuantumError::QubitOutOfRange { qubit: q0.max(q1), qubits: self.qubits }); }
+        let n = 1usize << self.qubits;
+        for i in 0..n {
+            if (i >> q0) & 1 == 1 && (i >> q1) & 1 == 1 {
+                self.amplitudes[i] = self.amplitudes[i].checked_mul(crate::analytic::ExactComplex { re: crate::analytic::Rational::MINUS_ONE, im: crate::analytic::Rational::ZERO }).unwrap_or(self.amplitudes[i]);
+            }
+        }
+        Ok(())
+    }
+
+    pub fn norm_sqr(&self) -> crate::analytic::Rational {
+        self.amplitudes.iter().map(|a| {
+            a.re.checked_mul(a.re).unwrap_or(crate::analytic::Rational::ZERO)
+                .checked_add(a.im.checked_mul(a.im).unwrap_or(crate::analytic::Rational::ZERO)).unwrap_or(crate::analytic::Rational::ZERO)
+        }).fold(crate::analytic::Rational::ZERO, |acc, x| acc.checked_add(x).unwrap_or(acc))
+    }
 }
 
 impl StateVector {
@@ -281,10 +358,18 @@ impl StateVector {
         self.check_pair(control, target)?;
         let control_mask = 1usize << control;
         let target_mask = 1usize << target;
-        for index in 0..self.amplitudes.len() {
-            if index & control_mask != 0 && index & target_mask == 0 {
-                self.amplitudes.swap(index, index | target_mask);
+        let free_qubits: Vec<usize> = (0..self.qubits)
+            .filter(|&q| q != control && q != target)
+            .collect();
+        let n_free = free_qubits.len();
+        for free_val in 0..(1usize << n_free) {
+            let mut base = control_mask; // control=1, target=0
+            for (i, &q) in free_qubits.iter().enumerate() {
+                if free_val & (1 << i) != 0 {
+                    base |= 1 << q;
+                }
             }
+            self.amplitudes.swap(base, base | target_mask);
         }
         Ok(())
     }
@@ -293,10 +378,18 @@ impl StateVector {
         self.check_pair(first, second)?;
         let first_mask = 1usize << first;
         let second_mask = 1usize << second;
-        for (index, amplitude) in self.amplitudes.iter_mut().enumerate() {
-            if index & first_mask != 0 && index & second_mask != 0 {
-                *amplitude = *amplitude * -1.0;
+        let free_qubits: Vec<usize> = (0..self.qubits)
+            .filter(|&q| q != first && q != second)
+            .collect();
+        let n_free = free_qubits.len();
+        for free_val in 0..(1usize << n_free) {
+            let mut idx = first_mask | second_mask;
+            for (i, &q) in free_qubits.iter().enumerate() {
+                if free_val & (1 << i) != 0 {
+                    idx |= 1 << q;
+                }
             }
+            self.amplitudes[idx] = self.amplitudes[idx] * -1.0;
         }
         Ok(())
     }
@@ -305,11 +398,19 @@ impl StateVector {
         self.check_pair(first, second)?;
         let first_mask = 1usize << first;
         let second_mask = 1usize << second;
-        for index in 0..self.amplitudes.len() {
-            if index & first_mask == 0 && index & second_mask != 0 {
-                self.amplitudes
-                    .swap(index, index ^ first_mask ^ second_mask);
+        let free_qubits: Vec<usize> = (0..self.qubits)
+            .filter(|&q| q != first && q != second)
+            .collect();
+        let n_free = free_qubits.len();
+        for free_val in 0..(1usize << n_free) {
+            let mut idx = second_mask; // first=0, second=1
+            for (i, &q) in free_qubits.iter().enumerate() {
+                if free_val & (1 << i) != 0 {
+                    idx |= 1 << q;
+                }
             }
+            self.amplitudes
+                .swap(idx, idx ^ first_mask ^ second_mask);
         }
         Ok(())
     }
@@ -738,21 +839,25 @@ impl DensityMatrix {
             return Err(LinearError::NotUnitary);
         }
         let n = self.dimension;
-        let mut left_product = vec![Complex64::ZERO; n * n];
+        // Step 1: temp = U * rho  (cache-friendly: iterate inner in outer loop)
+        let mut temp = vec![Complex64::ZERO; n * n];
         for row in 0..n {
-            for col in 0..n {
-                for inner in 0..n {
-                    left_product[row * n + col] = left_product[row * n + col]
-                        + unitary.entries()[row * n + inner] * self.entries[inner * n + col];
+            for inner in 0..n {
+                let u = unitary.entries()[row * n + inner];
+                for col in 0..n {
+                    temp[row * n + col] = temp[row * n + col]
+                        + u * self.entries[inner * n + col];
                 }
             }
         }
+        // Step 2: evolved = temp * U^dagger = temp * conj(U^T)  (cache-friendly)
         let mut evolved = vec![Complex64::ZERO; n * n];
         for row in 0..n {
-            for col in 0..n {
-                for inner in 0..n {
+            for inner in 0..n {
+                let t = temp[row * n + inner];
+                for col in 0..n {
                     evolved[row * n + col] = evolved[row * n + col]
-                        + left_product[row * n + inner] * unitary.entries()[col * n + inner].conj();
+                        + t * unitary.entries()[col * n + inner].conj();
                 }
             }
         }
@@ -3510,7 +3615,17 @@ fn softplus(value: f64) -> f64 {
     }
 }
 
-/// Small deterministic generator for reproducible measurement sampling.
+/// xorshift64 PRNG for shot sampling and reproducible stochastic operations.
+///
+/// # Limitations
+/// - Seed 0 is forcibly replaced with `0x9e37_79b9_7f4a_7c15` (the golden-ratio
+///   constant) to avoid the all-zero fixed point of xorshift.
+/// - `next_f64` shifts right by 11 bits and divides by 2^53, so it cannot
+///   produce subnormal values and has a period of at most 2^64 - 1.
+/// - The period and statistical quality are well below PCG/Xoshiro. This is
+///   acceptable for shot sampling and seeded mini-batch shuffling, but the
+///   generator must NOT be used for cryptographic keys or as the theoretical
+///   basis for Monte Carlo error bounds.
 #[derive(Clone, Debug)]
 pub struct SmallRng(u64);
 impl SmallRng {
@@ -3556,40 +3671,20 @@ impl VariationalQnn {
                 actual: weights.len(),
             });
         }
-        let mut circuit = Circuit::new();
-        for layer in 0..self.layers {
-            // Encoding: Ry(input) on all qubits
-            for q in 0..self.num_qubits {
-                circuit.push(Gate::Ry(input), q);
-            }
-            // Entangling layer: CNOT ring
-            for q in 0..self.num_qubits {
-                circuit.cnot(q, (q + 1) % self.num_qubits);
-            }
-            // Variational: Ry(weight) on all qubits
-            for q in 0..self.num_qubits {
-                let idx = layer * self.num_qubits + q;
-                circuit.push(Gate::Ry(weights[idx]), q);
-            }
-        }
-        let state = circuit.run(StateVector::zero(self.num_qubits)?)?;
-        state.expectation_z(0)
+        let circuit = crate::algorithms_templates::QnnBuilder::new(self.num_qubits, self.layers).build();
+        circuit.expectation_with_inputs(&[input], weights, self.num_qubits, SingleQubitObservable::Z, 0)
     }
 
     /// Exact parameter-shift derivative for each weight.
     pub fn gradient(&self, input: f64, weights: &[f64]) -> Result<Vec<f64>, QuantumError> {
-        let shift = std::f64::consts::FRAC_PI_2;
-        let mut grads = Vec::with_capacity(weights.len());
-        for i in 0..weights.len() {
-            let mut w_plus = weights.to_vec();
-            let mut w_minus = weights.to_vec();
-            w_plus[i] += shift;
-            w_minus[i] -= shift;
-            let val_plus = self.evaluate(input, &w_plus)?;
-            let val_minus = self.evaluate(input, &w_minus)?;
-            grads.push(0.5 * (val_plus - val_minus));
+        if weights.len() != self.num_qubits * self.layers {
+            return Err(QuantumError::InvalidParameterCount {
+                expected: self.num_qubits * self.layers,
+                actual: weights.len(),
+            });
         }
-        Ok(grads)
+        let circuit = crate::algorithms_templates::QnnBuilder::new(self.num_qubits, self.layers).build();
+        circuit.parameter_shift_gradient_with_inputs(&[input], weights, self.num_qubits, SingleQubitObservable::Z, 0)
     }
 
     /// Mean squared error and gradients with respect to all weights.
@@ -3739,3 +3834,5 @@ impl Adam {
         Ok(())
     }
 }
+
+

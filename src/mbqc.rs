@@ -14,8 +14,21 @@
 //!    define how by-products flow. The runner simulates the adaptive choices
 //!    and returns the corrected (deterministic-up-to-input) output bits.
 //!
-//! This is the Raussendorf–Briegel model restricted to a fixed graph with
-//! feed-forward, which is Turing-complete and equivalent to the circuit model.
+//! # Scope and limitations
+//!
+//! This module is an **MBQC simulator**: it prepares the cluster state on the
+//! gate-model kernel and runs measurements with adaptive by-product propagation.
+//! It is NOT an MBQC compiler.  Specifically:
+//!
+//! - Graphs must be given statically (via `ClusterState::new` / `path` / etc.).
+//! - Gflow existence check available via `ClusterState::gflow_exists`.
+//! - Space-time depth and resource cost available.
+//! - No reverse path: a quantum circuit cannot be compiled into an
+//!   MBQC measurement pattern automatically (circuit → pattern translation
+//!   is future work).
+//!
+//! For a full MBQC compiler (flow checking + circuit → pattern translation),
+//! see the Raussendorf–Briegel / Danos–Kashefi literature.
 
 use crate::{SmallRng, StateVector};
 
@@ -123,6 +136,54 @@ impl MeasurementPattern {
 
     pub fn push(&mut self, step: MeasurementStep) {
         self.steps.push(step);
+    }
+
+    /// Basic structural check: every `depends_on_x`/`depends_on_z` index must
+    /// refer to a valid qubit, no step may depend on itself, and the dependency
+    /// graph must be acyclic (topological order exists).
+    ///
+    /// This is NOT a full flow/gflow check (Danos–Kashefi); it only catches
+    /// obvious structural errors.  Returns `Ok(())` if the pattern passes.
+    pub fn check_dependencies(&self, qubits: usize) -> Result<(), String> {
+        for (i, step) in self.steps.iter().enumerate() {
+            for &dep in step.depends_on_x.iter().chain(&step.depends_on_z) {
+                if dep >= qubits {
+                    return Err(format!(
+                        "step {i} depends on out-of-range qubit {dep} (max {})",
+                        qubits - 1
+                    ));
+                }
+                if dep == i {
+                    return Err(format!("step {i} depends on itself"));
+                }
+            }
+        }
+        let n = self.steps.len();
+        let mut in_degree = vec![0usize; n];
+        let mut adj: Vec<Vec<usize>> = vec![Vec::new(); n];
+        for (i, step) in self.steps.iter().enumerate() {
+            for &dep in step.depends_on_x.iter().chain(&step.depends_on_z) {
+                if dep < n {
+                    adj[dep].push(i);
+                    in_degree[i] += 1;
+                }
+            }
+        }
+        let mut queue: Vec<usize> = (0..n).filter(|&i| in_degree[i] == 0).collect();
+        let mut visited = 0usize;
+        while let Some(u) = queue.pop() {
+            visited += 1;
+            for &v in &adj[u] {
+                in_degree[v] -= 1;
+                if in_degree[v] == 0 {
+                    queue.push(v);
+                }
+            }
+        }
+        if visited != n {
+            return Err("dependency graph contains a cycle".to_string());
+        }
+        Ok(())
     }
 
     /// Execute the pattern on a freshly prepared cluster state with a seeded
@@ -419,4 +480,121 @@ pub fn teleport_through_path(alpha: f64, seed: u64) -> Result<u8, String> {
     });
     let run = pattern.run(&cluster, seed)?;
     Ok(run.outputs[0])
+}
+
+// ── gflow existence check (Mhalla–Perdrix 2008) ──────────────────────
+
+impl ClusterState {
+    /// Check whether a generalized flow (gflow) exists for the given input
+    /// and output sets.
+    pub fn gflow_exists(&self, inputs: &[usize], outputs: &[usize]) -> bool {
+        let n = self.qubits;
+        let input_set: std::collections::HashSet<usize> = inputs.iter().copied().collect();
+        let output_set: std::collections::HashSet<usize> = outputs.iter().copied().collect();
+
+        let interior: Vec<usize> = (0..n)
+            .filter(|v| !output_set.contains(v))
+            .collect();
+
+        let mut adj = vec![vec![false; n]; n];
+        for &(i, j) in &self.edges {
+            if i < n && j < n {
+                adj[i][j] = true;
+                adj[j][i] = true;
+            }
+        }
+
+        let odd_neighbourhood = |s: &[usize]| -> Vec<usize> {
+            let mut counts = vec![0usize; n];
+            for &v in s {
+                for u in 0..n {
+                    if adj[v][u] {
+                        counts[u] += 1;
+                    }
+                }
+            }
+            (0..n).filter(|&u| counts[u] % 2 == 1).collect()
+        };
+
+        if interior.len() > 16 {
+            return false;
+        }
+
+        for &v in &interior {
+            let future: Vec<usize> = (0..n)
+                .filter(|&u| !input_set.contains(&u) && u != v)
+                .collect();
+            let mut found = false;
+            let m = future.len();
+            if m > 20 {
+                return false;
+            }
+            for mask in 1usize..(1usize << m) {
+                let s: Vec<usize> = (0..m).filter(|&i| mask & (1 << i) != 0).map(|i| future[i]).collect();
+                let odd = odd_neighbourhood(&s);
+                if odd.contains(&v) {
+                    found = true;
+                    break;
+                }
+            }
+            if !found {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// Space-time depth: number of parallel measurement layers.
+    pub fn space_time_depth(&self, pattern: &MeasurementPattern) -> usize {
+        let n = pattern.steps.len();
+        let mut deps: Vec<Vec<usize>> = vec![Vec::new(); n];
+        for (i, step) in pattern.steps.iter().enumerate() {
+            for &dep in step.depends_on_x.iter().chain(&step.depends_on_z) {
+                if dep < n {
+                    deps[i].push(dep);
+                }
+            }
+        }
+        let mut layer = vec![0usize; n];
+        for i in 0..n {
+            let max_dep_layer = deps[i]
+                .iter()
+                .map(|&d| layer[d] + 1)
+                .max()
+                .unwrap_or(0);
+            layer[i] = max_dep_layer;
+        }
+        layer.iter().copied().max().unwrap_or(0) + 1
+    }
+
+    /// Resource-state cost model.
+    pub fn resource_cost(&self, pattern: &MeasurementPattern) -> ResourceCost {
+        let depth = self.space_time_depth(pattern);
+        let mut dep_edges = 0usize;
+        for step in &pattern.steps {
+            dep_edges += step.depends_on_x.len() + step.depends_on_z.len();
+        }
+        let output_count = pattern.steps.iter().filter(|s| s.output).count();
+        ResourceCost {
+            qubits: self.qubits,
+            edges: self.edges.len(),
+            measurements: pattern.steps.len(),
+            output_qubits: output_count,
+            space_time_depth: depth,
+            byproduct_edges: dep_edges,
+            total_cost: self.qubits + self.edges.len() + depth * pattern.steps.len(),
+        }
+    }
+}
+
+/// Resource-state cost summary for an MBQC pattern.
+#[derive(Clone, Debug)]
+pub struct ResourceCost {
+    pub qubits: usize,
+    pub edges: usize,
+    pub measurements: usize,
+    pub output_qubits: usize,
+    pub space_time_depth: usize,
+    pub byproduct_edges: usize,
+    pub total_cost: usize,
 }

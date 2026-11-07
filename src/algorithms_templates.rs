@@ -4,7 +4,7 @@
 //! Provides ready-to-use implementations of common quantum algorithms
 //! with convenient builder-style APIs.
 
-use crate::{Circuit, CircuitOp, Gate, QuantumError, StateVector};
+use crate::{Circuit, CircuitOp, Gate, ParameterizedCircuit, QuantumError, RotationAxis, StateVector};
 use std::collections::HashMap;
 
 /// Grover's search algorithm.
@@ -52,34 +52,9 @@ impl Grover {
                 circuit.push(Gate::X, i);
             }
 
-            // Multi-controlled Z (on all qubits)
-            if self.num_qubits == 2 {
-                circuit.cz(0, 1);
-            } else if self.num_qubits == 3 {
-                // Toffoli-like multi-controlled Z
-                circuit.push(Gate::H, 2);
-                circuit.cnot(1, 2);
-                circuit.push(Gate::Tdg, 2);
-                circuit.cnot(0, 2);
-                circuit.push(Gate::T, 2);
-                circuit.cnot(1, 2);
-                circuit.push(Gate::Tdg, 2);
-                circuit.cnot(0, 2);
-                circuit.push(Gate::T, 1);
-                circuit.push(Gate::T, 2);
-                circuit.cnot(0, 1);
-                circuit.push(Gate::H, 2);
-            } else {
-                // General case: cascade of Toffolis
-                // Simplified: use Z on last qubit controlled by all others
-                for i in 0..self.num_qubits - 1 {
-                    circuit.cnot(i, self.num_qubits - 1);
-                }
-                circuit.push(Gate::Z, self.num_qubits - 1);
-                for i in (0..self.num_qubits - 1).rev() {
-                    circuit.cnot(i, self.num_qubits - 1);
-                }
-            }
+            // Multi-controlled Z (correct for any n)
+            let qubits: Vec<usize> = (0..self.num_qubits).collect();
+            crate::algorithms::mc_z(&mut circuit, &qubits);
 
             for i in 0..self.num_qubits {
                 circuit.push(Gate::X, i);
@@ -275,6 +250,52 @@ impl HEABuilder {
     /// Number of parameters required.
     pub fn num_params(&self) -> usize {
         self.layers * self.num_qubits * 2
+    }
+}
+
+/// Builder for a variational quantum neural network (QNN) circuit.
+///
+/// Architecture: Ry(input) on all qubits -> CNOT ring -> Ry(weights) on all qubits,
+/// repeated for `layers` times. Final readout: `<Z>` on qubit 0.
+///
+/// This is a constructor on `ParameterizedCircuit`, following the same
+/// builder pattern as `HEABuilder` and `QAOABuilder`. The resulting
+/// `ParameterizedCircuit` can be trained using the general variational
+/// infrastructure (`mse_loss_and_gradient`, `parameter_shift_gradient`, etc.).
+pub struct QnnBuilder {
+    num_qubits: usize,
+    layers: usize,
+}
+
+impl QnnBuilder {
+    pub fn new(num_qubits: usize, layers: usize) -> Self {
+        Self { num_qubits, layers }
+    }
+
+    /// Number of trainable parameters (num_qubits * layers).
+    pub fn num_params(&self) -> usize {
+        self.num_qubits * self.layers
+    }
+
+    /// Build the `ParameterizedCircuit` with the QNN structure.
+    pub fn build(&self) -> ParameterizedCircuit {
+        let mut circuit = ParameterizedCircuit::with_inputs(self.num_qubits * self.layers, 1);
+        for layer in 0..self.layers {
+            // Encoding: Ry(input) on all qubits
+            for q in 0..self.num_qubits {
+                circuit.encode_rotation(RotationAxis::Y, q, 0);
+            }
+            // Entangling layer: CNOT ring
+            for q in 0..self.num_qubits {
+                circuit.cnot(q, (q + 1) % self.num_qubits);
+            }
+            // Variational: Ry(weight) on all qubits
+            for q in 0..self.num_qubits {
+                let idx = layer * self.num_qubits + q;
+                circuit.rotation(RotationAxis::Y, q, idx);
+            }
+        }
+        circuit
     }
 }
 

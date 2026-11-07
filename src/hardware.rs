@@ -340,6 +340,7 @@ pub mod local {
         CircuitOp, DeviceInfo, HardwareBackend, JobHandle, JobRequest, JobResults, JobStatus,
         QuantumError, Result,
     };
+    use std::collections::HashMap;
     #[cfg(feature = "cuda")]
     use crate::cuda::CudaBackend;
     use crate::{Circuit, StateVector};
@@ -546,35 +547,101 @@ pub mod local {
                 })
         }
 
-        fn submit_job(&self, _job: &JobRequest) -> Result<JobHandle> {
-            // Execute locally and return immediate results
-            // For async interface, we'd need a thread pool
-            Err(QuantumError::UnsupportedOperation(
-                "Local backend uses synchronous run_circuit, not submit/poll".into(),
-            ))
+        fn submit_job(&self, job: &JobRequest) -> Result<JobHandle> {
+            use std::time::Instant;
+
+            // Parse the QASM circuit
+            let circuit = crate::qasm::parse_qasm(&job.circuit_qasm)
+                .map_err(|e| QuantumError::UnsupportedOperation(e.to_string()))?;
+
+            // Execute locally
+            let seed = job.seed.unwrap_or(42);
+            let shots = job.shots;
+            let start = Instant::now();
+            let raw = self.run_circuit_with_seed(&circuit, shots, seed)
+                .map_err(|e| QuantumError::UnsupportedOperation(e.to_string()))?;
+            let elapsed = start.elapsed();
+
+            // Build counts
+            let mut counts: HashMap<Vec<u8>, usize> = HashMap::new();
+            for &bits in &raw {
+                let n = circuit.num_qubits();
+                let mut bytes = vec![0u8; n];
+                for i in 0..n {
+                    bytes[i] = ((bits >> i) & 1) as u8;
+                }
+                *counts.entry(bytes).or_insert(0) += 1;
+            }
+
+            let handle = JobHandle {
+                id: format!("local-{}", super::uuid_simple()),
+                provider: "local".to_string(),
+            };
+
+            let results = JobResults {
+                handle: handle.clone(),
+                status: JobStatus::Completed,
+                counts,
+                shots,
+                execution_time: elapsed,
+                metadata: job.metadata.clone(),
+            };
+
+            // Store in global map
+            super::LOCAL_JOB_STORE
+                .lock()
+                .unwrap()
+                .insert(handle.id.clone(), results);
+
+            Ok(handle)
         }
 
-        fn job_status(&self, _handle: &JobHandle) -> Result<JobStatus> {
-            Err(QuantumError::UnsupportedOperation(
-                "Local backend doesn't use job handles".into(),
-            ))
+        fn job_status(&self, handle: &JobHandle) -> Result<JobStatus> {
+            let store = super::LOCAL_JOB_STORE.lock().unwrap();
+            store
+                .get(&handle.id)
+                .map(|r| r.status)
+                .ok_or_else(|| {
+                    QuantumError::UnsupportedOperation(format!("unknown job: {}", handle.id))
+                })
         }
 
-        fn job_results(&self, _handle: &JobHandle) -> Result<JobResults> {
-            Err(QuantumError::UnsupportedOperation(
-                "Local backend doesn't use job handles".into(),
-            ))
+        fn job_results(&self, handle: &JobHandle) -> Result<JobResults> {
+            let store = super::LOCAL_JOB_STORE.lock().unwrap();
+            store
+                .get(&handle.id)
+                .cloned()
+                .ok_or_else(|| {
+                    QuantumError::UnsupportedOperation(format!("unknown job: {}", handle.id))
+                })
         }
 
-        fn cancel_job(&self, _handle: &JobHandle) -> Result<()> {
-            Err(QuantumError::UnsupportedOperation(
-                "Local backend doesn't use job handles".into(),
-            ))
+        fn cancel_job(&self, handle: &JobHandle) -> Result<()> {
+            let mut store = super::LOCAL_JOB_STORE.lock().unwrap();
+            if let Some(r) = store.get_mut(&handle.id) {
+                r.status = JobStatus::Cancelled;
+                Ok(())
+            } else {
+                Err(QuantumError::UnsupportedOperation(format!(
+                    "unknown job: {}",
+                    handle.id
+                )))
+            }
         }
     }
 }
 
-/// Convert QuantumForge Circuit to provider-specific formats.
+use std::sync::Mutex as StdMutex;
+static LOCAL_JOB_STORE: std::sync::LazyLock<StdMutex<std::collections::HashMap<String, JobResults>>> =
+    std::sync::LazyLock::new(|| StdMutex::new(std::collections::HashMap::new()));
+
+fn uuid_simple() -> u64 {
+    use std::time::SystemTime;
+    SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos() as u64
+}
 pub mod transpile {
     use super::{Circuit, CircuitOp, Gate};
     use crate::qasm_export;

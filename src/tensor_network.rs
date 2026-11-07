@@ -1175,7 +1175,9 @@ impl DMRG {
                 }
             }
             let gs_c: Vec<Complex64> = gs.iter().map(|&x| Complex64::new(x, 0.0)).collect();
-            self.ground_state = Some(gs_c);
+            self.ground_state = Some(gs_c.clone());
+            // Reconstruct MPS from ground state vector for correlation queries
+            self.mps = MPS::from_state_vector(&gs_c, n, self.mps.max_bond);
         } else {
             self.ground_state = None;
         }

@@ -114,7 +114,15 @@ impl CircuitParser<'_> {
         if matches!(self.peek(), Some(TokenKind::RightBracket)) {
             self.next();
         } else {
+            let mut op_count = 0usize;
             loop {
+                if op_count >= MAX_CIRCUIT_OPS {
+                    return Err(ParseError::new(
+                        self.source.len(),
+                        format!("circuit has more than {MAX_CIRCUIT_OPS} operations"),
+                    ));
+                }
+                op_count += 1;
                 self.parse_operation(&mut circuit)?;
                 match self.next() {
                     Some(Token {
@@ -395,9 +403,12 @@ struct Parser {
 }
 
 /// Maximum expression nesting depth before the parser bails out. Deep enough
-/// for any realistic expression, shallow enough that recursive descent cannot
-/// overflow the stack (a pasted `((((…))))` returns an error, not a crash).
+/// Maximum nesting depth for recursive-descent expression parsing.
+/// Deeply nested input (e.g. `((((…))))`) returns an error instead of
+/// overflowing the stack.
 const MAX_PARSE_DEPTH: usize = 256;
+// Maximum number of operations in a single Circuit[...] expression.
+const MAX_CIRCUIT_OPS: usize = 10_000;
 impl Parser {
     fn peek(&self) -> Option<&Token> {
         self.tokens.get(self.position)

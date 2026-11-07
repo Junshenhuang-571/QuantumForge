@@ -280,6 +280,27 @@ impl QuantumTuringMachine {
         Ok(map)
     }
 
+    /// Run `steps` quantum steps on a reversible machine (reversibility_gap == 0).
+    ///
+    /// For machines whose transition table is a bijection, `U_δ` can be applied
+    /// repeatedly: `U_δ^t`.  For erasing machines (gap > 0) this method
+    /// returns an error because multi-step coherent evolution requires an
+    /// unbounded history tape (see module docs).
+    pub fn run_steps(
+        &self,
+        initial: &StateVector,
+        steps: usize,
+    ) -> Result<StateVector, QtmError> {
+        if self.reversibility_gap() != 0 {
+            return Err(QtmError::NotReversible);
+        }
+        let mut state = initial.clone();
+        for _ in 0..steps {
+            state = self.step_quantum(&state)?;
+        }
+        Ok(state)
+    }
+
     /// Whether this machine can be synthesised as a unitary on the plain
     /// configuration register. Requires `states ≤ 2^head_bits` (the internal
     /// state must fit injectively in the state register). Machines that also
@@ -587,7 +608,7 @@ impl QuantumTuringMachine {
         for _ in 0..steps {
             state = self
                 .step_quantum(&state)
-                .map_err(|_| QuantumError::OperationRequiresShotExecution)?;
+                .map_err(|e| QuantumError::UnsupportedOperation(e.to_string()))?;
         }
         let mut rng = SmallRng::seeded(seed);
         // Measure the top `state_bits` qubits (the internal state register).

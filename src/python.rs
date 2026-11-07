@@ -7,7 +7,8 @@
 #[cfg(feature = "pyo3")]
 pub mod python_bindings {
     use crate::{
-        Circuit, DensityMatrix, Gate, ShotResult, StateVector,
+        Circuit, DensityMatrix, Gate, ParameterizedCircuit, RotationAxis, ShotResult,
+        SingleQubitObservable, StateVector,
         algorithms_templates::{
             EntanglementPattern, Grover, HEABuilder, QAOAAnsatzBuilder, QAOABuilder,
         },
@@ -467,6 +468,96 @@ pub mod python_bindings {
         }
     }
 
+    /// Python wrapper for ParameterizedCircuit with training support.
+    #[pyclass]
+    struct PyParameterizedCircuit {
+        inner: ParameterizedCircuit,
+    }
+
+    #[pymethods]
+    impl PyParameterizedCircuit {
+        #[new]
+        fn new(parameter_count: usize) -> Self {
+            Self {
+                inner: ParameterizedCircuit::new(parameter_count),
+            }
+        }
+
+        #[staticmethod]
+        fn with_inputs(parameter_count: usize, input_count: usize) -> Self {
+            Self {
+                inner: ParameterizedCircuit::with_inputs(parameter_count, input_count),
+            }
+        }
+
+        fn rotation(&mut self, axis: &str, target: usize, parameter: usize) {
+            let ax = match axis {
+                "x" | "X" => RotationAxis::X,
+                "y" | "Y" => RotationAxis::Y,
+                "z" | "Z" => RotationAxis::Z,
+                _ => RotationAxis::Y,
+            };
+            self.inner.rotation(ax, target, parameter);
+        }
+
+        fn encode_rotation(&mut self, axis: &str, target: usize, input: usize) {
+            let ax = match axis {
+                "x" | "X" => RotationAxis::X,
+                "y" | "Y" => RotationAxis::Y,
+                "z" | "Z" => RotationAxis::Z,
+                _ => RotationAxis::Y,
+            };
+            self.inner.encode_rotation(ax, target, input);
+        }
+
+        fn cnot(&mut self, control: usize, target: usize) {
+            self.inner.cnot(control, target);
+        }
+
+        fn parameter_count(&self) -> usize {
+            self.inner.parameter_count()
+        }
+
+        fn input_count(&self) -> usize {
+            self.inner.input_count()
+        }
+
+        fn expectation_z(
+            &self,
+            params: Vec<f64>,
+            qubits: usize,
+            observable_qubit: usize,
+        ) -> PyResult<f64> {
+            self.inner
+                .expectation_z(&params, qubits, observable_qubit)
+                .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))
+        }
+
+        fn mse_loss_and_gradient(
+            &self,
+            data_x: Vec<f64>,
+            data_y: Vec<f64>,
+            params: Vec<f64>,
+            qubits: usize,
+        ) -> PyResult<(f64, Vec<f64>)> {
+            let data: Vec<(Vec<f64>, f64)> =
+                data_x.into_iter().zip(data_y).map(|(x, y)| (vec![x], y)).collect();
+            self.inner
+                .mse_loss_and_gradient(&data, &params, qubits, SingleQubitObservable::Z, 0)
+                .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))
+        }
+
+        fn parameter_shift_gradient(
+            &self,
+            inputs: Vec<f64>,
+            params: Vec<f64>,
+            qubits: usize,
+        ) -> PyResult<Vec<f64>> {
+            self.inner
+                .parameter_shift_gradient_with_inputs(&inputs, &params, qubits, SingleQubitObservable::Z, 0)
+                .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))
+        }
+    }
     /// QAOA-style ansatz (alternating cost/mixer).
     #[pyclass]
     struct PyQAOAAnsatzBuilder {
@@ -836,7 +927,7 @@ pub mod python_bindings {
 
     #[pyfunction]
     fn shor_factor_large_py(n: u64) -> Option<(u64, u64)> {
-        crate::algorithms::shor_factor_large(n)
+        crate::algorithms::shor_factor(n)
     }
 
     #[pyfunction]
@@ -856,6 +947,7 @@ pub mod python_bindings {
         m.add_class::<PyGrover>()?;
         m.add_class::<PyQAOABuilder>()?;
         m.add_class::<PyHEABuilder>()?;
+        m.add_class::<PyParameterizedCircuit>()?;
         m.add_class::<PyQAOAAnsatzBuilder>()?;
         m.add_class::<PyOptimizeConfig>()?;
         m.add_class::<PyQecCode>()?;

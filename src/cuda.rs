@@ -10,6 +10,7 @@ use std::collections::BTreeMap;
 use std::ffi::{CStr, CString, c_char, c_int, c_uint, c_void};
 use std::ptr;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 type CuDevice = c_int;
 type CuDevicePtr = u64;
@@ -503,6 +504,7 @@ struct CudaBackendInner {
     density_channel: CuFunction,
     density_measure_probability: CuFunction,
     density_measure_collapse: CuFunction,
+    released: AtomicBool,
 }
 
 // Safety: CUDA contexts are thread-local, but we ensure proper access patterns
@@ -774,6 +776,7 @@ impl CudaBackend {
                     density_channel,
                     density_measure_probability,
                     density_measure_collapse,
+                    released: AtomicBool::new(false),
                 }),
             }),
             Err(error) => {
@@ -783,7 +786,6 @@ impl CudaBackend {
         }
     }
 
-    /// Apply Ry on the device, returning amplitudes to host memory on completion.
     pub fn apply_ry(
         &self,
         state: &mut StateVector,
@@ -2971,6 +2973,10 @@ fn launch_rotation(
 
 impl Drop for CudaBackendInner {
     fn drop(&mut self) {
+        if self.released.swap(true, Ordering::AcqRel) {
+            // Already released — skip to avoid double-release.
+            return;
+        }
         unsafe {
             cuCtxSetCurrent(self.context);
             cuModuleUnload(self.module);

@@ -418,23 +418,17 @@ impl<'a> QasmParser<'a> {
         Ok(())
     }
 
-    fn parse_reset(&mut self, line: &str) -> Result<(), QasmError> {
-        // reset q[i];  or  reset q;
-        let line = line.trim_end_matches(';').trim();
-        let rest = line
-            .strip_prefix("reset")
-            .ok_or_else(|| QasmError::new(self.position, "invalid reset"))?;
-        let rest = rest.trim();
-
-        // Parse qubit reference(s)
-        for qref in rest.split(',') {
-            let qref = qref.trim();
-            let idx = self.resolve_qubit(qref)?;
-            // Reset = measure + conditional X, but we just apply X if we knew it was |1⟩
-            // For simplicity, we skip reset (it's a no-op on |0⟩ states)
-            let _ = idx;
-        }
-        Ok(())
+    fn parse_reset(&mut self, _line: &str) -> Result<(), QasmError> {
+        // reset has no well-defined semantics in a pure-state simulator:
+        // it means "measure qubit in Z, then apply X if result is 1", which
+        // collapses the state and requires a classical register + RNG.
+        // Map to measure+conditional-X would need shot execution; instead we
+        // error explicitly so the caller knows reset is not supported in
+        // unitary simulation mode.
+        Err(QasmError::new(
+            self.position,
+            "reset is not supported in pure-state simulation (requires measure+conditional-X; use shot execution mode)",
+        ))
     }
 
     fn parse_measure(&mut self, line: &str) -> Result<(), QasmError> {
@@ -1138,6 +1132,7 @@ mygate q[0], q[1];
 
     #[test]
     fn parse_barrier_and_reset() {
+        // reset is not supported in pure-state simulation
         let qasm = r#"
 OPENQASM 2.0;
 qreg q[2];
@@ -1146,8 +1141,7 @@ barrier q;
 reset q[0];
 cx q[0], q[1];
 "#;
-        let circuit = parse_qasm(qasm).unwrap();
-        assert_eq!(circuit.operations().len(), 2);
+        assert!(parse_qasm(qasm).is_err());
     }
 
     #[test]

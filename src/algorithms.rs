@@ -33,22 +33,8 @@ pub fn grover_circuit(num_qubits: usize, oracle: Circuit, iterations: usize) -> 
             circuit.push(Gate::H, i);
             circuit.push(Gate::X, i);
         }
-        if num_qubits == 2 {
-            circuit.cz(0, 1);
-        } else if num_qubits == 3 {
-            circuit.push(Gate::H, 2);
-            circuit.cnot(1, 2);
-            circuit.push(Gate::Tdg, 2);
-            circuit.cnot(0, 2);
-            circuit.push(Gate::T, 2);
-            circuit.cnot(1, 2);
-            circuit.push(Gate::Tdg, 2);
-            circuit.cnot(0, 2);
-            circuit.push(Gate::T, 1);
-            circuit.push(Gate::T, 2);
-            circuit.cnot(0, 1);
-            circuit.push(Gate::H, 2);
-        }
+        let qubits: Vec<usize> = (0..num_qubits).collect();
+        mc_z(&mut circuit, &qubits);
         for i in 0..num_qubits {
             circuit.push(Gate::X, i);
             circuit.push(Gate::H, i);
@@ -58,7 +44,58 @@ pub fn grover_circuit(num_qubits: usize, oracle: Circuit, iterations: usize) -> 
     circuit
 }
 
-/// Build a QAOA circuit for MaxCut on a given graph.
+pub(crate) fn toffoli(circuit: &mut Circuit, a: usize, b: usize, c: usize) {
+    circuit.push(Gate::H, c);
+    circuit.cnot(b, c);
+    circuit.push(Gate::Tdg, c);
+    circuit.cnot(a, c);
+    circuit.push(Gate::T, c);
+    circuit.cnot(b, c);
+    circuit.push(Gate::Tdg, c);
+    circuit.cnot(a, c);
+    circuit.push(Gate::T, b);
+    circuit.push(Gate::T, c);
+    circuit.cnot(a, b);
+    circuit.push(Gate::T, a);
+    circuit.push(Gate::Tdg, b);
+    circuit.cnot(a, b);
+    circuit.push(Gate::H, c);
+}
+
+pub(crate) fn mc_x(circuit: &mut Circuit, controls: &[usize], target: usize) {
+    if controls.is_empty() {
+        circuit.push(Gate::X, target);
+    } else if controls.len() == 1 {
+        circuit.cnot(controls[0], target);
+    } else if controls.len() == 2 {
+        toffoli(circuit, controls[0], controls[1], target);
+    } else {
+        // Use last control as temporary ancilla.
+        let temp = controls[controls.len() - 1];
+        let rest = &controls[..controls.len() - 1];
+        circuit.push(Gate::X, temp); // 1 -> 0
+        mc_x(circuit, rest, temp); // temp = AND(rest)
+        circuit.cnot(temp, target); // flip target if AND(rest)
+        mc_x(circuit, rest, temp); // uncompute
+        circuit.push(Gate::X, temp); // restore
+    }
+}
+
+pub(crate) fn mc_z(circuit: &mut Circuit, qubits: &[usize]) {
+    // Multi-controlled Z on all qubits (conditioned on all 1s).
+    if qubits.len() == 1 {
+        circuit.push(Gate::Z, qubits[0]);
+    } else {
+        let temp = qubits[qubits.len() - 2];
+        let controls = &qubits[..qubits.len() - 2];
+        let target = qubits[qubits.len() - 1];
+        circuit.push(Gate::X, temp);
+        mc_x(circuit, controls, temp);
+        circuit.cz(temp, target);
+        mc_x(circuit, controls, temp);
+        circuit.push(Gate::X, temp);
+    }
+}
 pub fn qaoa_maxcut(
     num_qubits: usize,
     edges: &[(usize, usize, f64)],

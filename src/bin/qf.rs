@@ -126,7 +126,11 @@ QuantumForge REPL — one session, live state. Type 'help' for this, 'quit' to e
 
 fn main() {
     let mut session = Session::new();
-    println!("QuantumForge REPL — type 'help' for commands, 'quit' to exit.");
+    println!("╔══════════════════════════════════════════════════════╗");
+    println!("║          Welcome to QuantumForge!                    ║");
+    println!("║   Exact, fast, local quantum simulation in Rust.     ║");
+    println!("║   Type 'help' for commands, 'quit' to exit.          ║");
+    println!("╚══════════════════════════════════════════════════════╝");
     let mut line = String::new();
     loop {
         line.clear();

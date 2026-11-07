@@ -243,9 +243,9 @@ Notes:
 - For n ≥ 13 qubits, DMRG uses sparse Lanczos (Krylov subspace, m=100)
   with full reorthogonalization — verified against exact diagonalization for n=13
   (agreement to 6 decimal places).
-- Correlation queries (`tebd-correl`, `dmrg-correl`) read from the live MPS;
-  for exact-diagonalization systems the MPS is not yet reconstructed from
-  the ground state, so single-site/correlation values may be approximate.
+- Correlation queries (`tebd-correl`, `dmrg-correl`) read from the live MPS,
+  which is reconstructed from the ground state in both exact-diagonalization
+  and sparse-Lanczos paths.
 
 ### GPU Sparse Lanczos (2D/3D models)
 GPU-accelerated sparse Lanczos now works with **any** PauliSum Hamiltonian, including 2D and 3D lattice models. Previously, GPU sparse Lanczos was hardcoded for 1D TFIM only.

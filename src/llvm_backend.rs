@@ -147,6 +147,29 @@ pub fn lower_scalar_to_llvm_ir(
     Ok(emit_llvm_ir(&program))
 }
 
+/// Check whether the external toolchain required for JIT compilation (rustc)
+/// is available on PATH.
+pub fn rustc_available() -> bool {
+    std::process::Command::new("rustc")
+        .arg("--version")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+/// Check whether the LLVM optimization toolchain (`opt`, `llc`) is available.
+pub fn llvm_tools_available() -> bool {
+    std::process::Command::new("opt")
+        .arg("--version")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+        && std::process::Command::new("llc")
+            .arg("--version")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+}
 /// Run `opt` on textual LLVM IR and return the optimized IR.
 pub fn optimize_ir(ir: &str, opt_executable: &str, level: u8) -> Result<String, LlvmError> {
     if level > 3 {

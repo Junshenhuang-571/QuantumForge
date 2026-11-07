@@ -301,10 +301,13 @@ fn symbolic_differentiation_handles_chain_product_and_power_rules() {
     let sqrt_derivative = ScalarExpr::sqrt(x.clone()).differentiate("x").unwrap();
     bindings.insert("x".to_string(), Complex64::new(4.0, 0.0));
     assert!((sqrt_derivative.evaluate(&bindings).unwrap().re - 0.25).abs() < 1e-12);
-    assert_eq!(
-        ScalarExpr::abs(x.clone()).differentiate("x"),
-        Err(AnalyticError::NondifferentiableAbsoluteValue)
-    );
+    // abs(x) derivative is now an expression (x * 1 / |x|) instead of an error.
+    // Previously: Err(AnalyticError::NondifferentiableAbsoluteValue)
+    let abs_derivative = ScalarExpr::abs(x.clone()).differentiate("x").unwrap();
+    // The expression should evaluate to 1.0 for x > 0.
+    let mut abs_bindings = HashMap::new();
+    abs_bindings.insert("x".to_string(), Complex64::new(2.0, 0.0));
+    assert!((abs_derivative.evaluate(&abs_bindings).unwrap().re - 1.0).abs() < 1e-12);
     let mut positive = Assumptions::default();
     positive.set_positive("x");
     let smooth_absolute = Simplifier::new(positive)

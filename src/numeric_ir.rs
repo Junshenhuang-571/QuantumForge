@@ -1,7 +1,18 @@
 #![allow(missing_docs)]
 //! Typed scalar numeric IR and reference interpreter.
 //!
-//! The IR is a compact, validated SSA instruction stream intended as a stable
+//! Numeric IR: a compact SSA instruction stream for LLVM code generation.
+//!
+//! # Relationship to other representations
+//!
+//! `ScalarExpr` (in `analytic.rs`) is the canonical symbolic representation.
+//! `NumericProgram` is derived from it via `compile_scalar`.  Evaluation of
+//! `ScalarExpr` (via `evaluate`) and `NumericProgram` (via `evaluate`) must
+//! agree; if you change one, update the other and add a consistency test.
+//!
+//! A future unification would make `ScalarExpr` the single source of truth
+//! with `NumericProgram` as a compiled view, eliminating the duplicate
+//! operation dispatch.
 //! lowering boundary for future LLVM code generation. It deliberately contains
 //! only pure `f64` operations; symbolic expressions remain in `analytic` until
 //! explicitly lowered through the supported real-valued scalar subset.
