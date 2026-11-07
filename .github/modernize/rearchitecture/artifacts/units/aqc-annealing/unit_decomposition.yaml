@@ -1,9 +1,0 @@
-unit: aqc-annealing
-commit: false
-candidate_splits:
-  - id: "src/aqc.rs:1-110"
-    drivers: [execution_model_split, lifecycle_split]
-    rationale: "Schedule generation, interpolation path choice, and result evaluation are combined in one conceptual flow; separating schedule definition from execution would make path configurations easier to test and reason about."
-    source_slice:
-      file: "src/aqc.rs"
-      lines: [1, 110]

@@ -1,9 +1,0 @@
-unit: tensor-network-runtime
-commit: false
-candidate_splits:
-  - id: "src/tensor_network.rs:1-210"
-    drivers: [concern_split, nfr_split]
-    rationale: "The tensor network file blends low-level tensor operations, SVD helpers, and high-level TEBD/DMRG orchestration; splitting the linear algebra helpers from the solver orchestration is a plausible design boundary."
-    source_slice:
-      file: "src/tensor_network.rs"
-      lines: [1, 210]

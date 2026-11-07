@@ -1,9 +1,0 @@
-unit: core-circuit-runtime
-commit: false
-candidate_splits:
-  - id: "src/lib.rs:1-240"
-    drivers: [concern_split, reuse_split]
-    rationale: "The public state-layer code mixes exact scalar math, circuit semantics, noise channels, and serialization concerns; a targeted split between numeric primitives and circuit semantics would clarify ownership without changing the external API."
-    source_slice:
-      file: "src/lib.rs"
-      lines: [1, 240]

@@ -1,4 +1,0 @@
-unit: variational-qml
-bindings: []
-reason: "This unit exposes library-level optimization and learning routines, not web or framework endpoints."
-runtime_config: []

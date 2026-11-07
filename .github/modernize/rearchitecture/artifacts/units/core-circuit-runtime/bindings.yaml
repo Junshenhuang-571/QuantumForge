@@ -1,4 +1,0 @@
-unit: core-circuit-runtime
-bindings: []
-reason: "This unit is a library-API core with no framework-level injection or route binding; behavior is expressed in the Rust types and exported methods."
-runtime_config: []

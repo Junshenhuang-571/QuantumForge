@@ -1,4 +1,0 @@
-unit: mbqc-model
-bindings: []
-reason: "MBQC uses the Rust library API and core state model rather than external framework injection."
-runtime_config: []

@@ -1,4 +1,0 @@
-unit: qtm-runtime
-bindings: []
-reason: "The QTM is a library simulation concept, not a framework-backed module."
-runtime_config: []

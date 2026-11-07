@@ -1,9 +1,0 @@
-unit: variational-qml
-commit: false
-candidate_splits:
-  - id: "src/algorithms.rs:1-120"
-    drivers: [protocol_split, execution_model_split]
-    rationale: "Algorithm builders and optimization routines share the same circuit model but follow different execution paths; separating ansatz construction from optimizer execution would make the training workload easier to reason about."
-    source_slice:
-      file: "src/algorithms.rs"
-      lines: [1, 120]

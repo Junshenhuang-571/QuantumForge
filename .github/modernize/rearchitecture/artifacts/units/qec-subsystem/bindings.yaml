@@ -1,4 +1,0 @@
-unit: qec-subsystem
-bindings: []
-reason: "The QEC layer is a library domain with no framework-supplied injection or runtime wiring."
-runtime_config: []
