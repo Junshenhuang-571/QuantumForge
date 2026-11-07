@@ -339,7 +339,7 @@ pub fn shor_period_finding(n: u64, _a: u64) -> Circuit {
         return Circuit::new();
     }
     let m = ((n * n) as f64).log2().ceil() as usize;
-    let m = m.max(4).min(12);
+    let m = m.clamp(4, 12);
     let f_bits = (n as f64).log2().ceil() as usize;
     let f_bits = f_bits.max(2);
     let num_qubits = m + f_bits;
@@ -388,8 +388,6 @@ pub fn shor_period_finding(n: u64, _a: u64) -> Circuit {
 
     circuit
 }
-
-
 
 #[test]
 fn test_grover_circuit() {
@@ -767,7 +765,7 @@ pub fn shor_simulate(n: u64) -> Option<u64> {
 
     // Number of qubits for x register and f register
     let m = ((n * n) as f64).log2().ceil() as usize;
-    let m = m.max(4).min(12); // cap at 12 for feasibility
+    let m = m.clamp(4, 12); // cap at 12 for feasibility
     let f_bits = (n as f64).log2().ceil() as usize;
     let f_bits = f_bits.max(2);
     let total = m + f_bits;
