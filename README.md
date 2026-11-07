@@ -442,6 +442,24 @@ cargo test
 - [Release checklist](docs/releasing.md)
 - [Contributing guide](CONTRIBUTING.md)
 
+## Contributing
+
+We welcome contributions! Whether it's a bug fix, new algorithm, documentation improvement, or performance optimization — all help is appreciated.
+
+**Good first issues** (great starting points):
+- Add doc comments to public API items (run `cargo doc` to see warnings)
+- Add test coverage for edge cases
+- Improve error messages
+- Port a simple quantum algorithm (Deutsch-Jozsa, Bernstein-Vazirani are already done — try Simon's or Shor's improvements)
+- Add examples in `examples/`
+
+**How to contribute:**
+1. Fork the repo and create a feature branch
+2. Run `cargo fmt --all && cargo clippy --all-targets -- -D warnings && cargo test`
+3. Submit a PR with a clear description
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for full details. Questions? Open an issue — we respond quickly.
+
 ## License
 
 Licensed under the Apache License, Version 2.0 — see [LICENSE](LICENSE).
