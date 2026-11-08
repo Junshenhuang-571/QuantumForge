@@ -273,6 +273,45 @@ pub fn available_ram_bytes() -> usize {
         1024 * 1024 * 1024
     }
 }
+/// Detect available GPU VRAM in bytes (requires gpu feature).
+pub fn available_vram_bytes() -> usize {
+    #[cfg(feature = "gpu")]
+    {
+        // Use CUDA driver API: cuMemGetInfo_v2
+        unsafe extern "C" {
+            fn cuInit(flags: u32) -> i32;
+            fn cuDeviceGet(device: *mut i32, ordinal: i32) -> i32;
+            fn cuCtxCreate_v2(ctx: *mut *mut std::ffi::c_void, flags: u32, dev: i32) -> i32;
+            fn cuMemGetInfo_v2(free: *mut usize, total: *mut usize) -> i32;
+            fn cuCtxDestroy_v2(ctx: *mut std::ffi::c_void) -> i32;
+        }
+        unsafe {
+            if cuInit(0) != 0 {
+                return 0;
+            }
+            let mut device = 0i32;
+            if cuDeviceGet(&mut device, 0) != 0 {
+                return 0;
+            }
+            let mut ctx: *mut std::ffi::c_void = std::ptr::null_mut();
+            if cuCtxCreate_v2(&mut ctx, 0, device) != 0 {
+                return 0;
+            }
+            let mut free = 0usize;
+            let mut total = 0usize;
+            let result = cuMemGetInfo_v2(&mut free, &mut total);
+            cuCtxDestroy_v2(ctx);
+            if result == 0 {
+                return free;
+            }
+        }
+        0
+    }
+    #[cfg(not(feature = "gpu"))]
+    {
+        0
+    }
+}
 #[cfg(not(feature = "gpu"))]
 pub fn cpu_max_qubits_sparse() -> usize {
     // Estimate available RAM and compute max qubits for sparse Lanczos
