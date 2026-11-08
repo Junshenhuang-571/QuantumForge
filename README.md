@@ -247,19 +247,33 @@ Notes:
   which is reconstructed from the ground state in both exact-diagonalization
   and sparse-Lanczos paths.
 
-### GPU Sparse Lanczos (2D/3D models)
+### Stabilizer Simulation (Gottesman-Knill)
+
+Clifford circuits (H, S, X, Y, Z, CNOT, measurement) can be simulated in **O(n²) per gate** instead of exponential 2^n, handling 1000+ qubits. Uses the Aaronson-Gottesman tableau algorithm with phase tracking.
+
+```rust
+use quantumforge::stabilizer::StabilizerTableau;
+let mut tab = StabilizerTableau::new(100);
+tab.h(0);
+tab.cnot(0, 1);
+// ... Clifford circuit
+```
 GPU-accelerated sparse Lanczos now works with **any** PauliSum Hamiltonian, including 2D and 3D lattice models. Previously, GPU sparse Lanczos was hardcoded for 1D TFIM only.
 
 - `sparse_lanczos_gpu(&sparse_op, max_iter, tol)` — generic, works with `ising2d`, `heisenberg2d`, `ising3d`
 - CSR sparse matrix-vector product kernel on GPU
 - Enables ground-state computation for 2D/3D quantum systems on GPU
 
+### Sampling Error (1/√N) Confidence Intervals
+
+Shot-based measurements return Wilson score confidence intervals. `ShotResult` provides:
+- `wilson_ci_for(outcome, confidence)` — Wilson CI for a specific outcome
+- `probability_with_ci(outcome)` — probability + 95% Wilson CI
+
 ### New Spin Models
 - `ising2d` — 2D Ising on square lattice (perfect square qubit count: 4, 9, 16, 25...)
 - `heisenberg2d` — 2D Heisenberg on square lattice
 - `ising3d` — 3D Ising on cubic lattice (perfect cube: 8, 27...)
-
-### Entanglement Entropy
 - `StateVector::entanglement_entropy(n_a)` — von Neumann entropy for bipartition
 - Uses faer eigendecomposition of reduced density matrix
 
