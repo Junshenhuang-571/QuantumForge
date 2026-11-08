@@ -211,7 +211,7 @@ pub struct StateVector {
 
 #[derive(Clone, Debug)]
 pub struct ExactStateVector {
-    pub amplitudes: Vec<crate::analytic::ExactComplex>,
+    pub amplitudes: Vec<crate::analytic::QuadComplex>,
     pub qubits: usize,
 }
 
@@ -220,18 +220,136 @@ impl ExactStateVector {
         if qubits == 0 {
             return Err(QuantumError::ZeroQubits);
         }
-        let mut amplitudes = vec![crate::analytic::ExactComplex::ZERO; 1usize << qubits];
-        amplitudes[0] = crate::analytic::ExactComplex::ONE;
+        let mut amplitudes = vec![crate::analytic::QuadComplex::ZERO; 1usize << qubits];
+        amplitudes[0] = crate::analytic::QuadComplex::ONE;
         Ok(Self { amplitudes, qubits })
     }
 
-    pub fn amplitudes(&self) -> &[crate::analytic::ExactComplex] {
+    pub fn amplitudes(&self) -> &[crate::analytic::QuadComplex] {
         &self.amplitudes
     }
     pub fn qubits(&self) -> usize {
         self.qubits
     }
 
+    pub fn apply_h(&mut self, qubit: usize) -> Result<(), QuantumError> {
+        if qubit >= self.qubits {
+            return Err(QuantumError::QubitOutOfRange {
+                qubit,
+                qubits: self.qubits,
+            });
+        }
+        let n = 1usize << self.qubits;
+        let step = 1usize << qubit;
+        let half = crate::analytic::Rational::new(1, 2).unwrap();
+        let mut i = 0;
+        while i < n {
+            for j in i..(i + step) {
+                let k = j + step;
+                let a0 = self.amplitudes[j];
+                let a1 = self.amplitudes[k];
+                // new0 = (a0 + a1) / √2 = (b0+b1) + (a0+a1)/2 * √2
+                // new1 = (a0 - a1) / √2 = (b0-b1) + (a0-a1)/2 * √2
+                let sum_a_re =
+                    a0.a.re
+                        .checked_add(a1.a.re)
+                        .unwrap_or(crate::analytic::Rational::ZERO);
+                let sum_a_im =
+                    a0.a.im
+                        .checked_add(a1.a.im)
+                        .unwrap_or(crate::analytic::Rational::ZERO);
+                let sum_b_re =
+                    a0.b.re
+                        .checked_add(a1.b.re)
+                        .unwrap_or(crate::analytic::Rational::ZERO);
+                let sum_b_im =
+                    a0.b.im
+                        .checked_add(a1.b.im)
+                        .unwrap_or(crate::analytic::Rational::ZERO);
+                let diff_a_re =
+                    a0.a.re
+                        .checked_sub(a1.a.re)
+                        .unwrap_or(crate::analytic::Rational::ZERO);
+                let diff_a_im =
+                    a0.a.im
+                        .checked_sub(a1.a.im)
+                        .unwrap_or(crate::analytic::Rational::ZERO);
+                let diff_b_re =
+                    a0.b.re
+                        .checked_sub(a1.b.re)
+                        .unwrap_or(crate::analytic::Rational::ZERO);
+                let diff_b_im =
+                    a0.b.im
+                        .checked_sub(a1.b.im)
+                        .unwrap_or(crate::analytic::Rational::ZERO);
+                self.amplitudes[j] = crate::analytic::QuadComplex {
+                    a: crate::analytic::ExactComplex {
+                        re: sum_b_re,
+                        im: sum_b_im,
+                    },
+                    b: crate::analytic::ExactComplex {
+                        re: sum_a_re
+                            .checked_mul(half)
+                            .unwrap_or(crate::analytic::Rational::ZERO),
+                        im: sum_a_im
+                            .checked_mul(half)
+                            .unwrap_or(crate::analytic::Rational::ZERO),
+                    },
+                };
+                self.amplitudes[k] = crate::analytic::QuadComplex {
+                    a: crate::analytic::ExactComplex {
+                        re: diff_b_re,
+                        im: diff_b_im,
+                    },
+                    b: crate::analytic::ExactComplex {
+                        re: diff_a_re
+                            .checked_mul(half)
+                            .unwrap_or(crate::analytic::Rational::ZERO),
+                        im: diff_a_im
+                            .checked_mul(half)
+                            .unwrap_or(crate::analytic::Rational::ZERO),
+                    },
+                };
+            }
+            i += 2 * step;
+        }
+        Ok(())
+    }
+    pub fn apply_s(&mut self, qubit: usize) -> Result<(), QuantumError> {
+        if qubit >= self.qubits {
+            return Err(QuantumError::QubitOutOfRange {
+                qubit,
+                qubits: self.qubits,
+            });
+        }
+        let n = 1usize << self.qubits;
+        for i in 0..n {
+            if (i >> qubit) & 1 == 1 {
+                self.amplitudes[i] = crate::analytic::QuadComplex {
+                    a: self.amplitudes[i].a.mul_i(),
+                    b: self.amplitudes[i].b.mul_i(),
+                };
+            }
+        }
+        Ok(())
+    }
+
+    pub fn apply_t(&mut self, qubit: usize) -> Result<(), QuantumError> {
+        if qubit >= self.qubits {
+            return Err(QuantumError::QubitOutOfRange {
+                qubit,
+                qubits: self.qubits,
+            });
+        }
+        let n = 1usize << self.qubits;
+        for i in 0..n {
+            if (i >> qubit) & 1 == 1 {
+                let amp = self.amplitudes[i];
+                self.amplitudes[i] = amp.mul_t_factor();
+            }
+        }
+        Ok(())
+    }
     pub fn apply_x(&mut self, qubit: usize) -> Result<(), QuantumError> {
         if qubit >= self.qubits {
             return Err(QuantumError::QubitOutOfRange {
@@ -262,12 +380,20 @@ impl ExactStateVector {
         let step = 1usize << qubit;
         for i in 0..n {
             if (i >> qubit) & 1 == 1 {
-                self.amplitudes[i] = self.amplitudes[i]
+                self.amplitudes[i].a = self.amplitudes[i]
+                    .a
                     .checked_mul(crate::analytic::ExactComplex {
                         re: crate::analytic::Rational::MINUS_ONE,
                         im: crate::analytic::Rational::ZERO,
                     })
-                    .unwrap_or(self.amplitudes[i]);
+                    .unwrap_or(self.amplitudes[i].a);
+                self.amplitudes[i].b = self.amplitudes[i]
+                    .b
+                    .checked_mul(crate::analytic::ExactComplex {
+                        re: crate::analytic::Rational::MINUS_ONE,
+                        im: crate::analytic::Rational::ZERO,
+                    })
+                    .unwrap_or(self.amplitudes[i].b);
             }
         }
         let _ = step;
@@ -303,32 +429,38 @@ impl ExactStateVector {
         let n = 1usize << self.qubits;
         for i in 0..n {
             if (i >> q0) & 1 == 1 && (i >> q1) & 1 == 1 {
-                self.amplitudes[i] = self.amplitudes[i]
+                self.amplitudes[i].a = self.amplitudes[i]
+                    .a
                     .checked_mul(crate::analytic::ExactComplex {
                         re: crate::analytic::Rational::MINUS_ONE,
                         im: crate::analytic::Rational::ZERO,
                     })
-                    .unwrap_or(self.amplitudes[i]);
+                    .unwrap_or(self.amplitudes[i].a);
+                self.amplitudes[i].b = self.amplitudes[i]
+                    .b
+                    .checked_mul(crate::analytic::ExactComplex {
+                        re: crate::analytic::Rational::MINUS_ONE,
+                        im: crate::analytic::Rational::ZERO,
+                    })
+                    .unwrap_or(self.amplitudes[i].b);
             }
         }
         Ok(())
     }
 
     pub fn norm_sqr(&self) -> crate::analytic::Rational {
-        self.amplitudes
+        // Compute numerically via Complex64 conversion since QuadComplex
+        // involves √2 cross terms that aren't purely rational.
+        let sum: f64 = self
+            .amplitudes
             .iter()
             .map(|a| {
-                a.re.checked_mul(a.re)
-                    .unwrap_or(crate::analytic::Rational::ZERO)
-                    .checked_add(
-                        a.im.checked_mul(a.im)
-                            .unwrap_or(crate::analytic::Rational::ZERO),
-                    )
-                    .unwrap_or(crate::analytic::Rational::ZERO)
+                let c = a.to_complex64();
+                c.re * c.re + c.im * c.im
             })
-            .fold(crate::analytic::Rational::ZERO, |acc, x| {
-                acc.checked_add(x).unwrap_or(acc)
-            })
+            .sum();
+        crate::analytic::Rational::new((sum * 1e12) as i128, 1_000_000_000_000)
+            .unwrap_or(crate::analytic::Rational::ZERO)
     }
 }
 

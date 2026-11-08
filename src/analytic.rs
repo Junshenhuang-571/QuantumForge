@@ -188,6 +188,12 @@ impl ExactComplex {
             im: Rational::ZERO,
         }
     }
+    pub fn mul_i(self) -> Self {
+        ExactComplex {
+            re: self.im.checked_neg().unwrap_or(Rational::ZERO),
+            im: self.re,
+        }
+    }
     pub fn is_zero(self) -> bool {
         self.re.is_zero() && self.im.is_zero()
     }
@@ -263,6 +269,81 @@ impl ExactComplex {
             power >>= 1;
         }
         Ok(result)
+    }
+}
+
+/// Amplitude in the quadratic extension Q(√2): a + b√2, where a, b are
+/// complex rationals (ExactComplex). This supports exact Clifford gates
+/// (H, S, T, X, Z, CNOT, CZ) without floating point.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct QuadComplex {
+    /// Rational (complex) part.
+    pub a: ExactComplex,
+    /// Coefficient of √2.
+    pub b: ExactComplex,
+}
+
+impl QuadComplex {
+    pub const ZERO: Self = Self {
+        a: ExactComplex::ZERO,
+        b: ExactComplex::ZERO,
+    };
+    pub const ONE: Self = Self {
+        a: ExactComplex::ONE,
+        b: ExactComplex::ZERO,
+    };
+
+    pub fn to_complex64(self) -> Complex64 {
+        let sqrt2 = std::f64::consts::SQRT_2;
+        let a = self.a.to_complex64();
+        let b = self.b.to_complex64();
+        a + b * sqrt2
+    }
+
+    /// Multiply by i (phase gate S).
+    pub fn mul_i(self) -> Self {
+        Self {
+            a: ExactComplex {
+                re: self.a.im.checked_neg().unwrap_or(Rational::ZERO),
+                im: self.a.re,
+            },
+            b: ExactComplex {
+                re: self.b.im.checked_neg().unwrap_or(Rational::ZERO),
+                im: self.b.re,
+            },
+        }
+    }
+
+    /// Multiply by (1+i)/√2 (T gate factor on |1⟩).
+    /// (a+b√2)*(1+i)/√2 = (b + i*b) + (a/2 + i*a/2)*√2
+    pub fn mul_t_factor(self) -> Self {
+        let half = Rational::new(1, 2).unwrap_or(Rational::ONE);
+        // a' = b * (1+i)
+        let a_new_re = self.b.re.checked_sub(self.b.im).unwrap_or(Rational::ZERO);
+        let a_new_im = self.b.re.checked_add(self.b.im).unwrap_or(Rational::ZERO);
+        // b' = (a/2)*(1+i) = (a_re - a_im)/2 + i(a_re + a_im)/2
+        let b_new_re = self
+            .a
+            .re
+            .checked_sub(self.a.im)
+            .and_then(|x| x.checked_mul(half))
+            .unwrap_or(Rational::ZERO);
+        let b_new_im = self
+            .a
+            .re
+            .checked_add(self.a.im)
+            .and_then(|x| x.checked_mul(half))
+            .unwrap_or(Rational::ZERO);
+        Self {
+            a: ExactComplex {
+                re: a_new_re,
+                im: a_new_im,
+            },
+            b: ExactComplex {
+                re: b_new_re,
+                im: b_new_im,
+            },
+        }
     }
 }
 impl fmt::Display for ExactComplex {
