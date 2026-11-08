@@ -2295,6 +2295,25 @@ impl ParameterizedCircuit {
         )
     }
 
+    /// Finite-shot expectation with Wilson confidence interval.
+    pub fn expectation_shots_with_ci(
+        &self,
+        parameters: &[f64],
+        qubits: usize,
+        observable: SingleQubitObservable,
+        observable_qubit: usize,
+        sampling: ShotConfig,
+    ) -> Result<(f64, (f64, f64)), QuantumError> {
+        self.expectation_with_inputs_shots_with_ci(
+            &[],
+            parameters,
+            qubits,
+            observable,
+            observable_qubit,
+            sampling,
+        )
+    }
+
     pub fn expectation_with_inputs_shots(
         &self,
         inputs: &[f64],
@@ -2304,6 +2323,30 @@ impl ParameterizedCircuit {
         observable_qubit: usize,
         sampling: ShotConfig,
     ) -> Result<f64, QuantumError> {
+        if sampling.shots == 0 {
+            return Err(QuantumError::InvalidShotCount);
+        }
+        let state = self.run_with_inputs(inputs, parameters, qubits)?;
+        estimate_observable_shots(
+            state,
+            observable,
+            observable_qubit,
+            sampling.shots,
+            sampling.seed,
+        )
+        .map(|(est, _ci)| est)
+    }
+
+    /// Finite-shot expectation with Wilson confidence interval on the result.
+    pub fn expectation_with_inputs_shots_with_ci(
+        &self,
+        inputs: &[f64],
+        parameters: &[f64],
+        qubits: usize,
+        observable: SingleQubitObservable,
+        observable_qubit: usize,
+        sampling: ShotConfig,
+    ) -> Result<(f64, (f64, f64)), QuantumError> {
         if sampling.shots == 0 {
             return Err(QuantumError::InvalidShotCount);
         }
@@ -2374,14 +2417,16 @@ impl ParameterizedCircuit {
                     observable_qubit,
                     sampling.shots,
                     occurrence_seed,
-                )?;
+                )?
+                .0;
                 let minus = estimate_observable_shots(
                     minus_state,
                     observable,
                     observable_qubit,
                     sampling.shots,
                     occurrence_seed.wrapping_add(1),
-                )?;
+                )?
+                .0;
                 gradient[*parameter] += 0.5 * (plus - minus);
             }
         }
@@ -3706,7 +3751,7 @@ fn estimate_observable_shots(
     qubit: usize,
     shots: usize,
     seed: u64,
-) -> Result<f64, QuantumError> {
+) -> Result<(f64, (f64, f64)), QuantumError> {
     if shots == 0 {
         return Err(QuantumError::InvalidShotCount);
     }
@@ -3719,16 +3764,19 @@ fn estimate_observable_shots(
         SingleQubitObservable::Z => {}
     }
     let mut rng = SmallRng::seeded(seed);
-    let mut sum = 0.0;
+    let mut successes = 0usize;
     for _ in 0..shots {
         let mut sample = state.clone();
-        sum += if sample.measure(qubit, &mut rng)? == 0 {
-            1.0
-        } else {
-            -1.0
-        };
+        if sample.measure(qubit, &mut rng)? == 0 {
+            successes += 1;
+        }
     }
-    Ok(sum / shots as f64)
+    let p_positive = successes as f64 / shots as f64;
+    let expectation = 2.0 * p_positive - 1.0;
+    let ci = wilson_ci(successes, shots, 0.95);
+    // Convert Wilson CI on probability to CI on expectation: E = 2p - 1
+    let ci_exp = (2.0 * ci.0 - 1.0, 2.0 * ci.1 - 1.0);
+    Ok((expectation, ci_exp))
 }
 
 fn sample_expectation(expectation: f64, sampling: ShotConfig) -> Result<f64, QuantumError> {

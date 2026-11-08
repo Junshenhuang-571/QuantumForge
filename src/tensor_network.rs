@@ -1036,9 +1036,36 @@ pub struct DMRG {
     pub ground_state: Option<Vec<Complex64>>,
     /// Last truncation error (sum of discarded singular values).
     pub last_truncation_error: f64,
+    /// Single-site gates for even sites.
+    pub even_single_gates: Vec<[[Complex64; 2]; 2]>,
+    /// Single-site gates for odd sites.
+    pub odd_single_gates: Vec<[[Complex64; 2]; 2]>,
 }
 
 impl DMRG {
+    /// Run only the MPS variational sweeps (no exact/sparse shortcuts).
+    /// Useful for χ-scaling tests where MPS truncation must be active.
+    pub fn run_mps_only(
+        &mut self,
+        even_h: &[[Complex64; 4]; 4],
+        odd_h: &[[Complex64; 4]; 4],
+    ) -> Result<f64, &'static str> {
+        let mut prev_energy = f64::INFINITY;
+        for _sweep in 0..self.max_sweeps {
+            for site in 0..self.mps.n_sites - 1 {
+                self.optimize_two_site(site, even_h, odd_h)?;
+            }
+            for site in (0..self.mps.n_sites - 1).rev() {
+                self.optimize_two_site(site, even_h, odd_h)?;
+            }
+            let energy = self.measure_energy(even_h, odd_h)?;
+            if (energy - prev_energy).abs() < self.energy_tol {
+                return Ok(energy);
+            }
+            prev_energy = energy;
+        }
+        Ok(prev_energy)
+    }
     pub fn new(mps: MPS, max_bond: usize, truncation_tol: f64, max_sweeps: usize) -> Self {
         Self {
             mps,
@@ -1048,7 +1075,19 @@ impl DMRG {
             max_sweeps,
             ground_state: None,
             last_truncation_error: 0.0,
+            even_single_gates: Vec::new(),
+            odd_single_gates: Vec::new(),
         }
+    }
+
+    /// Set single-site gates for the transverse field.
+    pub fn set_single_site_gates(
+        &mut self,
+        even: Vec<[[Complex64; 2]; 2]>,
+        odd: Vec<[[Complex64; 2]; 2]>,
+    ) {
+        self.even_single_gates = even;
+        self.odd_single_gates = odd;
     }
 
     /// Create DMRG with explicit energy convergence tolerance.
@@ -1765,6 +1804,20 @@ extern "C" __global__ void vec_copy(
             let site = 2 * i + 1;
             if site + 1 < self.mps.n_sites {
                 energy += self.mps.expectation_two_site(odd_h, site)?;
+            }
+        }
+
+        // Single-site terms (transverse field)
+        for (i, gate) in self.even_single_gates.iter().enumerate() {
+            let site = 2 * i;
+            if site < self.mps.n_sites {
+                energy += self.mps.expectation_single_site(gate, site).re;
+            }
+        }
+        for (i, gate) in self.odd_single_gates.iter().enumerate() {
+            let site = 2 * i + 1;
+            if site < self.mps.n_sites {
+                energy += self.mps.expectation_single_site(gate, site).re;
             }
         }
 
