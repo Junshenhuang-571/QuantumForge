@@ -275,6 +275,7 @@ Shot-based measurements return Wilson score confidence intervals. `ShotResult` p
 - `heisenberg2d` — 2D Heisenberg on square lattice
 - `ising3d` — 3D Ising on cubic lattice (perfect cube: 8, 27...)
 - `StateVector::entanglement_entropy(n_a)` — von Neumann entropy for bipartition
+- `StateVector::renyi_entropy(n_a, alpha)` — Rényi entropy of order α (α=1 → von Neumann)
 - Uses faer eigendecomposition of reduced density matrix
 
 ### Performance
