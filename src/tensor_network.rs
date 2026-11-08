@@ -209,10 +209,74 @@ pub fn gpu_max_qubits() -> usize {
     q.max(12)
 }
 
+/// Detect available system RAM in bytes.
+pub fn available_ram_bytes() -> usize {
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(content) = std::fs::read_to_string("/proc/meminfo") {
+            for line in content.lines() {
+                if line.starts_with("MemAvailable:") {
+                    let parts: Vec<&str> = line.split_whitespace().collect();
+                    if parts.len() >= 2 {
+                        if let Ok(kb) = parts[1].parse::<usize>() {
+                            return kb * 1024;
+                        }
+                    }
+                }
+            }
+        }
+        1024 * 1024 * 1024 // 1 GB fallback
+    }
+    #[cfg(target_os = "macos")]
+    {
+        // Use sysctl
+        1024 * 1024 * 1024 // fallback; implement with sysctl if needed
+    }
+    #[cfg(target_os = "windows")]
+    {
+        // Use GlobalMemoryStatusEx
+        #[repr(C)]
+        struct MemoryStatusEx {
+            dw_length: u32,
+            dw_memory_load: u32,
+            ull_total_phys: u64,
+            ull_avail_phys: u64,
+            ull_total_page_file: u64,
+            ull_avail_page_file: u64,
+            ull_total_virtual: u64,
+            ull_avail_virtual: u64,
+            ull_avail_extended_virtual: u64,
+        }
+        unsafe extern "system" {
+            fn GlobalMemoryStatusEx(lp: *mut MemoryStatusEx) -> i32;
+        }
+        let mut status = MemoryStatusEx {
+            dw_length: std::mem::size_of::<MemoryStatusEx>() as u32,
+            dw_memory_load: 0,
+            ull_total_phys: 0,
+            ull_avail_phys: 0,
+            ull_total_page_file: 0,
+            ull_avail_page_file: 0,
+            ull_total_virtual: 0,
+            ull_avail_virtual: 0,
+            ull_avail_extended_virtual: 0,
+        };
+        unsafe {
+            if GlobalMemoryStatusEx(&mut status) != 0 {
+                return status.ull_avail_phys as usize;
+            }
+        }
+        1024 * 1024 * 1024
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+    {
+        1024 * 1024 * 1024
+    }
+}
 #[cfg(not(feature = "gpu"))]
 pub fn cpu_max_qubits_sparse() -> usize {
     // Estimate available RAM and compute max qubits for sparse Lanczos
-    let available_bytes: usize = 1024 * 1024 * 1024; // 1 GB default
+    let available_bytes: usize = available_ram_bytes();
     let bytes_per_state = 8;
     let m = 100;
     let max_dim = available_bytes / (m * bytes_per_state);
