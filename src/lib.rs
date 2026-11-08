@@ -1454,6 +1454,21 @@ pub struct ShotResult {
     pub counts: BTreeMap<Vec<u8>, usize>,
 }
 
+impl ShotResult {
+    /// Wilson score confidence interval for the probability of a specific outcome.
+    pub fn wilson_ci_for(&self, outcome: &[u8], confidence: f64) -> (f64, f64) {
+        let successes = self.counts.get(outcome).copied().unwrap_or(0);
+        wilson_ci(successes, self.shots, confidence)
+    }
+
+    /// Estimated probability of a specific outcome with 95% Wilson CI.
+    pub fn probability_with_ci(&self, outcome: &[u8]) -> (f64, (f64, f64)) {
+        let successes = self.counts.get(outcome).copied().unwrap_or(0);
+        let p = successes as f64 / self.shots as f64;
+        (p, wilson_ci(successes, self.shots, 0.95))
+    }
+}
+
 /// Wilson score confidence interval for a binomial proportion.
 /// Returns (lower, upper) bounds at the given confidence level (e.g. 0.95).
 pub fn wilson_ci(successes: usize, shots: usize, confidence: f64) -> (f64, f64) {

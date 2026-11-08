@@ -61,23 +61,43 @@ fn critical_point_energy_convergence() {
 }
 
 #[test]
-fn bond_dimension_convergence() {
-    // For fixed n=8, increasing χ should converge
-    let n = 8;
-    let mut prev_energy = f64::INFINITY;
-    for chi in [8, 16, 32] {
-        let mps = MPS::zero_state(n, chi);
-        let mut dmrg = DMRG::new(mps, chi, 1e-12, 30);
-        let (zz, _) = tfim_gates();
-        let energy = dmrg.run(&zz, &zz).unwrap();
-        println!("χ={}: E={:.8}", chi, energy);
-        // Energy should decrease (or stay same) with increasing χ
+fn bond_dimension_scaling_at_critical_point() {
+    // At TFIM critical point, energy error should decrease exponentially
+    // with bond dimension χ. Verify monotonic convergence for multiple L.
+    let thermodynamic_limit = -4.0 / std::f64::consts::PI;
+    for n in [6, 8, 10] {
+        let mut energies: Vec<(usize, f64)> = Vec::new();
+        for chi in [4, 8, 16] {
+            let mps = MPS::zero_state(n, chi);
+            let mut dmrg = DMRG::new(mps, chi, 1e-12, 30);
+            let (zz, _) = tfim_gates();
+            let energy = dmrg.run(&zz, &zz).unwrap();
+            energies.push((chi, energy));
+        }
+        // Verify monotonic convergence: energy decreases with χ
+        for i in 1..energies.len() {
+            assert!(
+                energies[i].1 <= energies[i - 1].1 + 1e-6,
+                "n={}: χ={} energy ({:.8}) > χ={} energy ({:.8})",
+                n,
+                energies[i].0,
+                energies[i].1,
+                energies[i - 1].0,
+                energies[i - 1].1
+            );
+        }
+        // Verify convergence toward thermodynamic limit
+        let best = energies.last().unwrap().1 / n as f64;
         assert!(
-            energy <= prev_energy + 1e-6,
-            "χ={} energy higher than χ={}",
-            chi,
-            chi / 2
+            (best - thermodynamic_limit).abs() < 0.5,
+            "n={}: best E/site={:.6}, thermodynamic={:.6}",
+            n,
+            best,
+            thermodynamic_limit
         );
-        prev_energy = energy;
+        println!(
+            "n={}: χ convergence: {:?}, best E/site={:.6}",
+            n, energies, best
+        );
     }
 }
