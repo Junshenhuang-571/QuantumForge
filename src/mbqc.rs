@@ -450,6 +450,9 @@ pub fn parse_pattern(spec: &str, qubits: usize) -> Result<MeasurementPattern, St
 /// through a 3-qubit linear cluster — the canonical MBQC demo. Measures qubit
 /// 1 (input) at angle `alpha`, qubit 2 in `Z`, and reads out qubit 3 corrected
 /// by both. Returns the corrected output bit.
+/// Compile a single-qubit gate sequence into an MBQC measurement pattern.
+/// Supports: H, S, T, X, Z gates. Each gate is mapped to measurements on
+/// a path cluster state. Returns a MeasurementPattern ready to run.
 pub fn teleport_through_path(alpha: f64, seed: u64) -> Result<u8, String> {
     let cluster = ClusterState::path(3);
     let mut pattern = MeasurementPattern::new();
@@ -482,7 +485,35 @@ pub fn teleport_through_path(alpha: f64, seed: u64) -> Result<u8, String> {
     Ok(run.outputs[0])
 }
 
-// ── gflow existence check (Mhalla–Perdrix 2008) ──────────────────────
+pub fn compile_single_qubit(
+    gates: &[&str],
+    _seed: u64,
+) -> Result<(ClusterState, MeasurementPattern), String> {
+    let n = gates.len() + 1;
+    let cluster = ClusterState::path(n);
+    let mut pattern = MeasurementPattern::default();
+
+    for (i, gate) in gates.iter().enumerate() {
+        let qubit = i + 1;
+        let angle = match *gate {
+            "H" => std::f64::consts::FRAC_PI_2,
+            "S" => std::f64::consts::FRAC_PI_2,
+            "T" => std::f64::consts::FRAC_PI_4,
+            "X" => std::f64::consts::PI,
+            "Z" => 0.0,
+            _ => return Err(format!("Unsupported gate: {}", gate)),
+        };
+        pattern.push(MeasurementStep {
+            qubit,
+            basis: MeasurementBasis::Equatorial(angle),
+            depends_on_x: if qubit > 1 { vec![qubit - 1] } else { vec![] },
+            depends_on_z: vec![],
+            output: qubit == n - 1,
+        });
+    }
+
+    Ok((cluster, pattern))
+}
 
 impl ClusterState {
     /// Check whether a generalized flow (gflow) exists for the given input

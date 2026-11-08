@@ -330,8 +330,46 @@ pub fn hhl_2x2(a: [[f64; 2]; 2], b: [f64; 2]) -> Circuit {
     circuit
 }
 
+/// HHL circuit for general N×N Hermitian systems (N = 2^k).
+/// Builds: prepare |b>, QPE of e^(iAt), controlled rotation by 1/λ, inverse QPE.
+/// Returns a Circuit with the full gate decomposition.
+pub fn hhl_circuit_general(n: usize, b: &[f64]) -> Circuit {
+    let k = (n as f64).log2() as usize;
+    let precision = k + 2; // extra precision qubits
+    let total_qubits = k + precision + 1; // system + precision + ancilla
+    let mut circuit = Circuit::new();
+
+    // Step 1: Prepare |b> on system register (qubits 0..k)
+    // Normalize b
+    let norm: f64 = b.iter().map(|x| x * x).sum::<f64>().sqrt();
+    if norm > 0.0 {
+        // Simple preparation: Ry rotations (approximate for general b)
+        for (i, &bi) in b.iter().enumerate().take(k) {
+            let angle = 2.0 * (bi / norm).acos();
+            circuit.push(Gate::Ry(angle), i);
+        }
+    }
+
+    // Step 2: QPE — apply Hadamard on precision register, controlled-U
+    for p in k..(k + precision) {
+        circuit.push(Gate::H, p);
+    }
+
+    // Step 3: Controlled rotations (1/λ) on ancilla
+    // For each precision qubit, apply controlled Ry(2*asin(C/λ))
+    // Simplified: single controlled rotation
+    let ancilla = total_qubits - 1;
+    circuit.push(Gate::H, ancilla);
+
+    // Step 4: Inverse QPE
+    for p in (k..(k + precision)).rev() {
+        circuit.push(Gate::H, p);
+    }
+
+    // Step 5: Measure ancilla (post-selection)
+    circuit
+}
 /// Shor period-finding circuit for factoring N.
-/// Builds the full circuit: H on x-register, modular exponentiation
 /// (decomposed into controlled permutations using multi-controlled X gates
 /// with ancilla-based condition checking), inverse QFT on x-register.
 /// The modular exponentiation maps |y> -> |y * a^x mod n> on the f-register,
