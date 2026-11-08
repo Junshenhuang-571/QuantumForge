@@ -331,19 +331,22 @@ pub fn hhl_2x2(a: [[f64; 2]; 2], b: [f64; 2]) -> Circuit {
 }
 
 /// Shor period-finding circuit for factoring N.
-/// Builds the full circuit: H on x-register, modular exponentiation
-/// (controlled-U for a^x mod N), inverse QFT on x-register.
-/// Modular exponentiation is represented as controlled multi-qubit gates.
+/// Builds the circuit structure: H on x-register, modular exponentiation
+/// (black-box unitary U_a), inverse QFT on x-register.
+/// The modular exponentiation is a permutation of f-register basis states
+/// controlled on x; it is simulated (not decomposed into elementary gates)
+/// because full decomposition requires ancilla management for controlled swaps.
+/// Execution uses shor_simulate() which applies the unitary directly.
 pub fn shor_period_finding(n: u64, _a: u64) -> Circuit {
     if n < 4 {
         return Circuit::new();
     }
     let m = ((n * n) as f64).log2().ceil() as usize;
-    let m = m.clamp(4, 12);
+    let m = m.clamp(4, 8);
     let f_bits = (n as f64).log2().ceil() as usize;
-    let f_bits = f_bits.max(2);
+    let f_bits = f_bits.clamp(2, 6);
     let num_qubits = m + f_bits;
-    if num_qubits > 20 {
+    if num_qubits > 16 {
         return Circuit::new();
     }
 
@@ -358,12 +361,15 @@ pub fn shor_period_finding(n: u64, _a: u64) -> Circuit {
     circuit.push(Gate::X, m); // f-register LSB = 1
 
     // Step 3: Modular exponentiation |x>|1> -> |x>|a^x mod n>
-    // Represented as a black-box unitary (simulated in shor_simulate).
-    // The circuit records the structure; execution uses the simulation path.
+    // This is a permutation of the f-register basis states, controlled on x.
+    // Full gate-level decomposition requires controlled-swap (Fredkin) gates
+    // and ancilla management; for correctness, the computation is performed
+    // by shor_simulate() which applies the unitary directly.
+    // The circuit structure (H + black-box U + inverse QFT) is recorded here
+    // for visualization and analysis; execution uses the simulation path.
 
     // Step 4: Inverse QFT on x register
     let qft = qft_circuit(m);
-    // Reverse and conjugate (inverse QFT)
     for op in qft.operations().iter().rev() {
         match *op {
             CircuitOp::SingleQubit { gate, target } if target < m => {
