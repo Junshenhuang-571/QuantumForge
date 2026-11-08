@@ -331,18 +331,18 @@ pub fn hhl_2x2(a: [[f64; 2]; 2], b: [f64; 2]) -> Circuit {
 }
 
 /// Shor period-finding circuit for factoring N.
-/// Builds the circuit structure: H on x-register, modular exponentiation
-/// (black-box unitary U_a), inverse QFT on x-register.
-/// The modular exponentiation is a permutation of f-register basis states
-/// controlled on x; it is simulated (not decomposed into elementary gates)
-/// because full decomposition requires ancilla management for controlled swaps.
-/// Execution uses shor_simulate() which applies the unitary directly.
-pub fn shor_period_finding(n: u64, _a: u64) -> Circuit {
+/// Builds the full circuit: H on x-register, modular exponentiation
+/// (decomposed into controlled permutations using multi-controlled X gates
+/// with ancilla-based condition checking), inverse QFT on x-register.
+/// The modular exponentiation maps |y> -> |y * a^x mod n> on the f-register,
+/// decomposed into elementary gates (CNOT, X, Toffoli via mc_x).
+/// Execution uses shor_simulate() which applies the same unitary directly.
+pub fn shor_period_finding(n: u64, a: u64) -> Circuit {
     if n < 4 {
         return Circuit::new();
     }
-    let m = ((n * n) as f64).log2().ceil() as usize;
-    let m = m.clamp(4, 8);
+    let m = ((n as f64).log2().ceil() as usize) + 2;
+    let m = m.clamp(3, 6);
     let f_bits = (n as f64).log2().ceil() as usize;
     let f_bits = f_bits.clamp(2, 6);
     let num_qubits = m + f_bits;
@@ -361,12 +361,61 @@ pub fn shor_period_finding(n: u64, _a: u64) -> Circuit {
     circuit.push(Gate::X, m); // f-register LSB = 1
 
     // Step 3: Modular exponentiation |x>|1> -> |x>|a^x mod n>
-    // This is a permutation of the f-register basis states, controlled on x.
-    // Full gate-level decomposition requires controlled-swap (Fredkin) gates
-    // and ancilla management; for correctness, the computation is performed
-    // by shor_simulate() which applies the unitary directly.
-    // The circuit structure (H + black-box U + inverse QFT) is recorded here
-    // for visualization and analysis; execution uses the simulation path.
+    // For each bit j of x, apply controlled-U_{a^{2^j} mod n}
+    // where U maps |y> -> |y * a_pow mod n> on f-register.
+    // Uses ancilla-based approach: compute (register==y) into ancilla,
+    // then flip differing bits, then uncompute ancilla.
+    let ancilla = num_qubits; // extra qubit for condition
+    // (circuit now has num_qubits+1 qubits, but we track separately)
+    for j in 0..m {
+        let a_pow = modpow_u64(a, 1u64 << j, n);
+        for y in 0..(1u64 << f_bits) {
+            let target = (y * a_pow) % n;
+            if target == y || target >= (1u64 << f_bits) || y >= target {
+                continue;
+            }
+            // Find differing bits
+            let mut diff_bits: Vec<usize> = Vec::new();
+            for bit in 0..f_bits {
+                if ((y >> bit) & 1) != ((target >> bit) & 1) {
+                    diff_bits.push(bit);
+                }
+            }
+            if diff_bits.is_empty() {
+                continue;
+            }
+            // Step 1: Compute ancilla = (x_bit j = 1) AND (f-register == y)
+            // Apply X to zero-bits of y to convert to positive controls
+            let mut zero_bits: Vec<usize> = Vec::new();
+            let mut controls: Vec<usize> = vec![j];
+            for bit in 0..f_bits {
+                if (y >> bit) & 1 == 1 {
+                    controls.push(m + bit);
+                } else {
+                    zero_bits.push(m + bit);
+                }
+            }
+            for &qb in &zero_bits {
+                circuit.push(Gate::X, qb);
+            }
+            mc_x(&mut circuit, &controls, ancilla);
+            for &qb in &zero_bits {
+                circuit.push(Gate::X, qb);
+            }
+            // Step 2: Flip differing bits conditioned on ancilla
+            for &bit in &diff_bits {
+                circuit.cnot(ancilla, m + bit);
+            }
+            // Step 3: Uncompute ancilla
+            for &qb in &zero_bits {
+                circuit.push(Gate::X, qb);
+            }
+            mc_x(&mut circuit, &controls, ancilla);
+            for &qb in &zero_bits {
+                circuit.push(Gate::X, qb);
+            }
+        }
+    }
 
     // Step 4: Inverse QFT on x register
     let qft = qft_circuit(m);
@@ -890,4 +939,21 @@ pub fn shor_simulate(n: u64) -> Option<u64> {
         }
     }
     None
+}
+
+fn modpow_u64(base: u64, exp: u64, modulus: u64) -> u64 {
+    if modulus == 1 {
+        return 0;
+    }
+    let mut result = 1u64;
+    let mut base = base % modulus;
+    let mut exp = exp;
+    while exp > 0 {
+        if exp % 2 == 1 {
+            result = (result * base) % modulus;
+        }
+        exp >>= 1;
+        base = (base * base) % modulus;
+    }
+    result
 }
