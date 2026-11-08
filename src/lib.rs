@@ -393,14 +393,36 @@ impl StateVector {
         }
         let (m00, m01, m10, m11) = gate.matrix();
         let mask = 1usize << qubit;
-        for base in 0..self.amplitudes.len() {
-            if base & mask == 0 {
-                let i0 = base;
-                let i1 = base | mask;
-                let a0 = self.amplitudes[i0];
-                let a1 = self.amplitudes[i1];
-                self.amplitudes[i0] = m00 * a0 + m01 * a1;
-                self.amplitudes[i1] = m10 * a0 + m11 * a1;
+        let n = self.amplitudes.len();
+        // Process in parallel if rayon is available
+        #[cfg(feature = "rayon")]
+        {
+            use rayon::prelude::*;
+            // Read old values first
+            let old: Vec<Complex64> = self.amplitudes.clone();
+            let new: Vec<Complex64> = (0..n)
+                .into_par_iter()
+                .map(|idx| {
+                    if idx & mask == 0 {
+                        m00 * old[idx] + m01 * old[idx | mask]
+                    } else {
+                        m10 * old[idx & !mask] + m11 * old[idx]
+                    }
+                })
+                .collect();
+            self.amplitudes = new;
+        }
+        #[cfg(not(feature = "rayon"))]
+        {
+            for base in 0..n {
+                if base & mask == 0 {
+                    let i0 = base;
+                    let i1 = base | mask;
+                    let a0 = self.amplitudes[i0];
+                    let a1 = self.amplitudes[i1];
+                    self.amplitudes[i0] = m00 * a0 + m01 * a1;
+                    self.amplitudes[i1] = m10 * a0 + m11 * a1;
+                }
             }
         }
         Ok(())

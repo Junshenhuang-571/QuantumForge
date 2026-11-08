@@ -19,11 +19,12 @@ members = ["."]
 resolver = "2"
 
 [features]
-default = []
+default = ["rayon"]
 llvm = []
 cuda = []
 gpu = ["cudarc", "cudarc/cuda-12040"]
 python = ["pyo3"]
+rayon = ["dep:rayon"]
 ibm = ["reqwest"]
 ionq = ["reqwest"]
 rigetti = ["reqwest"]
