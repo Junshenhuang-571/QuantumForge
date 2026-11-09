@@ -611,43 +611,158 @@ pub fn compile_circuit(
         return Ok(compile_cnot());
     }
 
-    let n_qubits = gates.iter().map(|(q, _, _)| *q).max().unwrap_or(0) + 1;
-    let n_meas = gates.len() + n_qubits;
-    let cluster = ClusterState::path(n_meas);
-    let mut pattern = MeasurementPattern::default();
+    // If no CNOT gates, use existing path-based approach.
+    if !gates.iter().any(|(_, g, _)| *g == "CNOT") {
+        let n_qubits = gates.iter().map(|(q, _, _)| *q).max().unwrap_or(0) + 1;
+        let n_meas = gates.len() + n_qubits;
+        let cluster = ClusterState::path(n_meas);
+        let mut pattern = MeasurementPattern::default();
 
-    for (i, (_target, gate, control)) in gates.iter().enumerate() {
-        let qubit = i + n_qubits;
-        let angle = match *gate {
-            "H" => std::f64::consts::FRAC_PI_2,
-            "S" => std::f64::consts::FRAC_PI_2,
-            "T" => std::f64::consts::FRAC_PI_4,
-            "X" => std::f64::consts::PI,
-            "Z" => 0.0,
-            "CNOT" => std::f64::consts::PI,
-            _ => return Err(format!("Unsupported gate: {}", gate)),
-        };
+        for (i, (_target, gate, control)) in gates.iter().enumerate() {
+            let qubit = i + n_qubits;
+            let angle = match *gate {
+                "H" => std::f64::consts::FRAC_PI_2,
+                "S" => std::f64::consts::FRAC_PI_2,
+                "T" => std::f64::consts::FRAC_PI_4,
+                "X" => std::f64::consts::PI,
+                "Z" => 0.0,
+                _ => return Err(format!("Unsupported gate: {}", gate)),
+            };
 
-        let depends_on_x = if qubit > n_qubits {
-            vec![qubit - 1]
-        } else {
-            vec![]
-        };
+            let depends_on_x = if qubit > n_qubits {
+                vec![qubit - 1]
+            } else {
+                vec![]
+            };
 
-        let depends_on_z = control.map(|c| vec![c]).unwrap_or_default();
+            let depends_on_z = control.map(|c| vec![c]).unwrap_or_default();
 
-        pattern.push(MeasurementStep {
-            qubit,
-            basis: MeasurementBasis::Equatorial(angle),
-            depends_on_x,
-            depends_on_z,
-            output: i == gates.len() - 1,
-            measured: true,
-        });
+            pattern.push(MeasurementStep {
+                qubit,
+                basis: MeasurementBasis::Equatorial(angle),
+                depends_on_x,
+                depends_on_z,
+                output: i == gates.len() - 1,
+                measured: true,
+            });
+        }
+
+        return Ok((cluster, pattern));
     }
 
+    // Mixed sequence with CNOT: allocate sub-clusters per gate.
+    // Each single-qubit gate uses 1 qubit, CNOT uses 4 qubits (T-shape).
+    // Connect outputs of gate i to inputs of gate i+1 via CZ edges.
+    let mut total_qubits = 0usize;
+    let mut gate_offsets: Vec<usize> = Vec::new();
+    for (_, gate, _) in gates {
+        gate_offsets.push(total_qubits);
+        if *gate == "CNOT" {
+            total_qubits += 4;
+        } else {
+            total_qubits += 1;
+        }
+    }
+
+    let mut edges: Vec<(usize, usize)> = Vec::new();
+    let mut pattern = MeasurementPattern::default();
+
+    for (i, (_, gate, _control)) in gates.iter().enumerate() {
+        let offset = gate_offsets[i];
+        match *gate {
+            "H" | "S" | "T" | "X" | "Z" => {
+                let angle = match *gate {
+                    "H" => std::f64::consts::FRAC_PI_2,
+                    "S" => std::f64::consts::FRAC_PI_2,
+                    "T" => std::f64::consts::FRAC_PI_4,
+                    "X" => std::f64::consts::PI,
+                    "Z" => 0.0,
+                    _ => 0.0,
+                };
+                // Path edge from previous gate output
+                if i > 0 {
+                    let prev_offset = gate_offsets[i - 1];
+                    let prev_out = if gates[i - 1].1 == "CNOT" {
+                        prev_offset + 3 // CNOT output 3
+                    } else {
+                        prev_offset // single-qubit output
+                    };
+                    edges.push((prev_out, offset));
+                }
+                pattern.push(MeasurementStep {
+                    qubit: offset,
+                    basis: MeasurementBasis::Equatorial(angle),
+                    depends_on_x: if i > 0 { vec![offset - 1] } else { vec![] },
+                    depends_on_z: vec![],
+                    output: i == gates.len() - 1,
+                    measured: true,
+                });
+            }
+            "CNOT" => {
+                let q0 = offset;
+                let q1 = offset + 1;
+                let q2 = offset + 2;
+                let q3 = offset + 3;
+                // T-shaped edges
+                edges.push((q0, q2));
+                edges.push((q1, q2));
+                edges.push((q1, q3));
+                // Connect inputs to previous gate output
+                if i > 0 {
+                    let prev_offset = gate_offsets[i - 1];
+                    let prev_out = if gates[i - 1].1 == "CNOT" {
+                        prev_offset + 3
+                    } else {
+                        prev_offset
+                    };
+                    edges.push((prev_out, q0));
+                    edges.push((prev_out, q1));
+                }
+                // Measure input 0
+                pattern.push(MeasurementStep {
+                    qubit: q0,
+                    basis: MeasurementBasis::Equatorial(0.0),
+                    depends_on_x: vec![],
+                    depends_on_z: vec![],
+                    output: false,
+                    measured: true,
+                });
+                // Measure input 1
+                pattern.push(MeasurementStep {
+                    qubit: q1,
+                    basis: MeasurementBasis::Equatorial(0.0),
+                    depends_on_x: vec![],
+                    depends_on_z: vec![],
+                    output: false,
+                    measured: true,
+                });
+                // Output 2 (non-measured)
+                pattern.push(MeasurementStep {
+                    qubit: q2,
+                    basis: MeasurementBasis::Z,
+                    depends_on_x: vec![q0],
+                    depends_on_z: vec![q0],
+                    output: true,
+                    measured: false,
+                });
+                // Output 3 (non-measured)
+                pattern.push(MeasurementStep {
+                    qubit: q3,
+                    basis: MeasurementBasis::Z,
+                    depends_on_x: vec![q0, q1],
+                    depends_on_z: vec![],
+                    output: i == gates.len() - 1,
+                    measured: false,
+                });
+            }
+            _ => return Err(format!("Unsupported gate: {}", gate)),
+        }
+    }
+
+    let cluster = ClusterState::new(total_qubits, edges);
     Ok((cluster, pattern))
 }
+
 impl ClusterState {
     /// Check whether a generalized flow (gflow) exists for the given input
     /// and output sets.
