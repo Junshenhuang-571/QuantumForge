@@ -29,7 +29,7 @@
 //! For a full MBQC compiler (flow checking + circuit → pattern translation),
 //! see the Raussendorf–Briegel / Danos–Kashefi literature.
 
-use crate::{SmallRng, StateVector};
+use crate::{Complex64, SmallRng, StateVector};
 
 /// A cluster (graph) state: `n` qubits, each a graph vertex; each edge `(i, j)`
 /// means a `CZ(i, j)` was applied after putting every qubit in `|+>`.
@@ -799,4 +799,46 @@ pub fn mbqc_cnot_proper(b0: u8, b1: u8, seed: u64) -> Result<(u8, u8), String> {
     let r3 = state.measure(3, &mut rng).map_err(|e| e.to_string())?;
 
     Ok((r2, r3))
+}
+
+/// Extract the state of specified output qubits from a full state vector.
+/// The `measured_values` map gives the measured values of non-output qubits.
+/// Returns a StateVector for just the output qubits.
+pub fn extract_output_state(
+    full_state: &StateVector,
+    output_qubits: &[usize],
+    measured_values: &std::collections::HashMap<usize, u8>,
+    total_qubits: usize,
+) -> Result<StateVector, String> {
+    let n_out = output_qubits.len();
+    let mut out_state = StateVector::zero(n_out).map_err(|e| e.to_string())?;
+    let out_amps = out_state.amplitudes_mut();
+
+    // For each output basis state, compute the amplitude
+    for (out_idx, amp) in out_amps.iter_mut().enumerate() {
+        // Build the full basis index for this output state
+        // with measured qubits fixed to their values
+        let mut full_idx = 0usize;
+        let mut out_bit = 0;
+        for q in 0..total_qubits {
+            if output_qubits.contains(&q) {
+                let bit = (out_idx >> out_bit) & 1;
+                full_idx |= bit << (total_qubits - 1 - q);
+                out_bit += 1;
+            } else if let Some(&val) = measured_values.get(&q) {
+                full_idx |= (val as usize) << (total_qubits - 1 - q);
+            }
+        }
+        *amp = full_state.amplitudes()[full_idx];
+    }
+
+    // Renormalize
+    let norm: f64 = out_amps.iter().map(|a| a.norm_sqr()).sum::<f64>().sqrt();
+    if norm > 0.0 {
+        for a in out_amps.iter_mut() {
+            *a = *a * Complex64::new(1.0 / norm, 0.0);
+        }
+    }
+
+    Ok(out_state)
 }
