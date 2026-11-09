@@ -95,6 +95,15 @@ pub(crate) fn mc_z(circuit: &mut Circuit, qubits: &[usize]) {
         circuit.push(Gate::X, temp);
     }
 }
+/// Multi-controlled Ry: apply Ry(theta) to target if ALL controls are 1.
+pub fn mc_ry(circuit: &mut Circuit, controls: &[usize], target: usize, theta: f64) {
+    // Decomposition: Ry(theta/2) -> mc_x(controls, target) -> Ry(-theta/2) -> mc_x(controls, target)
+    circuit.push(Gate::Ry(theta / 2.0), target);
+    mc_x(circuit, controls, target);
+    circuit.push(Gate::Ry(-theta / 2.0), target);
+    mc_x(circuit, controls, target);
+}
+
 pub fn qaoa_maxcut(
     num_qubits: usize,
     edges: &[(usize, usize, f64)],
