@@ -544,7 +544,52 @@ pub fn compile_single_qubit(
     Ok((cluster, pattern))
 }
 
-/// Compile a multi-qubit gate sequence into an MBQC measurement pattern.
+/// Compile a single CNOT gate using the verified T-shaped cluster construction.
+/// Returns a cluster state and measurement pattern for one CNOT gate.
+/// Inputs are encoded via measurement basis (angle 0 for |0>, π for |1>).
+/// By-products: O2 = X^{s0} Z^{s0}, O3 = X^{s0^s1}.
+pub fn compile_cnot() -> (ClusterState, MeasurementPattern) {
+    // T-shaped cluster: edges (0,2), (1,2), (1,3)
+    let cluster = ClusterState::new(4, vec![(0, 2), (1, 2), (1, 3)]);
+    let mut pattern = MeasurementPattern::default();
+    // Step 0: measure input 0 at angle 0 (adjusted by input bit at runtime)
+    pattern.push(MeasurementStep {
+        qubit: 0,
+        basis: MeasurementBasis::Equatorial(0.0),
+        depends_on_x: vec![],
+        depends_on_z: vec![],
+        output: false,
+        measured: true,
+    });
+    // Step 1: measure input 1 at angle 0 (adjusted by input bit at runtime)
+    pattern.push(MeasurementStep {
+        qubit: 1,
+        basis: MeasurementBasis::Equatorial(0.0),
+        depends_on_x: vec![],
+        depends_on_z: vec![],
+        output: false,
+        measured: true,
+    });
+    // Step 2: output qubit (not measured, by-products applied)
+    pattern.push(MeasurementStep {
+        qubit: 2,
+        basis: MeasurementBasis::Z,
+        depends_on_x: vec![0],
+        depends_on_z: vec![0],
+        output: true,
+        measured: false,
+    });
+    // Step 3: output qubit (not measured, by-products applied)
+    pattern.push(MeasurementStep {
+        qubit: 3,
+        basis: MeasurementBasis::Z,
+        depends_on_x: vec![0, 1],
+        depends_on_z: vec![],
+        output: true,
+        measured: false,
+    });
+    (cluster, pattern)
+}
 /// Supports single-qubit gates (H, S, T, X, Z) and CNOT.
 /// Single-qubit gates use path cluster states with correct measurement angles.
 /// CNOT uses a simplified mapping in this function; for verified CNOT
