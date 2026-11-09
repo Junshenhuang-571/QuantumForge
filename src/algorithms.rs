@@ -403,11 +403,28 @@ pub fn hhl_circuit_general(a: &[Vec<f64>], b: &[f64]) -> Circuit {
 
     let ancilla = total_qubits - 1;
     circuit.push(Gate::H, ancilla);
-    for (p, &lambda) in eigenvalues.iter().enumerate().take(precision) {
+    let prec_qubits: Vec<usize> = (k..k + precision).collect();
+    for &lambda in eigenvalues.iter() {
         if lambda.abs() > 1e-12 {
             let angle = 2.0 * (c / lambda).asin().min(std::f64::consts::PI / 2.0);
-            circuit.push(Gate::Ry(angle), ancilla);
-            circuit.cnot(k + p, ancilla);
+            // Map eigenvalue to nearest precision state.
+            let s = ((lambda * (1usize << precision) as f64) / (2.0 * std::f64::consts::PI)).round()
+                as usize
+                % (1usize << precision);
+            // Convert precision state s to all-ones via X gates.
+            for j in 0..precision {
+                if (s >> j) & 1 == 0 {
+                    circuit.push(Gate::X, k + j);
+                }
+            }
+            // Multi-controlled Ry (fires only when precision register == s).
+            mc_ry(&mut circuit, &prec_qubits, ancilla, angle);
+            // Restore precision register.
+            for j in 0..precision {
+                if (s >> j) & 1 == 0 {
+                    circuit.push(Gate::X, k + j);
+                }
+            }
         }
     }
 
