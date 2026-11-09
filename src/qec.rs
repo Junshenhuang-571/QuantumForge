@@ -760,7 +760,248 @@ fn greedy_mwpm(error_syndromes: &[(usize, u8, u32)], syndrome: u32) -> Vec<(usiz
     }
     if remaining == 0 { result } else { Vec::new() }
 }
-/// Encode a logical state into a repetition code.
+/// Edmonds' Blossom algorithm for minimum weight perfect matching on a general
+/// graph. Given an adjacency matrix of weights (INF for no edge), returns the
+/// matching as a list of (u, v) pairs. Uses the primal-dual method with
+/// blossom contraction and expansion. O(n^3).
+pub fn blossom_match(n: usize, weight: &[Vec<i64>]) -> Vec<(usize, usize)> {
+    const INF: i64 = i64::MAX / 4;
+    if n == 0 {
+        return Vec::new();
+    }
+    let n = if !n.is_multiple_of(2) { n + 1 } else { n };
+
+    struct State {
+        n: usize,
+        match_to: Vec<usize>,
+        label: Vec<i32>,
+        parent: Vec<usize>,
+        base: Vec<usize>,
+        in_blossom: Vec<Vec<bool>>,
+        blossom_children: Vec<Vec<usize>>,
+        queue: Vec<usize>,
+        dual_var: Vec<i64>,
+        weight: Vec<Vec<i64>>,
+    }
+
+    impl State {
+        fn find_base(&self, mut u: usize) -> usize {
+            while self.base[u] != u {
+                u = self.base[u];
+            }
+            u
+        }
+
+        fn new(n: usize, weight: &[Vec<i64>]) -> Self {
+            let mut w = vec![vec![INF; n]; n];
+            for i in 0..n.min(weight.len()) {
+                for j in 0..n.min(weight[i].len()) {
+                    w[i][j] = weight[i][j];
+                }
+            }
+            let mut st = Self {
+                n,
+                match_to: vec![usize::MAX; n],
+                label: vec![0; n],
+                parent: vec![usize::MAX; n],
+                base: (0..n).collect(),
+                in_blossom: vec![vec![false; n]; n],
+                blossom_children: vec![Vec::new(); n],
+                queue: Vec::new(),
+                dual_var: vec![0; n],
+                weight: w,
+            };
+            for i in 0..n {
+                st.in_blossom[i][i] = true;
+            }
+            for u in 0..n {
+                let mut min_w = INF;
+                for v in 0..n {
+                    if u != v && st.weight[u][v] < min_w {
+                        min_w = st.weight[u][v];
+                    }
+                }
+                if min_w < INF {
+                    st.dual_var[u] = min_w / 2;
+                }
+            }
+            st
+        }
+
+        fn lca(&self, mut u: usize, mut v: usize) -> usize {
+            let mut used = vec![false; self.n];
+            loop {
+                u = self.find_base(u);
+                used[u] = true;
+                if self.match_to[u] == usize::MAX {
+                    break;
+                }
+                u = self.parent[self.match_to[u]];
+                if u == usize::MAX {
+                    break;
+                }
+            }
+            loop {
+                v = self.find_base(v);
+                if used[v] {
+                    return v;
+                }
+                v = self.parent[self.match_to[v]];
+                if v == usize::MAX {
+                    break;
+                }
+            }
+            0
+        }
+
+        fn contract(&mut self, u: usize, v: usize, lca_v: usize) {
+            let mut blossom = vec![false; self.n];
+            let mut u = u;
+            while self.find_base(u) != lca_v {
+                let b = self.find_base(u);
+                blossom[b] = true;
+                if self.match_to[b] != usize::MAX {
+                    blossom[self.match_to[b]] = true;
+                }
+                if self.match_to[b] != usize::MAX && self.label[self.match_to[b]] == 1 {
+                    self.queue.push(self.match_to[b]);
+                }
+                self.parent[u] = v;
+                if self.match_to[b] != usize::MAX {
+                    u = self.parent[self.match_to[b]];
+                } else {
+                    break;
+                }
+                if u == usize::MAX {
+                    break;
+                }
+            }
+            let mut v = v;
+            while self.find_base(v) != lca_v {
+                let b = self.find_base(v);
+                blossom[b] = true;
+                if self.match_to[b] != usize::MAX {
+                    blossom[self.match_to[b]] = true;
+                }
+                if self.match_to[b] != usize::MAX && self.label[self.match_to[b]] == 1 {
+                    self.queue.push(self.match_to[b]);
+                }
+                self.parent[v] = u;
+                if self.match_to[b] != usize::MAX {
+                    v = self.parent[self.match_to[b]];
+                } else {
+                    break;
+                }
+                if v == usize::MAX {
+                    break;
+                }
+            }
+            for i in 0..self.n {
+                if blossom[self.find_base(i)] {
+                    self.base[i] = lca_v;
+                    if !self.in_blossom[lca_v][i] {
+                        self.in_blossom[lca_v][i] = true;
+                        self.blossom_children[lca_v].push(i);
+                    }
+                }
+            }
+        }
+
+        fn augment(&mut self, _u_end: usize, v_end: usize) {
+            let mut v = v_end;
+            while v != usize::MAX {
+                let u = self.parent[v];
+                if u == usize::MAX {
+                    break;
+                }
+                let prev_match = self.match_to[u];
+                self.match_to[u] = v;
+                self.match_to[v] = u;
+                v = prev_match;
+            }
+        }
+
+        fn search_augmenting(&mut self) -> bool {
+            for i in 0..self.n {
+                self.label[i] = 0;
+                self.parent[i] = usize::MAX;
+            }
+            self.queue.clear();
+
+            for u in 0..self.n {
+                if self.match_to[u] == usize::MAX && self.find_base(u) == u {
+                    self.label[u] = 1;
+                    self.queue.push(u);
+                }
+            }
+
+            let mut found = false;
+            let mut u_end = 0;
+            let mut v_end = 0;
+
+            while !self.queue.is_empty() && !found {
+                let u = self.queue.pop().unwrap();
+                if self.find_base(u) != u || self.label[u] != 1 {
+                    continue;
+                }
+
+                for v in 0..self.n {
+                    if self.find_base(v) == self.find_base(u) {
+                        continue;
+                    }
+                    if self.weight[u][v] >= INF {
+                        continue;
+                    }
+                    let slack = self.dual_var[u] + self.dual_var[v] - self.weight[u][v];
+                    if slack != 0 {
+                        continue;
+                    }
+
+                    if self.label[v] == 0 {
+                        if self.match_to[v] == usize::MAX {
+                            self.parent[v] = u;
+                            u_end = u;
+                            v_end = v;
+                            found = true;
+                            break;
+                        } else {
+                            self.label[v] = 2;
+                            self.parent[v] = u;
+                            let mate = self.match_to[v];
+                            self.label[mate] = 1;
+                            self.queue.push(mate);
+                        }
+                    } else if self.label[v] == 1 {
+                        let lca_v = self.lca(u, v);
+                        self.contract(u, v, lca_v);
+                    }
+                }
+            }
+
+            if found {
+                self.augment(u_end, v_end);
+                true
+            } else {
+                false
+            }
+        }
+    }
+
+    let mut state = State::new(n, weight);
+    let mut found_augmenting = true;
+    while found_augmenting {
+        found_augmenting = state.search_augmenting();
+    }
+
+    let mut result = Vec::new();
+    for u in 0..n {
+        if state.match_to[u] != usize::MAX && state.match_to[u] > u {
+            result.push((u, state.match_to[u]));
+        }
+    }
+    result
+}
+
 pub fn encode_repetition_bitflip(
     state: &StateVector,
     n: usize,
