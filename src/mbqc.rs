@@ -109,6 +109,8 @@ pub struct MeasurementStep {
     pub depends_on_z: Vec<usize>,
     /// If set, this step's (corrected) outcome is an output bit.
     pub output: bool,
+    /// Whether this qubit is measured (false = output qubit, not measured).
+    pub measured: bool,
 }
 
 /// Result of running a pattern.
@@ -206,6 +208,16 @@ impl MeasurementPattern {
         let mut outcome_of = std::collections::HashMap::<usize, u8>::new();
 
         for step in &self.steps {
+            if !step.measured {
+                // Non-measured (output) qubit: skip measurement.
+                // By-product corrections would be applied as Pauli gates here.
+                angles.push(0.0);
+                outcomes.push(0);
+                if step.output {
+                    outputs.push(0);
+                }
+                continue;
+            }
             // Accumulate the corrected angle from X-by-products (phase shifts).
             let mut phi = match step.basis {
                 MeasurementBasis::Equatorial(phi) => phi,
@@ -428,6 +440,7 @@ pub fn parse_pattern(spec: &str, qubits: usize) -> Result<MeasurementPattern, St
             depends_on_x: deps.get(i).cloned().unwrap_or_default(),
             depends_on_z: depsz.get(i).cloned().unwrap_or_default(),
             output: outputs.get(i).copied().unwrap_or(i == n - 1),
+            measured: true,
         });
         // Validate dependency indices are in range.
         for &d in pattern.steps[i]
@@ -462,6 +475,7 @@ pub fn teleport_through_path(alpha: f64, seed: u64) -> Result<u8, String> {
         depends_on_x: vec![],
         depends_on_z: vec![],
         output: false,
+        measured: true,
     });
     // Step B: measure qubit 2 in Z; its X-by-product mirrors qubit 3's plane.
     pattern.push(MeasurementStep {
@@ -470,6 +484,7 @@ pub fn teleport_through_path(alpha: f64, seed: u64) -> Result<u8, String> {
         depends_on_x: vec![],
         depends_on_z: vec![],
         output: false,
+        measured: true,
     });
     // Step C: read out qubit 0, equatorial, corrected by qubit 1 (phase) and
     // qubit 2 (mirror).
@@ -479,6 +494,7 @@ pub fn teleport_through_path(alpha: f64, seed: u64) -> Result<u8, String> {
         depends_on_x: vec![1],
         depends_on_z: vec![2],
         output: true,
+        measured: true,
     });
     let run = pattern.run(&cluster, seed)?;
     Ok(run.outputs[0])
@@ -508,6 +524,7 @@ pub fn compile_single_qubit(
             depends_on_x: if qubit > 1 { vec![qubit - 1] } else { vec![] },
             depends_on_z: vec![],
             output: qubit == n - 1,
+            measured: true,
         });
     }
 
@@ -555,6 +572,7 @@ pub fn compile_circuit(
             depends_on_x,
             depends_on_z,
             output: i == gates.len() - 1,
+            measured: true,
         });
     }
 

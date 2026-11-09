@@ -1481,6 +1481,7 @@ impl Session {
                         depends_on_x: deps.clone(),
                         depends_on_z: deps,
                         output: v == 0,
+                        measured: true,
                     });
                 }
                 p

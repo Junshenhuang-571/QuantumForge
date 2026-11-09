@@ -349,8 +349,34 @@ pub fn hhl_circuit_general(a: &[Vec<f64>], b: &[f64]) -> Circuit {
     let _k = (n as f64).log2() as usize;
     // For 2x2: use eigenbasis approach (no QPE needed).
     if n != 2 {
-        // Fallback: diagonal approximation for larger N.
-        let circuit = Circuit::new();
+        // For n>2: diagonal approximation (eigenvalues from diagonal, no off-diagonal coupling).
+        // Build circuit using diagonal eigenvalues.
+        let eigenvalues: Vec<f64> = (0..n).map(|i| a[i][i]).collect();
+        let c = 1.0
+            / eigenvalues
+                .iter()
+                .map(|l| l.abs())
+                .fold(f64::MIN, f64::max)
+                .max(1e-12);
+        let mut circuit = Circuit::new();
+        // Prepare |b⟩ (amplitude encoding on qubit 0 for simplicity)
+        let norm: f64 = b.iter().map(|x| x * x).sum::<f64>().sqrt();
+        if norm > 0.0 && !b.is_empty() {
+            let angle = 2.0 * (b[0] / norm).acos();
+            circuit.push(Gate::Ry(angle), 0);
+        }
+        // Controlled rotations for each diagonal eigenvalue
+        let ancilla = 1;
+        circuit.push(Gate::H, ancilla);
+        for (i, &lambda) in eigenvalues.iter().enumerate() {
+            if lambda.abs() > 1e-12 {
+                let angle = 2.0 * (c / lambda).asin().min(std::f64::consts::PI / 2.0);
+                circuit.push(Gate::Ry(angle), ancilla);
+                if i > 0 {
+                    circuit.cnot(0, ancilla);
+                }
+            }
+        }
         return circuit;
     }
 

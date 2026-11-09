@@ -38,6 +38,7 @@ fn two_qubit_cluster_stabilizer_correlation() {
         depends_on_x: vec![],
         depends_on_z: vec![],
         output: true,
+        measured: true,
     });
     pattern.push(MeasurementStep {
         qubit: 1,
@@ -45,6 +46,7 @@ fn two_qubit_cluster_stabilizer_correlation() {
         depends_on_x: vec![],
         depends_on_z: vec![],
         output: true,
+        measured: true,
     });
     for seed in 0..40u64 {
         let run = pattern.run(&cluster, seed).expect("run");
@@ -69,6 +71,7 @@ fn equatorial_angle_shift_is_recorded() {
         depends_on_x: vec![],
         depends_on_z: vec![],
         output: false,
+        measured: true,
     });
     // Step B: qubit 2 equatorial, depends on qubit 1's X-by-product.
     pattern.push(MeasurementStep {
@@ -77,6 +80,7 @@ fn equatorial_angle_shift_is_recorded() {
         depends_on_x: vec![1],
         depends_on_z: vec![],
         output: true,
+        measured: true,
     });
     for seed in 0..40u64 {
         let run = pattern.run(&cluster, seed).expect("run");
