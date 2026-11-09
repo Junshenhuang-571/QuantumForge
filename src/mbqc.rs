@@ -122,6 +122,9 @@ pub struct MbqcRun {
     pub outcomes: Vec<u8>,
     /// Output bits (only steps flagged `output`), in step order.
     pub outputs: Vec<u8>,
+    /// State of non-measured output qubits after by-product corrections.
+    /// None if all qubits were measured.
+    pub output_state: Option<StateVector>,
 }
 
 /// A measurement pattern over a [`ClusterState`].
@@ -275,10 +278,14 @@ impl MeasurementPattern {
             }
         }
 
+        // Check if any non-measured steps exist.
+        let has_output = self.steps.iter().any(|s| !s.measured);
+
         Ok(MbqcRun {
             angles,
             outcomes,
             outputs,
+            output_state: if has_output { Some(state) } else { None },
         })
     }
 }
