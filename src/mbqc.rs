@@ -516,6 +516,10 @@ pub fn compile_single_qubit(
 
 /// Compile a multi-qubit gate sequence into an MBQC measurement pattern.
 /// Supports single-qubit gates (H, S, T, X, Z) and CNOT.
+/// Single-qubit gates use path cluster states with correct measurement angles.
+/// CNOT uses a simplified mapping (angle=π, by-product on control qubit).
+/// Full CNOT requires 2D cluster states with non-measured output qubits,
+/// which is not yet supported by this framework.
 /// Each gate is mapped to measurements on a path cluster state.
 pub fn compile_circuit(
     gates: &[(usize, &str, Option<usize>)],
