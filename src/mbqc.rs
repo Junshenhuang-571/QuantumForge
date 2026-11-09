@@ -916,6 +916,46 @@ pub fn mbqc_cnot_proper(b0: u8, b1: u8, seed: u64) -> Result<(u8, u8), String> {
     Ok((r2, r3))
 }
 
+/// MBQC CNOT that returns the output state (2 qubits) instead of measuring.
+/// Runs the same construction as mbqc_cnot_proper but extracts the output state.
+pub fn mbqc_cnot_state(b0: u8, b1: u8, seed: u64) -> Result<StateVector, String> {
+    let edges = vec![(0, 2), (1, 2), (1, 3)];
+    let cluster = ClusterState::new(4, edges);
+    let mut state = cluster.prepare()?;
+
+    let a0 = if b0 == 1 { std::f64::consts::PI } else { 0.0 };
+    let a1 = if b1 == 1 { std::f64::consts::PI } else { 0.0 };
+
+    let mut rng = SmallRng::seeded(seed);
+    let measure_x = |s: &mut StateVector, q: usize, rng: &mut SmallRng| -> Result<u8, String> {
+        s.apply(crate::Gate::H, q).map_err(|e| e.to_string())?;
+        s.measure(q, rng).map_err(|e| e.to_string())
+    };
+    state
+        .apply(crate::Gate::Rz(-a0), 0)
+        .map_err(|e| e.to_string())?;
+    let s0 = measure_x(&mut state, 0, &mut rng)?;
+    state
+        .apply(crate::Gate::Rz(-a1), 1)
+        .map_err(|e| e.to_string())?;
+    let s1 = measure_x(&mut state, 1, &mut rng)?;
+
+    // By-products
+    if s0 == 1 {
+        state.apply(crate::Gate::X, 2).map_err(|e| e.to_string())?;
+        state.apply(crate::Gate::Z, 2).map_err(|e| e.to_string())?;
+    }
+    if (s0 ^ s1) == 1 {
+        state.apply(crate::Gate::X, 3).map_err(|e| e.to_string())?;
+    }
+
+    // Extract output state (qubits 2,3) with measured values s0,s1
+    let mut measured = std::collections::HashMap::new();
+    measured.insert(0, s0);
+    measured.insert(1, s1);
+    extract_output_state(&state, &[2, 3], &measured, 4)
+}
+
 /// Extract the state of specified output qubits from a full state vector.
 /// The `measured_values` map gives the measured values of non-output qubits.
 /// Returns a StateVector for just the output qubits.
@@ -938,10 +978,10 @@ pub fn extract_output_state(
         for q in 0..total_qubits {
             if output_qubits.contains(&q) {
                 let bit = (out_idx >> out_bit) & 1;
-                full_idx |= bit << (total_qubits - 1 - q);
+                full_idx |= bit << q;
                 out_bit += 1;
             } else if let Some(&val) = measured_values.get(&q) {
-                full_idx |= (val as usize) << (total_qubits - 1 - q);
+                full_idx |= (val as usize) << q;
             }
         }
         *amp = full_state.amplitudes()[full_idx];
