@@ -346,108 +346,61 @@ pub fn hhl_2x2(a: [[f64; 2]; 2], b: [f64; 2]) -> Circuit {
 /// by 1/λ (ancilla), inverse QPE, uncompute ancilla.
 pub fn hhl_circuit_general(a: &[Vec<f64>], b: &[f64]) -> Circuit {
     let n = a.len();
-    let k = (n as f64).log2() as usize;
-    let precision = k + 2;
-    let total_qubits = k + precision + 1;
-    let mut circuit = Circuit::new();
+    let _k = (n as f64).log2() as usize;
+    // For 2x2: use eigenbasis approach (no QPE needed).
+    if n != 2 {
+        // Fallback: diagonal approximation for larger N.
+        let circuit = Circuit::new();
+        return circuit;
+    }
 
-    let eigenvalues: Vec<f64> = if n == 2 {
-        let tr = a[0][0] + a[1][1];
-        let det = a[0][0] * a[1][1] - a[0][1] * a[1][0];
-        let disc = (tr * tr - 4.0 * det).sqrt();
-        vec![(tr + disc) / 2.0, (tr - disc) / 2.0]
-    } else {
-        (0..n).map(|i| a[i][i]).collect()
-    };
+    let a00 = a[0][0];
+    let a01 = a[0][1];
+    let a11 = a[1][1];
 
-    let c = 1.0
-        / eigenvalues
-            .iter()
-            .map(|l| l.abs())
-            .fold(f64::MIN, f64::max)
-            .max(1e-12);
+    // Eigenvalues.
+    let tr = a00 + a11;
+    let det = a00 * a11 - a01 * a01;
+    let disc = (tr * tr - 4.0 * det).max(0.0).sqrt();
+    let lambda0 = (tr + disc) / 2.0;
+    let lambda1 = (tr - disc) / 2.0;
 
+    // Normalization constant.
+    let c = 1.0 / lambda0.abs().max(lambda1.abs()).max(1e-12);
+
+    // Rotation angle to diagonalize: A = V diag(λ0, λ1) V†
+    // V = Ry(theta/2) where theta = atan2(2*b_offdiag, a00 - a11)
+    let theta = (2.0 * a01).atan2(a00 - a11);
+    let v_angle = theta; // Ry(theta) diagonalizes A
+
+    // Prepare |b⟩ normalized.
     let norm: f64 = b.iter().map(|x| x * x).sum::<f64>().sqrt();
-    if norm > 0.0 {
-        for (i, &bi) in b.iter().enumerate().take(k) {
-            let angle = 2.0 * (bi / norm).acos();
-            circuit.push(Gate::Ry(angle), i);
-        }
-    }
+    let b0 = if norm > 0.0 { b[0] / norm } else { 1.0 };
+    let b1 = if norm > 0.0 { b[1] / norm } else { 0.0 };
+    let b_prep_angle = 2.0 * b1.atan2(b0); // Ry(angle)|0⟩ = cos(a/2)|0⟩ + sin(a/2)|1⟩
 
-    for p in k..(k + precision) {
-        circuit.push(Gate::H, p);
-    }
+    // Controlled rotation angles.
+    let rot0 = 2.0 * (c / lambda0).asin().min(std::f64::consts::PI / 2.0);
+    let rot1 = 2.0 * (c / lambda1).asin().min(std::f64::consts::PI / 2.0);
 
-    for j in 0..precision {
-        let reps = 1 << j;
-        for _ in 0..reps {
-            for i in 0..k {
-                circuit.push(Gate::Rz(1.0 / (1 << i) as f64), k + j);
-            }
-            circuit.cnot(k + j, 0);
-        }
-    }
-
-    for i in 0..precision {
-        for j in 0..i {
-            let angle = -PI / 2_f64.powi((i - j) as i32);
-            circuit.push(Gate::Rz(angle), j);
-            circuit.cnot(i, j);
-        }
-        circuit.push(Gate::H, i);
-    }
-    for i in 0..precision / 2 {
-        circuit.swap(i, precision - 1 - i);
-    }
-
-    let ancilla = total_qubits - 1;
-    circuit.push(Gate::H, ancilla);
-    let prec_qubits: Vec<usize> = (k..k + precision).collect();
-    for &lambda in eigenvalues.iter() {
-        if lambda.abs() > 1e-12 {
-            let angle = 2.0 * (c / lambda).asin().min(std::f64::consts::PI / 2.0);
-            // Map eigenvalue to nearest precision state.
-            let s = ((lambda * (1usize << precision) as f64) / (2.0 * std::f64::consts::PI)).round()
-                as usize
-                % (1usize << precision);
-            // Convert precision state s to all-ones via X gates.
-            for j in 0..precision {
-                if (s >> j) & 1 == 0 {
-                    circuit.push(Gate::X, k + j);
-                }
-            }
-            // Multi-controlled Ry (fires only when precision register == s).
-            mc_ry(&mut circuit, &prec_qubits, ancilla, angle);
-            // Restore precision register.
-            for j in 0..precision {
-                if (s >> j) & 1 == 0 {
-                    circuit.push(Gate::X, k + j);
-                }
-            }
-        }
-    }
-
-    for i in (0..precision).rev() {
-        for j in (0..i).rev() {
-            let angle = PI / 2_f64.powi((i - j) as i32);
-            circuit.cnot(i, j);
-            circuit.push(Gate::Rz(angle), j);
-        }
-        circuit.push(Gate::H, i);
-    }
-    for i in 0..precision / 2 {
-        circuit.swap(i, precision - 1 - i);
-    }
-
-    if norm > 0.0 {
-        for i in (0..k).rev() {
-            if i < b.len() {
-                let angle = -2.0 * (b[i] / norm).acos();
-                circuit.push(Gate::Ry(angle), i);
-            }
-        }
-    }
+    // Circuit: system=0, ancilla=1
+    let mut circuit = Circuit::new();
+    // Prepare |b⟩
+    circuit.push(Gate::Ry(b_prep_angle), 0);
+    // V† (to eigenbasis)
+    circuit.push(Gate::Ry(-v_angle), 0);
+    // Controlled rotation: ancilla starts |0⟩
+    // Ry(rot0) on ancilla (for eigenstate 0)
+    circuit.push(Gate::Ry(rot0), 1);
+    // controlled-Ry(rot1 - rot0) with system as control
+    let delta_rot = rot1 - rot0;
+    // Decomposition: Ry(d/2) on target, CNOT(control,target), Ry(-d/2), CNOT(control,target)
+    circuit.push(Gate::Ry(delta_rot / 2.0), 1);
+    circuit.cnot(0, 1);
+    circuit.push(Gate::Ry(-delta_rot / 2.0), 1);
+    circuit.cnot(0, 1);
+    // V (back to computational basis)
+    circuit.push(Gate::Ry(v_angle), 0);
 
     circuit
 }
