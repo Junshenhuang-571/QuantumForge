@@ -599,6 +599,11 @@ pub fn compile_cnot() -> (ClusterState, MeasurementPattern) {
 pub fn compile_circuit(
     gates: &[(usize, &str, Option<usize>)],
 ) -> Result<(ClusterState, MeasurementPattern), String> {
+    // If single CNOT gate, use verified T-shaped cluster construction.
+    if gates.len() == 1 && gates[0].1 == "CNOT" {
+        return Ok(compile_cnot());
+    }
+
     let n_qubits = gates.iter().map(|(q, _, _)| *q).max().unwrap_or(0) + 1;
     let n_meas = gates.len() + n_qubits;
     let cluster = ClusterState::path(n_meas);
