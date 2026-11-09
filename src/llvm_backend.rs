@@ -1,4 +1,3 @@
-#![allow(missing_docs)]
 //! Optional textual LLVM IR lowering and command-line backend integration.
 //!
 //! The core crate does not link LLVM. This module emits target-independent IR

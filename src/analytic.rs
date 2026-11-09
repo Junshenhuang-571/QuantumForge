@@ -1,4 +1,3 @@
-#![allow(missing_docs)]
 //! Exact finite-dimensional Pauli algebra.
 //!
 //! This module is independent of floating-point simulation: coefficients are

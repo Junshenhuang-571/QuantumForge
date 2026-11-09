@@ -1,4 +1,3 @@
-#![allow(missing_docs)]
 //! Optional CUDA state-vector backend. Requires the CUDA Toolkit and an
 //! NVIDIA driver when the `cuda` Cargo feature is enabled.
 

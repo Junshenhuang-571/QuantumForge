@@ -1,4 +1,3 @@
-#![allow(missing_docs)]
 //! Quantum Error Correction (QEC) codes.
 //!
 //! Implements stabilizer codes for error detection and correction:

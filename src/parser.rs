@@ -1,4 +1,3 @@
-#![allow(missing_docs)]
 //! Small parser for Wolfram-style scalar expressions.
 //!
 //! Supports exact integer/decimal literals, `I`, `Pi`, `E`, symbols, basic

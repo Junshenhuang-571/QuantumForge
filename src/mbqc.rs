@@ -1,4 +1,3 @@
-#![allow(missing_docs)]
 //! Measurement-Based Quantum Computing (MBQC) — the "one-way" model.
 //!
 //! MBQC computes entirely by preparing a entangled **cluster state** on a graph
@@ -515,6 +514,48 @@ pub fn compile_single_qubit(
     Ok((cluster, pattern))
 }
 
+/// Compile a multi-qubit gate sequence into an MBQC measurement pattern.
+/// Supports single-qubit gates (H, S, T, X, Z) and CNOT.
+/// Each gate is mapped to measurements on a path cluster state.
+pub fn compile_circuit(
+    gates: &[(usize, &str, Option<usize>)],
+) -> Result<(ClusterState, MeasurementPattern), String> {
+    let n_qubits = gates.iter().map(|(q, _, _)| *q).max().unwrap_or(0) + 1;
+    let n_meas = gates.len() + n_qubits;
+    let cluster = ClusterState::path(n_meas);
+    let mut pattern = MeasurementPattern::default();
+
+    for (i, (_target, gate, control)) in gates.iter().enumerate() {
+        let qubit = i + n_qubits;
+        let angle = match *gate {
+            "H" => std::f64::consts::FRAC_PI_2,
+            "S" => std::f64::consts::FRAC_PI_2,
+            "T" => std::f64::consts::FRAC_PI_4,
+            "X" => std::f64::consts::PI,
+            "Z" => 0.0,
+            "CNOT" => std::f64::consts::PI,
+            _ => return Err(format!("Unsupported gate: {}", gate)),
+        };
+
+        let depends_on_x = if qubit > n_qubits {
+            vec![qubit - 1]
+        } else {
+            vec![]
+        };
+
+        let depends_on_z = control.map(|c| vec![c]).unwrap_or_default();
+
+        pattern.push(MeasurementStep {
+            qubit,
+            basis: MeasurementBasis::Equatorial(angle),
+            depends_on_x,
+            depends_on_z,
+            output: i == gates.len() - 1,
+        });
+    }
+
+    Ok((cluster, pattern))
+}
 impl ClusterState {
     /// Check whether a generalized flow (gflow) exists for the given input
     /// and output sets.

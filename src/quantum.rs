@@ -1,4 +1,3 @@
-#![allow(missing_docs)]
 //! Dimension-aware finite-dimensional Hilbert spaces and linear algebra.
 
 use crate::{Complex64, Gate, SmallRng};

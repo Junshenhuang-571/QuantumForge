@@ -1,4 +1,3 @@
-#![allow(missing_docs)]
 //! QASM 2.0 parser — the standard quantum assembly interchange format.
 //!
 //! Parses OpenQASM 2.0 into a [`Circuit`], letting users import circuits from

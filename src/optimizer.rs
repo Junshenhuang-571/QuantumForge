@@ -1,4 +1,3 @@
-#![allow(missing_docs)]
 //! Circuit optimization passes.
 //!
 //! Provides optimization passes for quantum circuits:

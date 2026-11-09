@@ -1,4 +1,3 @@
-#![allow(missing_docs)]
 //! Typed scalar numeric IR and reference interpreter.
 //!
 //! Numeric IR: a compact SSA instruction stream for LLVM code generation.

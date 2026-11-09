@@ -1,4 +1,3 @@
-#![allow(missing_docs)]
 //! High-level algorithm templates.
 //!
 //! Provides ready-to-use implementations of common quantum algorithms

@@ -1,4 +1,3 @@
-#![allow(missing_docs)]
 //! Python bindings for QuantumForge using PyO3.
 //!
 //! Enable with `--features python`. Provides a `quantumforge` Python module
