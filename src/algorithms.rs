@@ -339,7 +339,9 @@ pub fn hhl_2x2(a: [[f64; 2]; 2], b: [f64; 2]) -> Circuit {
 }
 
 /// HHL circuit for general N×N Hermitian systems (N = 2^k).
-/// Builds: prepare |b>, QPE of e^(iAt), controlled rotation by 1/λ, inverse QPE.
+/// For N=2: exact eigenbasis decomposition (overlap 1.0).
+/// For N>2: diagonal approximation (eigenvalues from diagonal, no off-diagonal coupling).
+/// Full implementation for N>2 requires controlled e^(iAt) decomposition.
 /// Returns a Circuit with the full gate decomposition.
 /// HHL circuit for general N×N Hermitian systems (N = 2^k).
 /// Full decomposition: prepare |b>, QPE of e^(iAt), controlled rotation
