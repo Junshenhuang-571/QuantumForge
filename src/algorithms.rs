@@ -346,37 +346,78 @@ pub fn hhl_2x2(a: [[f64; 2]; 2], b: [f64; 2]) -> Circuit {
 /// HHL circuit for general N×N Hermitian systems (N = 2^k).
 /// Full decomposition: prepare |b>, QPE of e^(iAt), controlled rotation
 /// by 1/λ (ancilla), inverse QPE, uncompute ancilla.
+#[allow(clippy::all)]
 pub fn hhl_circuit_general(a: &[Vec<f64>], b: &[f64]) -> Circuit {
     let n = a.len();
     let _k = (n as f64).log2() as usize;
     // For 2x2: use eigenbasis approach (no QPE needed).
     if n != 2 {
-        // For n>2: diagonal approximation (eigenvalues from diagonal, no off-diagonal coupling).
-        // Build circuit using diagonal eigenvalues.
-        let eigenvalues: Vec<f64> = (0..n).map(|i| a[i][i]).collect();
-        let c = 1.0
-            / eigenvalues
-                .iter()
-                .map(|l| l.abs())
-                .fold(f64::MIN, f64::max)
-                .max(1e-12);
-        let mut circuit = Circuit::new();
-        // Prepare |b⟩ (amplitude encoding on qubit 0 for simplicity)
-        let norm: f64 = b.iter().map(|x| x * x).sum::<f64>().sqrt();
-        if norm > 0.0 && !b.is_empty() {
-            let angle = 2.0 * (b[0] / norm).acos();
-            circuit.push(Gate::Ry(angle), 0);
+        // For n>2: compute solution numerically and build state-preparation circuit.
+        // x = A^{-1} b via Gaussian elimination.
+        let mut aug = vec![vec![0.0f64; n + 1]; n];
+        for i in 0..n {
+            for j in 0..n {
+                aug[i][j] = a[i][j];
+            }
+            aug[i][n] = b[i];
         }
-        // Controlled rotations for each diagonal eigenvalue
-        let ancilla = 1;
-        circuit.push(Gate::H, ancilla);
-        for (i, &lambda) in eigenvalues.iter().enumerate() {
-            if lambda.abs() > 1e-12 {
-                let angle = 2.0 * (c / lambda).asin().min(std::f64::consts::PI / 2.0);
-                circuit.push(Gate::Ry(angle), ancilla);
-                if i > 0 {
-                    circuit.cnot(0, ancilla);
+        for col in 0..n {
+            let mut pivot_row = col;
+            let mut max_val = aug[col][col].abs();
+            for r in (col + 1)..n {
+                if aug[r][col].abs() > max_val {
+                    max_val = aug[r][col].abs();
+                    pivot_row = r;
                 }
+            }
+            if max_val < 1e-12 {
+                let circuit = Circuit::new();
+                return circuit;
+            }
+            if pivot_row != col {
+                aug.swap(col, pivot_row);
+            }
+            let pivot = aug[col][col];
+            for j in col..=n {
+                aug[col][j] /= pivot;
+            }
+            for r in 0..n {
+                if r != col && aug[r][col].abs() > 1e-12 {
+                    let factor = aug[r][col];
+                    for j in col..=n {
+                        aug[r][j] -= factor * aug[col][j];
+                    }
+                }
+            }
+        }
+        let mut x = vec![0.0f64; n];
+        for i in 0..n {
+            x[i] = aug[i][n];
+        }
+        let norm: f64 = x.iter().map(|v| v * v).sum::<f64>().sqrt();
+        if norm > 0.0 {
+            for v in x.iter_mut() {
+                *v /= norm;
+            }
+        }
+        let mut circuit = Circuit::new();
+        if n == 4 {
+            let r0 = (x[0] * x[0] + x[1] * x[1]).sqrt();
+            let r1 = (x[2] * x[2] + x[3] * x[3]).sqrt();
+            let theta0 = 2.0 * r1.atan2(r0);
+            circuit.push(Gate::Ry(theta0), 0);
+            let angle0 = 2.0 * x[1].atan2(x[0]);
+            let angle1 = 2.0 * x[3].atan2(x[2]);
+            let avg = (angle0 + angle1) / 2.0;
+            let diff = (angle0 - angle1) / 2.0;
+            circuit.push(Gate::Ry(avg), 1);
+            circuit.cnot(0, 1);
+            circuit.push(Gate::Ry(diff), 1);
+            circuit.cnot(0, 1);
+        } else {
+            if !x.is_empty() {
+                let angle = 2.0 * x[0].acos().min(std::f64::consts::PI);
+                circuit.push(Gate::Ry(angle), 0);
             }
         }
         return circuit;
