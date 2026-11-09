@@ -1,4 +1,3 @@
-#![allow(missing_docs)]
 //! # Contributing
 //!
 //! Contributions are welcome! See [CONTRIBUTING.md](https://github.com/Junshenhuang-571/QuantumForge/blob/main/CONTRIBUTING.md)
@@ -2318,6 +2317,32 @@ impl ParameterizedCircuit {
             observable_qubit,
         )?;
         sample_expectation(exact, sampling)
+    }
+
+    /// Density-matrix shot expectation with Wilson confidence interval.
+    pub fn expectation_density_with_inputs_shots_with_ci(
+        &self,
+        inputs: &[f64],
+        parameters: &[f64],
+        qubits: usize,
+        observable: SingleQubitObservable,
+        observable_qubit: usize,
+        sampling: ShotConfig,
+    ) -> Result<(f64, (f64, f64)), QuantumError> {
+        let exact = self.expectation_density_with_inputs(
+            inputs,
+            parameters,
+            qubits,
+            observable,
+            observable_qubit,
+        )?;
+        let est = sample_expectation(exact, sampling)?;
+        // Wilson CI on the binomial sampling
+        let p = ((1.0 + exact) * 0.5).clamp(0.0, 1.0);
+        let successes = (p * sampling.shots as f64).round() as usize;
+        let ci = wilson_ci(successes, sampling.shots, 0.95);
+        let ci_exp = (2.0 * ci.0 - 1.0, 2.0 * ci.1 - 1.0);
+        Ok((est, ci_exp))
     }
 
     /// Exact parameter-shift gradient evaluated through density-matrix noise
