@@ -533,6 +533,20 @@ pub mod python_bindings {
                 .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))
         }
 
+        fn expectation_z_shots_with_ci(
+            &self,
+            params: Vec<f64>,
+            qubits: usize,
+            observable_qubit: usize,
+            shots: usize,
+            seed: u64,
+        ) -> PyResult<(f64, (f64, f64))> {
+            let sampling = crate::ShotConfig { shots, seed };
+            self.inner
+                .expectation_shots_with_ci(&params, qubits, SingleQubitObservable::Z, observable_qubit, sampling)
+                .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))
+        }
+
         fn mse_loss_and_gradient(
             &self,
             data_x: Vec<f64>,
