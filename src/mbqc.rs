@@ -671,3 +671,44 @@ pub struct ResourceCost {
     pub byproduct_edges: usize,
     pub total_cost: usize,
 }
+
+/// Proper MBQC CNOT for computational basis inputs.
+/// Uses T-shaped cluster (edges 0-2, 1-2, 1-3) with angle-encoded inputs.
+/// By-products: O2 = X^{s0} Z^{s0}, O3 = X^{s0^s1}.
+pub fn mbqc_cnot_proper(b0: u8, b1: u8, seed: u64) -> Result<(u8, u8), String> {
+    let edges = vec![(0, 2), (1, 2), (1, 3)];
+    let cluster = ClusterState::new(4, edges);
+    let mut state = cluster.prepare()?;
+
+    // Encode input via measurement basis.
+    let a0 = if b0 == 1 { std::f64::consts::PI } else { 0.0 };
+    let a1 = if b1 == 1 { std::f64::consts::PI } else { 0.0 };
+
+    let mut rng = SmallRng::seeded(seed);
+    state
+        .apply(crate::Gate::Rz(-a0), 0)
+        .map_err(|e| e.to_string())?;
+    let measure_x = |s: &mut StateVector, q: usize, rng: &mut SmallRng| -> Result<u8, String> {
+        s.apply(crate::Gate::H, q).map_err(|e| e.to_string())?;
+        s.measure(q, rng).map_err(|e| e.to_string())
+    };
+    let s0 = measure_x(&mut state, 0, &mut rng)?;
+    state
+        .apply(crate::Gate::Rz(-a1), 1)
+        .map_err(|e| e.to_string())?;
+    let s1 = measure_x(&mut state, 1, &mut rng)?;
+
+    // By-products: O2 = X^{s0} Z^{s0}, O3 = X^{s0^s1}
+    if s0 == 1 {
+        state.apply(crate::Gate::X, 2).map_err(|e| e.to_string())?;
+        state.apply(crate::Gate::Z, 2).map_err(|e| e.to_string())?;
+    }
+    if (s0 ^ s1) == 1 {
+        state.apply(crate::Gate::X, 3).map_err(|e| e.to_string())?;
+    }
+
+    let r2 = state.measure(2, &mut rng).map_err(|e| e.to_string())?;
+    let r3 = state.measure(3, &mut rng).map_err(|e| e.to_string())?;
+
+    Ok((r2, r3))
+}
