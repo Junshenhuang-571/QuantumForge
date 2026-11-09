@@ -543,7 +543,13 @@ pub mod python_bindings {
         ) -> PyResult<(f64, (f64, f64))> {
             let sampling = crate::ShotConfig { shots, seed };
             self.inner
-                .expectation_shots_with_ci(&params, qubits, SingleQubitObservable::Z, observable_qubit, sampling)
+                .expectation_shots_with_ci(
+                    &params,
+                    qubits,
+                    SingleQubitObservable::Z,
+                    observable_qubit,
+                    sampling,
+                )
                 .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))
         }
 
