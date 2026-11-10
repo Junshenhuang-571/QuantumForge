@@ -1256,6 +1256,15 @@ impl ScalarExpr {
         }
         self.factor_diff_squares()
     }
+    /// True if the expression is at most linear in `variable`.
+    pub fn is_linear(&self, variable: &str) -> bool {
+        matches!(self.degree(variable), Some(d) if d <= 1)
+    }
+
+    /// True if the expression is at most quadratic in `variable`.
+    pub fn is_quadratic(&self, variable: &str) -> bool {
+        matches!(self.degree(variable), Some(d) if d <= 2)
+    }
     pub fn add(terms: impl IntoIterator<Item = Self>) -> Result<Self, AnalyticError> {
         let mut flattened = Vec::new();
         for term in terms {
