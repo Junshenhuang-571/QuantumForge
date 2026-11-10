@@ -327,10 +327,220 @@ pub fn surface_code_planar(d: usize) -> QecCode {
     }
 }
 
-/// Build a rotated surface code (distance d).
+/// Check that every single-qubit Pauli error on `code` produces a distinct
+/// syndrome (distance >= 3 necessary condition). Returns true if all 3*n
+/// single errors have unique, non-zero syndromes.
+pub fn verify_single_error_syndromes(code: &QecCode) -> bool {
+    use std::collections::HashSet;
+    let n = code.n_physical;
+    let mut seen: HashSet<Vec<u8>> = HashSet::new();
+    for q in 0..n {
+        for p in 1u8..=3u8 {
+            // syndrome: for each stabilizer, commutation parity
+            let mut syndrome = Vec::with_capacity(code.stabilizers.len());
+            for stab in &code.stabilizers {
+                // parity of Pauli commutation between error (p on q) and stab
+                let stab_pauli = stab.paulis.get(q).copied().unwrap_or(0);
+                let commute = pauli_commute(stab_pauli, p);
+                syndrome.push(if commute { 0 } else { 1 });
+            }
+            if syndrome.iter().all(|&b| b == 0) {
+                return false; // undetectable error
+            }
+            if !seen.insert(syndrome) {
+                return false; // duplicate syndrome
+            }
+        }
+    }
+    true
+}
+
+fn pauli_commute(a: u8, b: u8) -> bool {
+    // Pauli labels: 0=I,1=X,2=Y,3=Z. Commute unless one is X and other Z (or vice versa) etc.
+    // X(1) and Z(3) anticommute; Y(2) anticommutes with X and Z.
+    if a == 0 || b == 0 {
+        return true;
+    }
+    if a == b {
+        return true;
+    }
+    // X and Z anticommute; X and Y anticommute; Y and Z anticommute
+    false
+}
+/// Attempt to build a rotated surface code for distance `d` by augmenting the
+/// face stabilizers with a greedy search over boundary weight-2 stabilizers.
+/// Returns `Some(code)` if the search finds a set satisfying
+/// `verify_single_error_syndromes`, otherwise `None`.
+pub fn surface_code_rotated_search(d: usize) -> Option<QecCode> {
+    if d < 3 || d % 2 == 0 {
+        return None;
+    }
+    // Face stabilizers (same as surface_code_rotated).
+    let n = d * d;
+    let mut stabilizers: Vec<PauliString> = Vec::new();
+    for fr in 0..d - 1 {
+        for fc in 0..d - 1 {
+            let q0 = fr * d + fc;
+            let q1 = fr * d + (fc + 1);
+            let q2 = (fr + 1) * d + fc;
+            let q3 = (fr + 1) * d + (fc + 1);
+            let mut pauli = PauliString::new(n);
+            let qs = [q0, q1, q2, q3];
+            if (fr + fc).is_multiple_of(2) {
+                for &q in &qs {
+                    pauli.set(q, 1);
+                }
+            } else {
+                for &q in &qs {
+                    pauli.set(q, 3);
+                }
+            }
+            stabilizers.push(pauli);
+        }
+    }
+
+    // Candidate boundary stabilizers: weight-2 on adjacent boundary qubits.
+    let is_boundary = |q: usize| -> bool {
+        let r = q / d;
+        let c = q % d;
+        r == 0 || r == d - 1 || c == 0 || c == d - 1
+    };
+    let mut candidates: Vec<PauliString> = Vec::new();
+    for q1 in 0..n {
+        if !is_boundary(q1) {
+            continue;
+        }
+        for delta in [1isize, -1, d as isize, -(d as isize)] {
+            let q2i = q1 as isize + delta;
+            if q2i < 0 || q2i >= n as isize {
+                continue;
+            }
+            let q2 = q2i as usize;
+            if !is_boundary(q2) {
+                continue;
+            }
+            // adjacency check (Manhattan distance 1)
+            let r1 = q1 / d;
+            let c1 = q1 % d;
+            let r2 = q2 / d;
+            let c2 = q2 % d;
+            if (r1 as isize - r2 as isize).abs() + (c1 as isize - c2 as isize).abs() != 1 {
+                continue;
+            }
+            for &pauli_type in &[1u8, 3u8] {
+                let mut p = PauliString::new(n);
+                p.set(q1, pauli_type);
+                p.set(q2, pauli_type);
+                candidates.push(p);
+            }
+        }
+    }
+    // dedupe
+    candidates.sort_by(|a, b| a.paulis.cmp(&b.paulis));
+    candidates.dedup_by(|a, b| a.paulis == b.paulis);
+
+    // Greedy add.
+    let mut current = stabilizers.clone();
+    let mut used: std::collections::HashSet<usize> = std::collections::HashSet::new();
+    for _ in 0..candidates.len() {
+        if verify_with_stabilizers(n, &current) {
+            break;
+        }
+        // pick candidate maximizing distinct count
+        let mut best_idx = None;
+        let mut best_score = score_stabilizers(n, &current);
+        for (i, cand) in candidates.iter().enumerate() {
+            if used.contains(&i) {
+                continue;
+            }
+            let mut trial = current.clone();
+            trial.push(cand.clone());
+            let s = score_stabilizers(n, &trial);
+            if s > best_score {
+                best_score = s;
+                best_idx = Some(i);
+            }
+        }
+        match best_idx {
+            Some(i) => {
+                current.push(candidates[i].clone());
+                used.insert(i);
+            }
+            None => break,
+        }
+    }
+
+    if !verify_with_stabilizers(n, &current) {
+        return None;
+    }
+
+    // Build QecCode similar to planar (logical ops top row / left col).
+    let mut logical_x = PauliString::new(n);
+    for c in 0..d {
+        logical_x.set(c, 1);
+    }
+    let mut logical_z = PauliString::new(n);
+    for r in 0..d {
+        logical_z.set(r * d, 3);
+    }
+    Some(QecCode {
+        n_physical: n,
+        n_logical: 1,
+        stabilizers: current,
+        logical_x: vec![logical_x],
+        logical_z: vec![logical_z],
+        syndrome_circuit: Circuit::new(),
+        recovery: std::collections::HashMap::new(),
+    })
+}
+
+fn score_stabilizers(n: usize, stabs: &[PauliString]) -> usize {
+    use std::collections::HashSet;
+    let mut seen: HashSet<Vec<u8>> = HashSet::new();
+    let mut distinct = 0usize;
+    let mut zero_count = 0usize;
+    for q in 0..n {
+        for p in 1u8..=3u8 {
+            let mut syndrome = Vec::with_capacity(stabs.len());
+            for stab in stabs {
+                let stab_pauli = stab.paulis.get(q).copied().unwrap_or(0);
+                let commute = pauli_commute(stab_pauli, p);
+                syndrome.push(if commute { 0 } else { 1 });
+            }
+            if syndrome.iter().all(|&b| b == 0) {
+                zero_count += 1;
+            } else if seen.insert(syndrome) {
+                distinct += 1;
+            }
+        }
+    }
+    // prefer fewer zero syndromes and more distinct
+    distinct * 1000 - zero_count
+}
+
+fn verify_with_stabilizers(n: usize, stabs: &[PauliString]) -> bool {
+    // reuse logic
+    let code = QecCode {
+        n_physical: n,
+        n_logical: 1,
+        stabilizers: stabs.to_vec(),
+        logical_x: vec![],
+        logical_z: vec![],
+        syndrome_circuit: Circuit::new(),
+        recovery: std::collections::HashMap::new(),
+    };
+    verify_single_error_syndromes(&code)
+}
 /// d² data qubits, (d² - 1)/2 ancillas each for X and Z.
 pub fn surface_code_rotated(d: usize) -> QecCode {
-    assert!(d >= 3 && d % 2 == 1, "distance must be odd and >= 3");
+    if d == 3 {
+        // original verified extras
+    } else {
+        if let Some(code) = surface_code_rotated_search(d) {
+            return code;
+        }
+        panic!("rotated surface code search failed for d={}", d);
+    }
 
     let n_data = d * d;
     let n = n_data; // data qubits only for simplicity

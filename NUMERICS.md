@@ -49,5 +49,5 @@ Exact arithmetic trades rounding error for **coefficient explosion**. This is do
 6. **MBQC gflow**: necessary condition checked in linear time (a vertex needs at least one neighbour in the future set). The full Danos–Kashefi sufficiency check remains exponential and is not implemented; `gflow_exists` reports the necessary condition only.
 7. **MPS truncation**: Bond dimension χ controls accuracy. At TFIM critical point, χ must scale as χ ~ L^(1/6) for energy convergence. Documented in calibration tests.
 8. **SmallRng**: Not cryptographically secure. Not suitable for Monte Carlo error bounds. Period and statistical quality documented.
-9. **SymbolicPauliSum**: Convolution polynomial algebra, **not** a full CAS. Cannot simplify trigonometric expressions. Hard gate in `verify_identity`.
-10. **Surface code d>3**: Boundary stabilizers omitted for d>3 (performance). Only d≤3 has full syndrome coverage.
+9. **SymbolicPauliSum**: convolution polynomial algebra over `ScalarExpr` coefficients; coefficients can be simplified via `SymbolicPauliSum::simplify`. Not a full CAS (no factorization/pattern matching beyond `Simplifier` rules); `verify_identity` hard-gates to pure polynomials.
+10. **Surface code rotated**: boundary stabilizers for d>3 are found by greedy search over weight-2 boundary operators and verified via `verify_single_error_syndromes`. Search may fail for very large d; `surface_code_rotated` panics if no valid set is found.
