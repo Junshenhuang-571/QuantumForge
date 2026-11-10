@@ -103,7 +103,6 @@ fn is_parameterized_gate(name: &str) -> bool {
 
 #[derive(Clone)]
 struct GateDef {
-    #[allow(dead_code)] // TODO: wire parameter substitution when applying user gates
     params: Vec<String>,
     qargs: Vec<String>,
     body: Vec<(String, Vec<String>, Vec<String>)>, // (gate_name, param_names, qarg_names)
@@ -348,10 +347,17 @@ impl<'a> QasmParser<'a> {
         }
 
         // Parse qargs
-        // After stripping "gate " and name, the rest is qargs (e.g., "a, b" or "a b")
-        let after_name = &header[name_end..].trim();
+        // After params, the rest are qargs (e.g., "a, b" or "a b")
+        let qargs_source = if let Some(_paren_start) = header.find('(') {
+            let paren_end = header.find(')').ok_or_else(|| {
+                QasmError::new(self.position, "unclosed parenthesis in gate definition")
+            })?;
+            &header[paren_end + 1..]
+        } else {
+            &header[name_end..]
+        };
         let mut qargs = Vec::new();
-        for q in after_name.replace(',', " ").split_whitespace() {
+        for q in qargs_source.replace(',', " ").split_whitespace() {
             if !q.is_empty() {
                 qargs.push(q.to_string());
             }
@@ -663,7 +669,7 @@ impl<'a> QasmParser<'a> {
 
         let qargs: Vec<String> = qargs_str
             .split(',')
-            .map(|s| s.trim().to_string())
+            .map(|s| s.trim().trim_end_matches(';').trim().to_string())
             .filter(|s| !s.is_empty())
             .collect();
 
@@ -710,7 +716,7 @@ impl<'a> QasmParser<'a> {
 
         let qargs: Vec<String> = qargs_str
             .split(',')
-            .map(|s| s.trim().to_string())
+            .map(|s| s.trim().trim_end_matches(';').trim().to_string())
             .filter(|s| !s.is_empty())
             .collect();
 

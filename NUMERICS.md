@@ -41,12 +41,12 @@ Exact arithmetic trades rounding error for **coefficient explosion**. This is do
 
 ## Known Failure Modes
 
-1. **Exact arithmetic overflow**: `Rational` operations can overflow `i64`. Returns error, no fallback. Mitigate with CSE/canonicalization.
+1. **Exact arithmetic overflow**: `Rational` operations can overflow `i64`. Returns error, no fallback. Mitigate with CSE/canonicalization. A lossy floating-point approximation is available via `Rational::as_f64` / `ExactComplex::as_complex64` when an exact result is not required.
 2. **Lanczos non-convergence**: Returns error. Does not silently return wrong eigenvalues. Increase max iterations or use exact diagonalization for small systems.
 3. **GPU context release**: Fixed via `AtomicBool` in `CudaBackendInner::Drop`. Double-release is now a no-op.
 4. **Parser depth/size limits**: `MAX_PARSE_DEPTH = 256`, `MAX_CIRCUIT_OPS = 10_000`. Exceeding either returns an error. Protects against stack overflow on malicious input.
 5. **QASM reset**: Not supported in pure-state simulation. Returns explicit error (not silent no-op).
-6. **MBQC gflow**: Brute-force subset search is exponential. Only practical for ≤ ~16 interior vertices.
+6. **MBQC gflow**: necessary condition checked in linear time (a vertex needs at least one neighbour in the future set). The full Danos–Kashefi sufficiency check remains exponential and is not implemented; `gflow_exists` reports the necessary condition only.
 7. **MPS truncation**: Bond dimension χ controls accuracy. At TFIM critical point, χ must scale as χ ~ L^(1/6) for energy convergence. Documented in calibration tests.
 8. **SmallRng**: Not cryptographically secure. Not suitable for Monte Carlo error bounds. Period and statistical quality documented.
 9. **SymbolicPauliSum**: Convolution polynomial algebra, **not** a full CAS. Cannot simplify trigonometric expressions. Hard gate in `verify_identity`.

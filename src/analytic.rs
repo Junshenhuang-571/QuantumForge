@@ -88,6 +88,11 @@ impl Rational {
     pub fn is_zero(self) -> bool {
         self.numerator == 0
     }
+
+    /// Approximate floating-point value (lossy; does not overflow).
+    pub fn as_f64(self) -> f64 {
+        self.numerator as f64 / self.denominator as f64
+    }
     pub fn checked_add(self, rhs: Self) -> Result<Self, AnalyticError> {
         let g = gcd(self.denominator as u128, rhs.denominator as u128) as i128;
         let lmul = rhs.denominator / g;
@@ -201,6 +206,11 @@ impl ExactComplex {
             self.re.numerator() as f64 / self.re.denominator() as f64,
             self.im.numerator() as f64 / self.im.denominator() as f64,
         )
+    }
+
+    /// Approximate floating-point value (lossy; does not overflow).
+    pub fn as_complex64(self) -> Complex64 {
+        self.to_complex64()
     }
     pub fn checked_add(self, rhs: Self) -> Result<Self, AnalyticError> {
         Ok(Self {

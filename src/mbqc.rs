@@ -781,43 +781,13 @@ impl ClusterState {
             }
         }
 
-        let odd_neighbourhood = |s: &[usize]| -> Vec<usize> {
-            let mut counts = vec![0usize; n];
-            for &v in s {
-                for u in 0..n {
-                    if adj[v][u] {
-                        counts[u] += 1;
-                    }
-                }
-            }
-            (0..n).filter(|&u| counts[u] % 2 == 1).collect()
-        };
-
-        if interior.len() > 16 {
-            return false;
-        }
-
         for &v in &interior {
-            let future: Vec<usize> = (0..n)
-                .filter(|&u| !input_set.contains(&u) && u != v)
-                .collect();
-            let mut found = false;
-            let m = future.len();
-            if m > 20 {
-                return false;
-            }
-            for mask in 1usize..(1usize << m) {
-                let s: Vec<usize> = (0..m)
-                    .filter(|&i| mask & (1 << i) != 0)
-                    .map(|i| future[i])
-                    .collect();
-                let odd = odd_neighbourhood(&s);
-                if odd.contains(&v) {
-                    found = true;
-                    break;
-                }
-            }
-            if !found {
+            // v must appear in the odd neighbourhood of some subset of future.
+            // A single neighbour u of v in `future` suffices (odd neighbourhood of
+            // {u} contains v), so this is a linear-time check instead of 2^m.
+            let has_future_neighbour =
+                (0..n).any(|u| !input_set.contains(&u) && u != v && adj[v][u]);
+            if !has_future_neighbour {
                 return false;
             }
         }

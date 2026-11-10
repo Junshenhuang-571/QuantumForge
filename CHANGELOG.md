@@ -11,6 +11,22 @@
 ### Fixed
 - Add user-visible bug fixes here.
 
+## [0.2.6] - 2026-11-10
+
+### Added
+- `Rational::as_f64` and `ExactComplex::as_complex64` lossy floating-point
+  approximations for overflow-prone exact arithmetic.
+- Linear-time necessary-condition check in `ClusterState::gflow_exists`.
+
+### Changed
+- QASM user-defined gate definitions now parse parameters vs qargs correctly.
+- QASM qubit references tolerate trailing semicolons.
+- MBQC `gflow_exists` no longer brute-forces subsets (was exponential).
+
+### Fixed
+- Version metadata synchronized across `Cargo.toml`, `pyproject.toml`,
+  `API_STABILITY.md`, and `CHANGELOG.md` (all 0.2.6).
+
 ## [0.2.3] - 2026-10-30
 
 ### Added
