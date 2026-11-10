@@ -262,6 +262,34 @@ pub fn steane_code() -> QecCode {
     }
 }
 
+/// Check that all stabilizers in `code` pairwise commute (necessary for a
+/// valid stabilizer code).
+pub fn stabilizers_commute(code: &QecCode) -> bool {
+    for i in 0..code.stabilizers.len() {
+        for j in i + 1..code.stabilizers.len() {
+            let a = &code.stabilizers[i];
+            let b = &code.stabilizers[j];
+            let mut anticommute_count = 0usize;
+            for q in 0..code.n_physical {
+                let pa = a.paulis.get(q).copied().unwrap_or(0);
+                let pb = b.paulis.get(q).copied().unwrap_or(0);
+                if pa != 0 && pb != 0 && pa != pb {
+                    anticommute_count += 1;
+                }
+            }
+            if anticommute_count % 2 != 0 {
+                return false;
+            }
+        }
+    }
+    true
+}
+
+/// Combined validity check: stabilizers commute and every single-qubit error
+/// has a distinct non-zero syndrome.
+pub fn verify_code(code: &QecCode) -> bool {
+    stabilizers_commute(code) && verify_single_error_syndromes(code)
+}
 /// Build a planar surface code (distance d).
 /// 2d² - 2d + 1 data qubits, d² - 1 ancilla qubits.
 pub fn surface_code_planar(d: usize) -> QecCode {
@@ -454,6 +482,27 @@ pub fn surface_code_rotated_search(d: usize) -> Option<QecCode> {
                 continue;
             }
             let mut trial = current.clone();
+            // candidate must commute with all current stabilizers
+            let mut commutes = true;
+            for s in &current {
+                let a = s;
+                let b = cand;
+                let mut ac = 0usize;
+                for q in 0..n {
+                    let pa = a.paulis.get(q).copied().unwrap_or(0);
+                    let pb = b.paulis.get(q).copied().unwrap_or(0);
+                    if pa != 0 && pb != 0 && pa != pb {
+                        ac += 1;
+                    }
+                }
+                if ac % 2 != 0 {
+                    commutes = false;
+                    break;
+                }
+            }
+            if !commutes {
+                continue;
+            }
             trial.push(cand.clone());
             let s = score_stabilizers(n, &trial);
             if s > best_score {
@@ -529,18 +578,15 @@ fn verify_with_stabilizers(n: usize, stabs: &[PauliString]) -> bool {
         syndrome_circuit: Circuit::new(),
         recovery: std::collections::HashMap::new(),
     };
-    verify_single_error_syndromes(&code)
+    verify_code(&code)
 }
 /// d² data qubits, (d² - 1)/2 ancillas each for X and Z.
 pub fn surface_code_rotated(d: usize) -> QecCode {
-    if d == 3 {
-        // original verified extras
-    } else {
-        if let Some(code) = surface_code_rotated_search(d) {
-            return code;
-        }
-        panic!("rotated surface code search failed for d={}", d);
-    }
+    assert!(
+        d == 3,
+        "rotated surface code boundary stabilizers are only verified for d=3; \
+         d>3 is not supported"
+    );
 
     let n_data = d * d;
     let n = n_data; // data qubits only for simplicity
