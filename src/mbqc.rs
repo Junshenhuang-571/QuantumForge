@@ -764,8 +764,10 @@ pub fn compile_circuit(
 }
 
 impl ClusterState {
-    /// Check whether a generalized flow (gflow) exists for the given input
-    /// and output sets.
+    /// Check whether a necessary condition for generalized flow (gflow) exists for the given input
+    /// and output sets. This is a necessary but NOT sufficient condition for full Danos–Kashefi gflow.
+    /// Returns true if every interior vertex has at least one neighbour in the future set.
+    /// The full sufficiency check remains exponential and is not implemented.
     pub fn gflow_exists(&self, inputs: &[usize], outputs: &[usize]) -> bool {
         let n = self.qubits;
         let input_set: std::collections::HashSet<usize> = inputs.iter().copied().collect();
