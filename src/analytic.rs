@@ -1265,6 +1265,164 @@ impl ScalarExpr {
     pub fn is_quadratic(&self, variable: &str) -> bool {
         matches!(self.degree(variable), Some(d) if d <= 2)
     }
+    /// Content (gcd of coefficients) of a polynomial in `variable`, for rational real coefficients.
+    pub fn content(&self, _variable: &str) -> ExactComplex {
+        let terms = match self {
+            Self::Add(xs) => xs.clone(),
+            other => vec![other.clone()],
+        };
+        let coeffs: Vec<ExactComplex> = terms.iter().map(|t| extract_coefficient(t).0).collect();
+        if coeffs.is_empty() {
+            return ExactComplex::ZERO;
+        }
+        let mut g = coeffs[0];
+        for c in &coeffs[1..] {
+            g = gcd_exact(g, *c);
+        }
+        g
+    }
+    /// Primitive part: expression divided by its content.
+    pub fn primitive_part(&self, variable: &str) -> Self {
+        let c = self.content(variable);
+        if c.is_zero() {
+            return self.clone();
+        }
+        // divide each term by c
+        match self {
+            Self::Add(terms) => {
+                let new_terms: Vec<Self> = terms
+                    .iter()
+                    .map(|t| {
+                        let (coeff, base) = extract_coefficient(t);
+                        let new_coeff = coeff.checked_div(c).unwrap_or(coeff);
+                        match base {
+                            None => Self::Exact(new_coeff),
+                            Some(b) => {
+                                if new_coeff == ExactComplex::ONE {
+                                    b
+                                } else {
+                                    Self::mul([Self::Exact(new_coeff), b]).unwrap_or(t.clone())
+                                }
+                            }
+                        }
+                    })
+                    .collect();
+                Self::add(new_terms).unwrap_or(self.clone())
+            }
+            _ => {
+                let (coeff, base) = extract_coefficient(self);
+                let new_coeff = coeff.checked_div(c).unwrap_or(coeff);
+                match base {
+                    None => Self::Exact(new_coeff),
+                    Some(b) => {
+                        if new_coeff == ExactComplex::ONE {
+                            b
+                        } else {
+                            Self::mul([Self::Exact(new_coeff), b]).unwrap_or(self.clone())
+                        }
+                    }
+                }
+            }
+        }
+    }
+    /// True if the expression contains no symbols.
+    pub fn is_constant(&self) -> bool {
+        match self {
+            Self::Symbol(_) => false,
+            Self::Add(xs) | Self::Mul(xs) => xs.iter().all(|x| x.is_constant()),
+            Self::Pow(b, _) | Self::Abs(b) | Self::Sqrt(b) | Self::Sin(b)
+            | Self::Cos(b) | Self::Exp(b) | Self::Log(b) => b.is_constant(),
+            _ => true,
+        }
+    }
+    /// Collect all symbols appearing in the expression.
+    pub fn collect_symbols(&self) -> Vec<String> {
+        let mut out = Vec::new();
+        match self {
+            Self::Symbol(name) => {
+                if !out.contains(name) {
+                    out.push(name.clone());
+                }
+            }
+            Self::Add(xs) | Self::Mul(xs) => {
+                for x in xs {
+                    for s in x.collect_symbols() {
+                        if !out.contains(&s) {
+                            out.push(s);
+                        }
+                    }
+                }
+            }
+            Self::Pow(b, _) | Self::Abs(b) | Self::Sqrt(b) | Self::Sin(b)
+            | Self::Cos(b) | Self::Exp(b) | Self::Log(b) => {
+                for s in b.collect_symbols() {
+                    if !out.contains(&s) {
+                        out.push(s);
+                    }
+                }
+            }
+            _ => {}
+        }
+        out
+    }
+    /// Taylor series expansion around `point` up to `order`.
+    pub fn taylor_series(&self, variable: &str, point: &Self, order: usize) -> Result<Self, AnalyticError> {
+        let mut terms = Vec::new();
+        let mut deriv = self.clone();
+        let mut factorial = 1i128;
+        for k in 0..=order {
+            if k > 0 {
+                deriv = deriv.differentiate(variable)?;
+                factorial *= k as i128;
+            }
+            let coeff = deriv.substitute(&{
+                let mut m = std::collections::HashMap::new();
+                m.insert(variable.to_string(), point.clone());
+                m
+            })?;
+            // coeff / k!
+            let coeff = if k == 0 {
+                coeff
+            } else {
+                // divide by factorial: multiply by 1/factorial
+                Self::mul([
+                    coeff,
+                    Self::Exact(ExactComplex::real(Rational::new(1, factorial).unwrap())),
+                ])?
+            };
+            let dx = Self::add([Self::Symbol(variable.to_string()), Self::mul([
+                Self::Exact(ExactComplex::real(Rational::MINUS_ONE)),
+                point.clone(),
+            ])?])?;
+            let power = Self::pow(dx, k as i32)?;
+            terms.push(Self::mul([coeff, power])?);
+        }
+        Self::add(terms)
+    }
+    /// Substitute `variable` with `value` (composition).
+    pub fn compose(&self, variable: &str, value: &Self) -> Result<Self, AnalyticError> {
+        let mut m = std::collections::HashMap::new();
+        m.insert(variable.to_string(), value.clone());
+        self.substitute(&m)
+    }
+    /// Evaluate numerically with `values` for all symbols, returning f64.
+    pub fn eval_f64(&self, values: &HashMap<String, f64>) -> Result<f64, AnalyticError> {
+        let mut complex_values = HashMap::new();
+        for (k, v) in values {
+            complex_values.insert(k.clone(), Complex64::new(*v, 0.0));
+        }
+        let complex = self.eval_complex(&complex_values)?;
+        if complex.im.abs() > 1e-12 {
+            return Err(AnalyticError::NonPolynomialExpression);
+        }
+        Ok(complex.re)
+    }
+
+    /// Evaluate numerically with `values` for all symbols, returning Complex64.
+    pub fn eval_complex(&self, values: &HashMap<String, Complex64>) -> Result<Complex64, AnalyticError> {
+        self.evaluate(values).map_err(|_| AnalyticError::NonPolynomialExpression)
+    }
+
     pub fn add(terms: impl IntoIterator<Item = Self>) -> Result<Self, AnalyticError> {
         let mut flattened = Vec::new();
         for term in terms {
@@ -1531,6 +1689,38 @@ fn extract_coefficient(expr: &ScalarExpr) -> (ExactComplex, Option<ScalarExpr>) 
             }
         }
         other => (ExactComplex::ONE, Some(other.clone())),
+    }
+}
+
+fn gcd_exact(a: ExactComplex, b: ExactComplex) -> ExactComplex {
+    // Only handle real rational coefficients.
+    if !a.im.is_zero() || !b.im.is_zero() {
+        return ExactComplex::ONE;
+    }
+    let g = gcd_rational(a.re, b.re);
+    ExactComplex::real(g)
+}
+
+fn gcd_rational(a: Rational, b: Rational) -> Rational {
+    // gcd of a/b and c/d = gcd(a,c) / lcm(b,d)
+    let g_num = gcd_i128(a.numerator().abs(), b.numerator().abs());
+    let l_den = lcm_i128(a.denominator().abs(), b.denominator().abs());
+    Rational::new(g_num, l_den).unwrap_or(Rational::ONE)
+}
+
+fn gcd_i128(a: i128, b: i128) -> i128 {
+    if b == 0 {
+        a
+    } else {
+        gcd_i128(b, a % b)
+    }
+}
+
+fn lcm_i128(a: i128, b: i128) -> i128 {
+    if a == 0 || b == 0 {
+        0
+    } else {
+        (a / gcd_i128(a, b)) * b
     }
 }
 
