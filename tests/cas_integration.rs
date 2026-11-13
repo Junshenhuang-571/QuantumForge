@@ -1,4 +1,4 @@
-use quantumforge::analytic::{ScalarExpr, Simplifier, Assumptions, ExactComplex, Rational};
+use quantumforge::analytic::{Assumptions, ExactComplex, Rational, ScalarExpr, Simplifier};
 
 #[test]
 fn eval_complex_basic() {
@@ -6,7 +6,8 @@ fn eval_complex_basic() {
     let expr = ScalarExpr::mul([
         ScalarExpr::exact(ExactComplex::real(Rational::new(2, 1).unwrap())),
         x.clone(),
-    ]).unwrap();
+    ])
+    .unwrap();
     let mut vals = std::collections::HashMap::new();
     vals.insert("x".to_string(), quantumforge::Complex64::new(3.0, 0.0));
     let result = expr.eval_complex(&vals).unwrap();
@@ -20,7 +21,8 @@ fn eval_f64_basic() {
     let expr = ScalarExpr::mul([
         ScalarExpr::exact(ExactComplex::real(Rational::new(2, 1).unwrap())),
         x.clone(),
-    ]).unwrap();
+    ])
+    .unwrap();
     let mut vals = std::collections::HashMap::new();
     vals.insert("x".to_string(), 3.0);
     let result = expr.eval_f64(&vals).unwrap();
@@ -31,9 +33,13 @@ fn eval_f64_basic() {
 fn eval_f64_complex_error() {
     let x = ScalarExpr::symbol("x");
     let expr = ScalarExpr::mul([
-        ScalarExpr::exact(ExactComplex { re: Rational::new(1, 1).unwrap(), im: Rational::new(1, 1).unwrap() }),
+        ScalarExpr::exact(ExactComplex {
+            re: Rational::new(1, 1).unwrap(),
+            im: Rational::new(1, 1).unwrap(),
+        }),
         x.clone(),
-    ]).unwrap();
+    ])
+    .unwrap();
     let mut vals = std::collections::HashMap::new();
     vals.insert("x".to_string(), 1.0);
     let result = expr.eval_f64(&vals);
@@ -68,7 +74,8 @@ fn factor_quadratic() {
         ScalarExpr::mul([a, ScalarExpr::pow(x.clone(), 2).unwrap()]).unwrap(),
         ScalarExpr::mul([b, x.clone()]).unwrap(),
         c,
-    ]).unwrap();
+    ])
+    .unwrap();
     let factored = expr.factor("x");
     let s = factored.to_string();
     assert!(s.contains("x") || s.contains("Sqrt"));
@@ -83,8 +90,10 @@ fn factor_diff_squares() {
         ScalarExpr::mul([
             ScalarExpr::exact(ExactComplex::real(Rational::MINUS_ONE)),
             ScalarExpr::pow(y.clone(), 2).unwrap(),
-        ]).unwrap(),
-    ]).unwrap();
+        ])
+        .unwrap(),
+    ])
+    .unwrap();
     let factored = expr.factor("x");
     let s = factored.to_string();
     assert!(s.contains("x") && s.contains("y"));
@@ -95,10 +104,7 @@ fn solve_linear() {
     let x = ScalarExpr::symbol("x");
     let two = ScalarExpr::exact(ExactComplex::real(Rational::new(2, 1).unwrap()));
     let three = ScalarExpr::exact(ExactComplex::real(Rational::new(3, 1).unwrap()));
-    let expr = ScalarExpr::add([
-        ScalarExpr::mul([two, x.clone()]).unwrap(),
-        three,
-    ]).unwrap();
+    let expr = ScalarExpr::add([ScalarExpr::mul([two, x.clone()]).unwrap(), three]).unwrap();
     let sol = expr.solve("x");
     assert_eq!(sol.len(), 1);
 }
@@ -113,7 +119,8 @@ fn solve_quadratic() {
         ScalarExpr::mul([a, ScalarExpr::pow(x.clone(), 2).unwrap()]).unwrap(),
         ScalarExpr::mul([b, x.clone()]).unwrap(),
         c,
-    ]).unwrap();
+    ])
+    .unwrap();
     let sol = expr.solve("x");
     assert_eq!(sol.len(), 2);
 }
@@ -124,13 +131,11 @@ fn is_linear_quadratic() {
     let linear = ScalarExpr::add([
         ScalarExpr::exact(ExactComplex::real(Rational::new(2, 1).unwrap())),
         x.clone(),
-    ]).unwrap();
-    let quadratic = ScalarExpr::add([
-        ScalarExpr::pow(x.clone(), 2).unwrap(),
-        x.clone(),
-    ]).unwrap();
+    ])
+    .unwrap();
+    let quadratic = ScalarExpr::add([ScalarExpr::pow(x.clone(), 2).unwrap(), x.clone()]).unwrap();
     let cubic = ScalarExpr::pow(x.clone(), 3).unwrap();
-    
+
     assert!(linear.is_linear("x"));
     assert!(linear.is_quadratic("x"));
     assert!(quadratic.is_quadratic("x"));
@@ -142,7 +147,7 @@ fn is_constant() {
     let x = ScalarExpr::symbol("x");
     let constant = ScalarExpr::exact(ExactComplex::real(Rational::new(5, 1).unwrap()));
     let non_const = ScalarExpr::add([constant.clone(), x.clone()]).unwrap();
-    
+
     assert!(constant.is_constant());
     assert!(!non_const.is_constant());
 }
@@ -154,7 +159,8 @@ fn collect_symbols() {
     let expr = ScalarExpr::add([
         ScalarExpr::mul([x.clone(), y.clone()]).unwrap(),
         ScalarExpr::pow(x.clone(), 2).unwrap(),
-    ]).unwrap();
+    ])
+    .unwrap();
     let syms = expr.collect_symbols();
     assert!(syms.contains(&"x".to_string()));
     assert!(syms.contains(&"y".to_string()));
@@ -168,7 +174,7 @@ fn degree_test() {
     let linear = x.clone();
     let quadratic = ScalarExpr::pow(x.clone(), 2).unwrap();
     let mixed = ScalarExpr::mul([x.clone(), y.clone()]).unwrap();
-    
+
     assert_eq!(constant.degree("x"), Some(0));
     assert_eq!(linear.degree("x"), Some(1));
     assert_eq!(quadratic.degree("x"), Some(2));
@@ -193,7 +199,8 @@ fn content_test() {
     let expr = ScalarExpr::add([
         ScalarExpr::mul([two.clone(), x.clone()]).unwrap(),
         ScalarExpr::mul([four, ScalarExpr::pow(x.clone(), 2).unwrap()]).unwrap(),
-    ]).unwrap();
+    ])
+    .unwrap();
     let c = expr.content("x");
     assert_eq!(c.re.numerator(), 2);
     assert_eq!(c.re.denominator(), 1);
@@ -207,7 +214,8 @@ fn primitive_part_test() {
     let expr = ScalarExpr::add([
         ScalarExpr::mul([two.clone(), x.clone()]).unwrap(),
         ScalarExpr::mul([four, ScalarExpr::pow(x.clone(), 2).unwrap()]).unwrap(),
-    ]).unwrap();
+    ])
+    .unwrap();
     let pp = expr.primitive_part("x");
     let s = pp.to_string();
     assert!(s.contains("x"));
@@ -228,7 +236,8 @@ fn integrate_basic() {
     let expr = ScalarExpr::mul([
         ScalarExpr::exact(ExactComplex::real(Rational::new(2, 1).unwrap())),
         x.clone(),
-    ]).unwrap();
+    ])
+    .unwrap();
     let integrated = expr.integrate("x").unwrap();
     let deriv = integrated.differentiate("x").unwrap();
     let simp = Simplifier::new(Assumptions::default());

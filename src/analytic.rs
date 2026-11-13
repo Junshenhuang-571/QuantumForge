@@ -493,14 +493,17 @@ impl ScalarExpr {
     /// Hyperbolic sine: (e^x - e^{-x}) / 2.
     pub fn sinh(value: Self) -> Self {
         let pos = Self::Exp(Box::new(value.clone()));
-        let neg = Self::Exp(Box::new(Self::mul([
-            Self::Exact(ExactComplex::real(Rational::MINUS_ONE)),
-            value,
-        ])
-        .unwrap_or(Self::zero())));
+        let neg = Self::Exp(Box::new(
+            Self::mul([Self::Exact(ExactComplex::real(Rational::MINUS_ONE)), value])
+                .unwrap_or(Self::zero()),
+        ));
         Self::mul([
             Self::Exact(ExactComplex::real(Rational::new(1, 2).unwrap())),
-            Self::add([pos, Self::mul([Self::Exact(ExactComplex::real(Rational::MINUS_ONE)), neg]).unwrap()]).unwrap(),
+            Self::add([
+                pos,
+                Self::mul([Self::Exact(ExactComplex::real(Rational::MINUS_ONE)), neg]).unwrap(),
+            ])
+            .unwrap(),
         ])
         .unwrap_or(Self::zero())
     }
@@ -508,11 +511,10 @@ impl ScalarExpr {
     /// Hyperbolic cosine: (e^x + e^{-x}) / 2.
     pub fn cosh(value: Self) -> Self {
         let pos = Self::Exp(Box::new(value.clone()));
-        let neg = Self::Exp(Box::new(Self::mul([
-            Self::Exact(ExactComplex::real(Rational::MINUS_ONE)),
-            value,
-        ])
-        .unwrap_or(Self::zero())));
+        let neg = Self::Exp(Box::new(
+            Self::mul([Self::Exact(ExactComplex::real(Rational::MINUS_ONE)), value])
+                .unwrap_or(Self::zero()),
+        ));
         Self::mul([
             Self::Exact(ExactComplex::real(Rational::new(1, 2).unwrap())),
             Self::add([pos, neg]).unwrap(),
@@ -936,17 +938,9 @@ impl ScalarExpr {
         match self {
             Self::Exact(c) => {
                 // c * x
-                Self::mul([
-                    Self::Exact(*c),
-                    Self::Symbol(variable.to_string()),
-                ])
+                Self::mul([Self::Exact(*c), Self::Symbol(variable.to_string())])
             }
-            Self::Constant(_) => {
-                Self::mul([
-                    self.clone(),
-                    Self::Symbol(variable.to_string()),
-                ])
-            }
+            Self::Constant(_) => Self::mul([self.clone(), Self::Symbol(variable.to_string())]),
             Self::Symbol(name) if name == variable => {
                 // x^2 / 2
                 Self::mul([
@@ -954,9 +948,7 @@ impl ScalarExpr {
                     Self::Pow(Box::new(Self::Symbol(variable.to_string())), 2),
                 ])
             }
-            Self::Symbol(_) => {
-                Self::mul([self.clone(), Self::Symbol(variable.to_string())])
-            }
+            Self::Symbol(_) => Self::mul([self.clone(), Self::Symbol(variable.to_string())]),
             Self::Add(terms) => {
                 let integrated: Vec<Self> = terms
                     .iter()
@@ -980,10 +972,7 @@ impl ScalarExpr {
                 }
                 if rest.is_empty() {
                     // all constant
-                    return Self::mul([
-                        self.clone(),
-                        Self::Symbol(variable.to_string()),
-                    ]);
+                    return Self::mul([self.clone(), Self::Symbol(variable.to_string())]);
                 }
                 let rest_expr = if rest.len() == 1 {
                     rest[0].clone()
@@ -1021,7 +1010,11 @@ impl ScalarExpr {
                     ])?;
                     return Self::mul([
                         neg_cos,
-                        Self::Exact(ExactComplex::ONE.checked_div(coeff).map_err(|_| AnalyticError::Overflow)?),
+                        Self::Exact(
+                            ExactComplex::ONE
+                                .checked_div(coeff)
+                                .map_err(|_| AnalyticError::Overflow)?,
+                        ),
                     ]);
                 }
                 Err(AnalyticError::NonPolynomialExpression)
@@ -1035,7 +1028,11 @@ impl ScalarExpr {
                     let sin_inner = Self::sin(inner.as_ref().clone());
                     return Self::mul([
                         sin_inner,
-                        Self::Exact(ExactComplex::ONE.checked_div(coeff).map_err(|_| AnalyticError::Overflow)?),
+                        Self::Exact(
+                            ExactComplex::ONE
+                                .checked_div(coeff)
+                                .map_err(|_| AnalyticError::Overflow)?,
+                        ),
                     ]);
                 }
                 Err(AnalyticError::NonPolynomialExpression)
@@ -1049,7 +1046,11 @@ impl ScalarExpr {
                     let exp_inner = Self::exp(inner.as_ref().clone());
                     return Self::mul([
                         exp_inner,
-                        Self::Exact(ExactComplex::ONE.checked_div(coeff).map_err(|_| AnalyticError::Overflow)?),
+                        Self::Exact(
+                            ExactComplex::ONE
+                                .checked_div(coeff)
+                                .map_err(|_| AnalyticError::Overflow)?,
+                        ),
                     ]);
                 }
                 Err(AnalyticError::NonPolynomialExpression)
@@ -1105,7 +1106,9 @@ impl ScalarExpr {
             .ok()?;
         let disc = b2.checked_sub(fourac).ok()?;
         let sqrt_disc = Self::sqrt(Self::Exact(disc));
-        let two_a = ExactComplex::real(Rational::new(2, 1).unwrap()).checked_mul(a).ok()?;
+        let two_a = ExactComplex::real(Rational::new(2, 1).unwrap())
+            .checked_mul(a)
+            .ok()?;
         let neg_b = Self::Exact(b.checked_neg().ok()?);
         let r1 = Self::mul([
             Self::add([neg_b.clone(), sqrt_disc.clone()]).unwrap_or(Self::zero()),
@@ -1113,7 +1116,15 @@ impl ScalarExpr {
         ])
         .unwrap_or(Self::zero());
         let r2 = Self::mul([
-            Self::add([neg_b, Self::mul([Self::Exact(ExactComplex::real(Rational::MINUS_ONE)), sqrt_disc]).unwrap_or(Self::zero())]).unwrap_or(Self::zero()),
+            Self::add([
+                neg_b,
+                Self::mul([
+                    Self::Exact(ExactComplex::real(Rational::MINUS_ONE)),
+                    sqrt_disc,
+                ])
+                .unwrap_or(Self::zero()),
+            ])
+            .unwrap_or(Self::zero()),
             Self::Exact(ExactComplex::ONE.checked_div(two_a).ok()?),
         ])
         .unwrap_or(Self::zero());
@@ -1130,15 +1141,19 @@ impl ScalarExpr {
                     && fs[0] == Self::Exact(ExactComplex::real(Rational::MINUS_ONE))
                 {
                     let v = &fs[1];
-                    if let Self::Pow(vinner, 2) = v {
-                        if u == vinner {
-                            // (u - u)(u + u) trivial; skip
-                        }
-                    }
                     // general: (u - v)(u + v) where v = sqrt of second
                     if let Self::Pow(vinner, 2) = v {
-                        let minus = Self::add([u.as_ref().clone(), Self::mul([Self::Exact(ExactComplex::real(Rational::MINUS_ONE)), vinner.as_ref().clone()]).unwrap_or(vinner.as_ref().clone())]).unwrap_or(u.as_ref().clone());
-                        let plus = Self::add([u.as_ref().clone(), vinner.as_ref().clone()]).unwrap_or(u.as_ref().clone());
+                        let minus = Self::add([
+                            u.as_ref().clone(),
+                            Self::mul([
+                                Self::Exact(ExactComplex::real(Rational::MINUS_ONE)),
+                                vinner.as_ref().clone(),
+                            ])
+                            .unwrap_or(vinner.as_ref().clone()),
+                        ])
+                        .unwrap_or(u.as_ref().clone());
+                        let plus = Self::add([u.as_ref().clone(), vinner.as_ref().clone()])
+                            .unwrap_or(u.as_ref().clone());
                         return Self::mul([minus, plus]).unwrap_or(self.clone());
                     }
                 }
@@ -1146,12 +1161,20 @@ impl ScalarExpr {
                 if let (Self::Mul(fs), Self::Pow(u, 2)) = (a, b)
                     && fs.len() == 2
                     && fs[0] == Self::Exact(ExactComplex::real(Rational::MINUS_ONE))
+                    && let Self::Pow(vinner, 2) = &fs[1]
                 {
-                    if let Self::Pow(vinner, 2) = &fs[1] {
-                        let minus = Self::add([vinner.as_ref().clone(), Self::mul([Self::Exact(ExactComplex::real(Rational::MINUS_ONE)), u.as_ref().clone()]).unwrap_or(u.as_ref().clone())]).unwrap_or(vinner.as_ref().clone());
-                        let plus = Self::add([vinner.as_ref().clone(), u.as_ref().clone()]).unwrap_or(vinner.as_ref().clone());
-                        return Self::mul([minus, plus]).unwrap_or(self.clone());
-                    }
+                    let minus = Self::add([
+                        vinner.as_ref().clone(),
+                        Self::mul([
+                            Self::Exact(ExactComplex::real(Rational::MINUS_ONE)),
+                            u.as_ref().clone(),
+                        ])
+                        .unwrap_or(u.as_ref().clone()),
+                    ])
+                    .unwrap_or(vinner.as_ref().clone());
+                    let plus = Self::add([vinner.as_ref().clone(), u.as_ref().clone()])
+                        .unwrap_or(vinner.as_ref().clone());
+                    return Self::mul([minus, plus]).unwrap_or(self.clone());
                 }
                 self.clone()
             }
@@ -1161,7 +1184,11 @@ impl ScalarExpr {
     /// Factor a quadratic a x^2 + b x + c using its roots.
     pub fn factor_quadratic(&self, variable: &str) -> Option<Self> {
         let (r1, r2) = self.solve_quadratic(variable)?;
-        let d1 = self.differentiate(variable).ok()?.differentiate(variable).ok()?;
+        let d1 = self
+            .differentiate(variable)
+            .ok()?
+            .differentiate(variable)
+            .ok()?;
         let a = match d1 {
             Self::Exact(c) => {
                 let two = ExactComplex::real(Rational::new(2, 1).unwrap());
@@ -1170,8 +1197,18 @@ impl ScalarExpr {
             _ => return None,
         };
         let x = Self::Symbol(variable.to_string());
-        let f1 = Self::add([x.clone(), Self::mul([Self::Exact(ExactComplex::real(Rational::MINUS_ONE)), r1]).unwrap_or(Self::zero())]).unwrap_or(Self::zero());
-        let f2 = Self::add([x, Self::mul([Self::Exact(ExactComplex::real(Rational::MINUS_ONE)), r2]).unwrap_or(Self::zero())]).unwrap_or(Self::zero());
+        let f1 = Self::add([
+            x.clone(),
+            Self::mul([Self::Exact(ExactComplex::real(Rational::MINUS_ONE)), r1])
+                .unwrap_or(Self::zero()),
+        ])
+        .unwrap_or(Self::zero());
+        let f2 = Self::add([
+            x,
+            Self::mul([Self::Exact(ExactComplex::real(Rational::MINUS_ONE)), r2])
+                .unwrap_or(Self::zero()),
+        ])
+        .unwrap_or(Self::zero());
         Some(Self::mul([Self::Exact(a), f1, f2]).unwrap_or(self.clone()))
     }
 
@@ -1330,8 +1367,13 @@ impl ScalarExpr {
         match self {
             Self::Symbol(_) => false,
             Self::Add(xs) | Self::Mul(xs) => xs.iter().all(|x| x.is_constant()),
-            Self::Pow(b, _) | Self::Abs(b) | Self::Sqrt(b) | Self::Sin(b)
-            | Self::Cos(b) | Self::Exp(b) | Self::Log(b) => b.is_constant(),
+            Self::Pow(b, _)
+            | Self::Abs(b)
+            | Self::Sqrt(b)
+            | Self::Sin(b)
+            | Self::Cos(b)
+            | Self::Exp(b)
+            | Self::Log(b) => b.is_constant(),
             _ => true,
         }
     }
@@ -1353,8 +1395,13 @@ impl ScalarExpr {
                     }
                 }
             }
-            Self::Pow(b, _) | Self::Abs(b) | Self::Sqrt(b) | Self::Sin(b)
-            | Self::Cos(b) | Self::Exp(b) | Self::Log(b) => {
+            Self::Pow(b, _)
+            | Self::Abs(b)
+            | Self::Sqrt(b)
+            | Self::Sin(b)
+            | Self::Cos(b)
+            | Self::Exp(b)
+            | Self::Log(b) => {
                 for s in b.collect_symbols() {
                     if !out.contains(&s) {
                         out.push(s);
@@ -1366,7 +1413,12 @@ impl ScalarExpr {
         out
     }
     /// Taylor series expansion around `point` up to `order`.
-    pub fn taylor_series(&self, variable: &str, point: &Self, order: usize) -> Result<Self, AnalyticError> {
+    pub fn taylor_series(
+        &self,
+        variable: &str,
+        point: &Self,
+        order: usize,
+    ) -> Result<Self, AnalyticError> {
         let mut terms = Vec::new();
         let mut deriv = self.clone();
         let mut factorial = 1i128;
@@ -1390,10 +1442,13 @@ impl ScalarExpr {
                     Self::Exact(ExactComplex::real(Rational::new(1, factorial).unwrap())),
                 ])?
             };
-            let dx = Self::add([Self::Symbol(variable.to_string()), Self::mul([
-                Self::Exact(ExactComplex::real(Rational::MINUS_ONE)),
-                point.clone(),
-            ])?])?;
+            let dx = Self::add([
+                Self::Symbol(variable.to_string()),
+                Self::mul([
+                    Self::Exact(ExactComplex::real(Rational::MINUS_ONE)),
+                    point.clone(),
+                ])?,
+            ])?;
             let power = Self::pow(dx, k as i32)?;
             terms.push(Self::mul([coeff, power])?);
         }
@@ -1419,8 +1474,12 @@ impl ScalarExpr {
     }
 
     /// Evaluate numerically with `values` for all symbols, returning Complex64.
-    pub fn eval_complex(&self, values: &HashMap<String, Complex64>) -> Result<Complex64, AnalyticError> {
-        self.evaluate(values).map_err(|_| AnalyticError::NonPolynomialExpression)
+    pub fn eval_complex(
+        &self,
+        values: &HashMap<String, Complex64>,
+    ) -> Result<Complex64, AnalyticError> {
+        self.evaluate(values)
+            .map_err(|_| AnalyticError::NonPolynomialExpression)
     }
 
     pub fn add(terms: impl IntoIterator<Item = Self>) -> Result<Self, AnalyticError> {
@@ -1709,11 +1768,7 @@ fn gcd_rational(a: Rational, b: Rational) -> Rational {
 }
 
 fn gcd_i128(a: i128, b: i128) -> i128 {
-    if b == 0 {
-        a
-    } else {
-        gcd_i128(b, a % b)
-    }
+    if b == 0 { a } else { gcd_i128(b, a % b) }
 }
 
 fn lcm_i128(a: i128, b: i128) -> i128 {
@@ -1947,20 +2002,16 @@ impl Simplifier {
                 // Trig identity: sin^2(x) + cos^2(x) = 1
                 if simplified_xs.len() == 2 {
                     let (a, b) = (&simplified_xs[0], &simplified_xs[1]);
-                    if let (
-                        ScalarExpr::Pow(base_a, 2),
-                        ScalarExpr::Pow(base_b, 2),
-                    ) = (a, b)
-                        && let (ScalarExpr::Sin(u), ScalarExpr::Cos(v)) = (base_a.as_ref(), base_b.as_ref())
+                    if let (ScalarExpr::Pow(base_a, 2), ScalarExpr::Pow(base_b, 2)) = (a, b)
+                        && let (ScalarExpr::Sin(u), ScalarExpr::Cos(v)) =
+                            (base_a.as_ref(), base_b.as_ref())
                         && u == v
                     {
                         return Ok(ScalarExpr::one());
                     }
-                    if let (
-                        ScalarExpr::Pow(base_a, 2),
-                        ScalarExpr::Pow(base_b, 2),
-                    ) = (a, b)
-                        && let (ScalarExpr::Cos(u), ScalarExpr::Sin(v)) = (base_a.as_ref(), base_b.as_ref())
+                    if let (ScalarExpr::Pow(base_a, 2), ScalarExpr::Pow(base_b, 2)) = (a, b)
+                        && let (ScalarExpr::Cos(u), ScalarExpr::Sin(v)) =
+                            (base_a.as_ref(), base_b.as_ref())
                         && u == v
                     {
                         return Ok(ScalarExpr::one());
@@ -1994,34 +2045,39 @@ impl Simplifier {
                 }
                 // Double-angle: 2 * sin(x) * cos(x) = sin(2x)
                 if simplified_xs.len() == 3
-                    && simplified_xs[0] == ScalarExpr::Exact(ExactComplex::real(Rational::new(2, 1).unwrap()))
-                {
-                    if let (ScalarExpr::Sin(u), ScalarExpr::Cos(v)) =
+                    && simplified_xs[0]
+                        == ScalarExpr::Exact(ExactComplex::real(Rational::new(2, 1).unwrap()))
+                    && let (ScalarExpr::Sin(u), ScalarExpr::Cos(v)) =
                         (&simplified_xs[1], &simplified_xs[2])
-                        && u == v
-                    {
-                        return Ok(ScalarExpr::sin(ScalarExpr::mul([
+                    && u == v
+                {
+                    return Ok(ScalarExpr::sin(
+                        ScalarExpr::mul([
                             ScalarExpr::Exact(ExactComplex::real(Rational::new(2, 1).unwrap())),
                             u.as_ref().clone(),
                         ])
-                        .unwrap_or(u.as_ref().clone())));
-                    }
+                        .unwrap_or(u.as_ref().clone()),
+                    ));
                 }
                 // sin(x)*cos(x) = sin(2x)/2
-                if simplified_xs.len() == 2 {
-                    if let (ScalarExpr::Sin(u), ScalarExpr::Cos(v)) =
+                if simplified_xs.len() == 2
+                    && let (ScalarExpr::Sin(u), ScalarExpr::Cos(v)) =
                         (&simplified_xs[0], &simplified_xs[1])
-                        && u == v
-                    {
-                        let two = ScalarExpr::Exact(ExactComplex::real(Rational::new(2, 1).unwrap()));
-                        return Ok(ScalarExpr::mul([
-                            ScalarExpr::Exact(ExactComplex::real(Rational::new(1, 2).unwrap())),
-                            ScalarExpr::sin(ScalarExpr::mul([two, u.as_ref().clone()]).unwrap_or(u.as_ref().clone())),
-                        ])
-                        .unwrap_or(simplified_xs.into_iter().fold(ScalarExpr::one(), |a, b| {
+                    && u == v
+                {
+                    let two = ScalarExpr::Exact(ExactComplex::real(Rational::new(2, 1).unwrap()));
+                    return Ok(ScalarExpr::mul([
+                        ScalarExpr::Exact(ExactComplex::real(Rational::new(1, 2).unwrap())),
+                        ScalarExpr::sin(
+                            ScalarExpr::mul([two, u.as_ref().clone()])
+                                .unwrap_or(u.as_ref().clone()),
+                        ),
+                    ])
+                    .unwrap_or(
+                        simplified_xs.into_iter().fold(ScalarExpr::one(), |a, b| {
                             ScalarExpr::mul([a, b]).unwrap_or(ScalarExpr::one())
-                        })));
-                    }
+                        }),
+                    ));
                 }
                 ScalarExpr::mul(rest).map_err(Into::into)
             }

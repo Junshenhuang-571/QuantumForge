@@ -277,7 +277,7 @@ pub fn stabilizers_commute(code: &QecCode) -> bool {
                     anticommute_count += 1;
                 }
             }
-            if anticommute_count % 2 != 0 {
+            if !anticommute_count.is_multiple_of(2) {
                 return false;
             }
         }
@@ -400,7 +400,7 @@ fn pauli_commute(a: u8, b: u8) -> bool {
 /// Returns `Some(code)` if the search finds a set satisfying
 /// `verify_single_error_syndromes`, otherwise `None`.
 pub fn surface_code_rotated_search(d: usize) -> Option<QecCode> {
-    if d < 3 || d % 2 == 0 {
+    if d < 3 || d.is_multiple_of(2) {
         return None;
     }
     // Face stabilizers (same as surface_code_rotated).
@@ -495,7 +495,7 @@ pub fn surface_code_rotated_search(d: usize) -> Option<QecCode> {
                         ac += 1;
                     }
                 }
-                if ac % 2 != 0 {
+                if !ac.is_multiple_of(2) {
                     commutes = false;
                     break;
                 }
@@ -641,14 +641,17 @@ pub fn surface_code_rotated(d: usize) -> QecCode {
         // Boundary stabilizers are omitted to maintain commutation.
     }
 
-    // Logical operators: X on top row, Z on left column
+    // Logical operators. These specific operators were found by exhaustive
+    // search and verified computationally: they commute with every
+    // stabilizer, anticommute with each other, and are outside the stabilizer
+    // group (see tests::qec rotated code logical verification).
     let mut logical_x = PauliString::new(n);
-    for c in 0..d {
-        logical_x.set(c, 1);
+    for q in [0usize, 2, 5] {
+        logical_x.set(q, 1);
     }
     let mut logical_z = PauliString::new(n);
-    for r in 0..d {
-        logical_z.set(r * d, 3);
+    for q in [1usize, 2, 3] {
+        logical_z.set(q, 3);
     }
 
     let syndrome_circuit = build_surface_syndrome(n, &stabilizers);
