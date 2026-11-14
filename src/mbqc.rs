@@ -20,7 +20,7 @@
 //! It is NOT an MBQC compiler.  Specifically:
 //!
 //! - Graphs must be given statically (via `ClusterState::new` / `path` / etc.).
-//! - Gflow existence check available via `ClusterState::gflow_exists`.
+//! - Gflow necessary-condition check available via `ClusterState::gflow_necessary_condition`.
 //! - Space-time depth and resource cost available.
 //! - No reverse path: a quantum circuit cannot be compiled into an
 //!   MBQC measurement pattern automatically (circuit → pattern translation
@@ -768,7 +768,7 @@ impl ClusterState {
     /// and output sets. This is a necessary but NOT sufficient condition for full Danos–Kashefi gflow.
     /// Returns true if every interior vertex has at least one neighbour in the future set.
     /// The full sufficiency check remains exponential and is not implemented.
-    pub fn gflow_exists(&self, inputs: &[usize], outputs: &[usize]) -> bool {
+    pub fn gflow_necessary_condition(&self, inputs: &[usize], outputs: &[usize]) -> bool {
         let n = self.qubits;
         let input_set: std::collections::HashSet<usize> = inputs.iter().copied().collect();
         let output_set: std::collections::HashSet<usize> = outputs.iter().copied().collect();

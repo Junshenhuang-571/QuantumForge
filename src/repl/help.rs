@@ -1,70 +1,7 @@
-//! Command parsing and dispatch for the REPL.
+//! Help text for the QuantumForge REPL.
 
-use crate::state::Session;
-use quantumforge::analytic::{Assumptions, ExactComplex, Rational, ScalarExpr, Simplifier};
-use quantumforge::parser::{parse_circuit, parse_scalar_expr};
-use quantumforge::qec::{
-    QecCode, encode_repetition_bitflip, repetition_code_bitflip, repetition_code_phaseflip,
-};
-use quantumforge::tensor_network::{DMRG, MPS, TEBD};
-use quantumforge::{
-    CircuitOp, Complex64, DensityMatrix, Gate, ParameterizedCircuit, QmlTrainingConfig,
-    RotationAxis, SingleQubitObservable, StateVector, VariationalQnn,
-};
-use std::collections::HashMap;
-
-pub fn dispatch(session: &mut Session, line: &str) -> Result<String, String> {
-    let trimmed = line.trim();
-    if trimmed.is_empty() {
-        return Ok(String::new());
-    }
-    let (cmd, rest) = match trimmed.split_once(' ') {
-        Some((c, r)) => (c, r.trim()),
-        None => (trimmed, ""),
-    };
-
-    match cmd {
-        "help" => Ok(HELP.to_string()),
-        "quit" | "exit" => Err("QUIT".to_string()),
-        "qubits" => cmd_qubits(session, rest),
-        "circuit" => Ok(format!("circuit = {}", session.circuit)),
-        "draw" => Ok(session.draw()),
-        "layers" => Ok(session.layers()),
-        "census" => Ok(session.census()),
-        "add" => cmd_add(session, rest),
-        "clear" => cmd_clear(session),
-        "run" => cmd_run(session),
-        "noisy" => cmd_noisy(session),
-        "state" => Ok(session.state_str()),
-        "probs" => Ok(session.probs_str()),
-        "ptrace" => cmd_ptrace(session, rest),
-        "mix" => cmd_mix(session),
-        "channel" => cmd_channel(session, rest),
-        "purity" => Ok(session.purity_str()),
-        "expect" => cmd_expect(session, rest),
-        "bloch" => cmd_bloch(session, rest),
-        "gradient" => cmd_gradient(session, rest),
-        "vqe" => cmd_vqe(session, rest),
-        "train" => cmd_train(session, rest),
-        "shots" => cmd_shots(session, rest),
-        "shots-noise" => cmd_shots_noise(session, rest),
-        "qnn" => cmd_qnn(session, rest),
-        "qtm" => cmd_qtm(session, rest),
-        "mbqc" => cmd_mbqc(session, rest),
-        "anneal" => cmd_anneal(session, rest),
-        "gas" => cmd_gas(session, rest),
-        "cuda" => cmd_cuda(session, rest),
-        "gpu" => Ok(cmd_gpu()),
-        "tebd" => cmd_tebd(session, rest),
-        "dmrg" => cmd_dmrg(session, rest),
-        _ => Err(format!("unknown command: {}", cmd)),
-    }
-}
-
-// Include all the command implementations...
-// (This would contain all the cmd_* functions)
-
-const HELP: &str = "\
+#[allow(clippy::all)]
+pub const HELP: &str = "\
 QuantumForge REPL — one session, live state. Type 'help' for this, 'quit' to exit.
 
   qubits N             set system size N (resets circuit + state)
@@ -120,7 +57,7 @@ QuantumForge REPL — one session, live state. Type 'help' for this, 'quit' to e
                             Grover Adaptive Search for MaxCut:
                               builds oracle for threshold T, runs Grover with k=0,1,2...
                               updates T to best found value, repeats
-                              edges: space-separated list like \"0-1:1.0 1-2:0.5\"
+                              edges: space-separated list like \\\"0-1:1.0 1-2:0.5\\\"
         cuda [device=N]         run the current circuit on CUDA GPU:
                                       uploads live state, executes circuit, downloads result
                                       requires `--features cuda` at compile time
@@ -129,4 +66,28 @@ QuantumForge REPL — one session, live state. Type 'help' for this, 'quit' to e
                                       DMRG uses GPU automatically when compiled with --features gpu
           tebd [qubits=N] [dt=..] [tol=..] [max-bond=..] [steps=N]
                                     TEBD imaginary time evolution for TFIM ground state:
+                                      H = -Σ Z_i Z_{i+1} - Σ X_i (nearest-neighbor)
+                                      outputs ground state energy, updates live MPS
+          dmrg [qubits=N] [bond=..] [tol=..] [sweeps=N]
+                                    DMRG variational ground state for TFIM:
+                                      same Hamiltonian, sweeps until energy converges
+                                      outputs energy, updates live MPS
+          tebd-correl [site=..]    print <Z_i Z_{i+1}> correlation from live TEBD MPS
+          tebd-correl-all          print all nearest-neighbor <Z_i Z_{i+1}> from TEBD
+          tebd-sites               print single-site <Z>, <X> for all sites from TEBD
+          dmrg-correl [site=..]    print <Z_i Z_{i+1}> correlation from live DMRG MPS
+          qec-code [type=bitflip|phaseflip|shor|steane|surface] [n=..] [d=..]
+                                    build QEC code, print stabilizers + logical ops
+          qec-encode [type=bitflip|phaseflip] [n=..] [state=0|1]
+                                    encode logical |0> or |1> into repetition code,
+                                    updates live state to encoded physical qubits
+          qec-syndrome             measure syndrome on live state using code's circuit
+          qec-recover [syndrome=N] apply recovery circuit for given syndrome bits
+          eval EXPR            numeric eval of a scalar expression, e.g. 2 + 3*Pi
+  simplify EXPR        canonicalize a scalar expression
+  diff EXPR            symbolic derivative d/dx of EXPR
+  pauli EXPR           evaluate a Pauli sum like X, 2*Y, I+Z (1 qubit)
+  assume X             declare a symbol real (affects Sqrt/abs simplification)
+  help                 this text
+  quit                 exit
 ";

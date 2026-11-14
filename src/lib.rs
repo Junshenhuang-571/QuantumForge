@@ -29,6 +29,7 @@ pub mod qasm_export;
 pub mod qec;
 pub mod qtm;
 pub mod quantum;
+pub mod repl;
 pub mod serialize;
 pub mod stabilizer;
 pub mod tensor_network;
