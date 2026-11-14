@@ -295,7 +295,7 @@ DMRG ground-state energy for TFIM (H = -Σ Z_i Z_{i+1} - Σ X_i). **Note:** for 
 
 ![CPU vs GPU benchmark](docs/benchmark_cpu_vs_gpu.svg)
 
-Stabilizer codes with syndrome extraction circuits and recovery tables. Currently supports bit-flip / phase-flip repetition codes, Shor's 9-qubit, Steane's 7-qubit, and planar/rotated surface codes. Includes MWPM decoder for single/multi-error recovery. Verified: all stabilizers commute, repetition code end-to-end correction, surface code d=3 has distinct syndromes for all single errors.
+Stabilizer codes with syndrome extraction circuits and recovery tables. Currently supports bit-flip / phase-flip repetition codes, Shor's 9-qubit, Steane's 7-qubit, and planar/rotated surface codes. Includes MWPM decoder for single/multi-error recovery. Verified: all stabilizers commute; repetition code end-to-end correction; rotated surface code d=3 has distinct syndromes for all single errors with a verified logical-operator basis. Note: the planar construction is face-stabilizers-only and encodes 2d-1 logicals (see NUMERICS.md); use rotated d=3 for a verified single-logical code.
 
 | Command | What it does |
 |---|---|
