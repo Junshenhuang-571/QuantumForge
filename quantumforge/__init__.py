@@ -1,27 +1,47 @@
 """
 QuantumForge Python bindings.
 
-Conditional imports for optional backends (CUDA, LLVM).
+The compiled extension module is named `quantumforge` (built with maturin).
+CUDA and LLVM acceleration are compile-time cargo features: when built with
+`--features cuda` or `--features llvm` the accelerated paths are used from
+within this same module. There are no separate `quantumforge_cuda` /
+`quantumforge_llvm` Python packages.
+
+Names below match exactly what the Rust `#[pymodule]` registers
+(see `src/python.rs`); importing is smoke-tested by `python/smoke_test.py`.
 """
 
-# Core (always available)
-from quantumforge_core import (
+from quantumforge import (
+    # Core
     Circuit,
-    Gate,
     StateVector,
     DensityMatrix,
-    parse_circuit,
-    parse_qasm,
-    export_qasm,
-    # Algorithms
-    grover_circuit,
-    qaoa_maxcut,
-    qpe_circuit,
-    hea_ansatz,
-    qaoa_ansatz,
+    ShotResult,
+    PauliString,
+    QecCode,
+    # Parsing
+    parse_circuit_py,
+    parse_qasm_py,
+    export_qasm_py,
+    parse_gate_py,
     # Optimizer
-    optimize_circuit,
+    optimize_circuit_py,
     OptimizeConfig,
+    # Algorithms
+    Grover,
+    QAOABuilder,
+    QAOAAnsatzBuilder,
+    HEABuilder,
+    ParameterizedCircuit,
+    qft_circuit_py,
+    hhl_2x2_py,
+    hhl_solve_py,
+    hhl_solve_general_py,
+    hhl_solve_quantum_general_py,
+    shor_period_finding_py,
+    shor_factor_py,
+    shor_factor_large_py,
+    shor_factor_quantum_py,
     # QEC
     repetition_code_bitflip,
     repetition_code_phaseflip,
@@ -37,50 +57,33 @@ from quantumforge_core import (
     DMRG,
 )
 
-# Optional backends
-try:
-    from quantumforge_cuda import (
-        CUDAStateVector,
-        CUDADensityMatrix,
-        CUDABackend,
-    )
-    HAS_CUDA = True
-except ImportError:
-    HAS_CUDA = False
-    CUDAStateVector = None
-    CUDADensityMatrix = None
-    CUDABackend = None
-
-try:
-    from quantumforge_llvm import (
-        LLVMBackend,
-        LLVMJIT,
-    )
-    HAS_LLVM = True
-except ImportError:
-    HAS_LLVM = False
-    LLVMBackend = None
-    LLVMJIT = None
-
 __all__ = [
-    # Core
     "Circuit",
-    "Gate",
     "StateVector",
     "DensityMatrix",
-    "parse_circuit",
-    "parse_qasm",
-    "export_qasm",
-    # Algorithms
-    "grover_circuit",
-    "qaoa_maxcut",
-    "qpe_circuit",
-    "hea_ansatz",
-    "qaoa_ansatz",
-    # Optimizer
-    "optimize_circuit",
+    "ShotResult",
+    "PauliString",
+    "QecCode",
+    "parse_circuit_py",
+    "parse_qasm_py",
+    "export_qasm_py",
+    "parse_gate_py",
+    "optimize_circuit_py",
     "OptimizeConfig",
-    # QEC
+    "Grover",
+    "QAOABuilder",
+    "QAOAAnsatzBuilder",
+    "HEABuilder",
+    "ParameterizedCircuit",
+    "qft_circuit_py",
+    "hhl_2x2_py",
+    "hhl_solve_py",
+    "hhl_solve_general_py",
+    "hhl_solve_quantum_general_py",
+    "shor_period_finding_py",
+    "shor_factor_py",
+    "shor_factor_large_py",
+    "shor_factor_quantum_py",
     "repetition_code_bitflip",
     "repetition_code_phaseflip",
     "shor_code",
@@ -88,25 +91,13 @@ __all__ = [
     "surface_code_planar",
     "surface_code_rotated",
     "encode_repetition_bitflip",
-    # Tensor networks
     "MPS",
     "Tensor",
     "TEBD",
     "DMRG",
-    # Optional
-    "HAS_CUDA",
-    "HAS_LLVM",
-    "CUDAStateVector",
-    "CUDADensityMatrix",
-    "CUDABackend",
-    "LLVMBackend",
-    "LLVMJIT",
 ]
+
 
 def backend_info() -> dict:
     """Return information about available backends."""
-    return {
-        "cuda": HAS_CUDA,
-        "llvm": HAS_LLVM,
-        "core": True,
-    }
+    return {"core": True}

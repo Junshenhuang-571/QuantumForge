@@ -13,8 +13,6 @@ pub mod python_bindings {
         },
         optimizer::{OptimizeConfig, OptimizeResult},
         qasm::parse_qasm,
-        qec::{PauliString, QecCode},
-        tensor_network::MPS,
     };
     use pyo3::prelude::*;
     use std::collections::BTreeMap;
@@ -300,7 +298,7 @@ pub mod python_bindings {
         }
 
         fn __repr__(&self) -> String {
-            format!("PauliString({})", self.inner.to_string())
+            format!("PauliString({})", self.inner)
         }
     }
 
@@ -648,9 +646,10 @@ pub mod python_bindings {
     }
 
     #[pyfunction]
-    fn optimize_circuit_py(
-        circuit: &PyCircuit,
-        config: Option<&PyOptimizeConfig>,
+    #[pyo3(signature = (circuit, config=None))]
+    fn optimize_circuit_py<'a>(
+        circuit: &'a PyCircuit,
+        config: Option<&'a PyOptimizeConfig>,
     ) -> PyResult<PyCircuit> {
         let config = config
             .map(|c| c.inner.clone())
@@ -808,13 +807,13 @@ pub mod python_bindings {
         fn step(&mut self) -> PyResult<()> {
             self.inner
                 .step()
-                .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e))
+                .map_err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>)
         }
 
         fn find_ground_state(&mut self, max_steps: usize, _energy_tol: f64) -> PyResult<f64> {
             self.inner
                 .find_ground_state(max_steps, _energy_tol)
-                .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e))
+                .map_err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>)
         }
     }
 
@@ -844,7 +843,7 @@ pub mod python_bindings {
             let odd_h = [[crate::Complex64::ZERO; 4]; 4];
             self.inner
                 .run(&even_h, &odd_h)
-                .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e))
+                .map_err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>)
         }
     }
 
@@ -994,6 +993,7 @@ pub mod python_bindings {
         m.add_function(wrap_pyfunction!(shor_factor_large_py, m)?)?;
         m.add_function(wrap_pyfunction!(shor_factor_quantum_py, m)?)?;
         m.add_function(wrap_pyfunction!(export_qasm_py, m)?)?;
+        m.add_function(wrap_pyfunction!(parse_qasm_py, m)?)?;
         m.add_function(wrap_pyfunction!(parse_circuit_py, m)?)?;
         m.add_function(wrap_pyfunction!(optimize_circuit_py, m)?)?;
         m.add_function(wrap_pyfunction!(repetition_code_bitflip, m)?)?;

@@ -14,3 +14,5 @@
 .DS_Store
 Thumbs.db
 *.proptest-regressions
+__pycache__/
+*.pyc
