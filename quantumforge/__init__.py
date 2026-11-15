@@ -1,38 +1,36 @@
 """
 QuantumForge Python bindings.
 
-The compiled extension module is named `quantumforge` (built with maturin).
-CUDA and LLVM acceleration are compile-time cargo features: when built with
-`--features cuda` or `--features llvm` the accelerated paths are used from
-within this same module. There are no separate `quantumforge_cuda` /
-`quantumforge_llvm` Python packages.
+The compiled extension module is `quantumforge` (built with maturin). Maturin
+places the extension as `quantumforge.quantumforge`, so imports here are
+relative. CUDA and LLVM acceleration are compile-time cargo features used from
+within this same module; there are no separate `quantumforge_cuda` /
+`quantumforge_llvm` packages.
 
-Names below match exactly what the Rust `#[pymodule]` registers
-(see `src/python.rs`); importing is smoke-tested by `python/smoke_test.py`.
+The names below match exactly what the Rust `#[pymodule]` exports — pyclasses
+keep their `Py*` names and functions their `*_py` names there; this module
+aliases them to the clean public names. Import is smoke-tested by
+`python/smoke_test.py`.
 """
 
-from quantumforge import (
-    # Core
-    Circuit,
-    StateVector,
-    DensityMatrix,
-    ShotResult,
-    PauliString,
-    QecCode,
-    # Parsing
+from .quantumforge import (
+    PyCircuit as Circuit,
+    PyStateVector as StateVector,
+    PyDensityMatrix as DensityMatrix,
+    PyShotResult as ShotResult,
+    PyPauliString as PauliString,
+    PyQecCode as QecCode,
     parse_circuit_py,
     parse_qasm_py,
     export_qasm_py,
     parse_gate_py,
-    # Optimizer
     optimize_circuit_py,
-    OptimizeConfig,
-    # Algorithms
-    Grover,
-    QAOABuilder,
-    QAOAAnsatzBuilder,
-    HEABuilder,
-    ParameterizedCircuit,
+    PyOptimizeConfig as OptimizeConfig,
+    PyGrover as Grover,
+    PyQAOABuilder as QAOABuilder,
+    PyQAOAAnsatzBuilder as QAOAAnsatzBuilder,
+    PyHEABuilder as HEABuilder,
+    PyParameterizedCircuit as ParameterizedCircuit,
     qft_circuit_py,
     hhl_2x2_py,
     hhl_solve_py,
@@ -42,7 +40,6 @@ from quantumforge import (
     shor_factor_py,
     shor_factor_large_py,
     shor_factor_quantum_py,
-    # QEC
     repetition_code_bitflip,
     repetition_code_phaseflip,
     shor_code,
@@ -50,11 +47,10 @@ from quantumforge import (
     surface_code_planar,
     surface_code_rotated,
     encode_repetition_bitflip,
-    # Tensor networks
-    MPS,
-    Tensor,
-    TEBD,
-    DMRG,
+    PyMPS as MPS,
+    PyTensor as Tensor,
+    PyTEBD as TEBD,
+    PyDMRG as DMRG,
 )
 
 __all__ = [

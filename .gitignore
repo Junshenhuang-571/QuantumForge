@@ -16,3 +16,6 @@ Thumbs.db
 *.proptest-regressions
 __pycache__/
 *.pyc
+wheeltest*/
+extonly/
+target/wheels/
