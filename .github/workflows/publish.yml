@@ -99,6 +99,10 @@ jobs:
     needs: build-wheels
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
+    permissions:
+      # Trusted publishing (OIDC): needs id-token write to mint the exchange
+      # token; requires a PyPI trusted publisher configured for this repo.
+      id-token: write
     steps:
       - name: Download all wheels
         uses: actions/download-artifact@v4
