@@ -22,7 +22,7 @@ classifiers = [
 ]
 
 [tool.maturin]
-features = ["pyo3", "extension-module"]
+features = ["python"]
 manylinux = "2014"
 
 [project.optional-dependencies]
