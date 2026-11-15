@@ -30,8 +30,6 @@ jobs:
             feature: llvm
             target: x86_64-unknown-linux-gnu
             artifact: linux-llvm
-            target: x86_64-unknown-linux-gnu
-            artifact: linux-full
           # macOS wheels
           - os: macos-latest
             feature: default
