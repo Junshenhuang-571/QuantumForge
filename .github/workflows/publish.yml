@@ -54,12 +54,6 @@ jobs:
           target: ${{ matrix.target }}
           components: rustfmt, clippy
 
-      - name: Install CUDA toolkit
-        if: matrix.feature == 'cuda' || matrix.feature == 'full'
-        uses: Jimver/cuda-toolkit@v0.2.36
-        with:
-          cuda-version: '12.4'
-
       - name: Install LLVM
         if: matrix.feature == 'llvm' || matrix.feature == 'full'
         run: |
@@ -85,7 +79,8 @@ jobs:
         with:
           command: build
           args: --release --features ${{ matrix.feature }} --target ${{ matrix.target }} -o dist
-          manylinux: auto
+          maturin-version: 1.12.6
+          manylinux: 2_28
 
       - name: Upload wheels
         uses: actions/upload-artifact@v4
