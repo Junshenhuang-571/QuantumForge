@@ -99,6 +99,57 @@ qf> shots 8 42
 legend: ─ wire  • control  ⊕ target(X)  │ span  x swap  M measure
 ```
 
+### Library demo (Rust API)
+
+Exact Bell state — amplitudes are exact rationals, not floats:
+
+```rust
+use quantumforge::{Circuit, Gate, StateVector};
+
+let mut bell = Circuit::new();
+bell.push(Gate::H, 0);
+bell.cnot(0, 1);
+let state = bell.run(StateVector::zero(2).unwrap()).unwrap();
+println!("{:?}", state.probabilities()); // [0.5, 0.0, 0.0, 0.5]
+```
+
+Seeded sampling with confidence intervals:
+
+```rust
+use quantumforge::{parse_circuit, StateVector};
+
+let circuit = parse_circuit("Circuit[H[0], CNOT[0,1], Measure[0,0], Measure[1,1]]").unwrap();
+let result = circuit.run_shots(&StateVector::zero(2).unwrap(), 1024, 42).unwrap();
+let (p, (lo, hi)) = result.probability_with_ci(&vec![0, 0]);
+println!("P(00) = {p:.3}  95% CI [{lo:.3}, {hi:.3}]");
+```
+
+QEC — build and verify the rotated surface code:
+
+```rust
+use quantumforge::qec::{surface_code_rotated, verify_code};
+
+let code = surface_code_rotated(3); // 9 physical, 1 logical
+assert!(verify_code(&code));
+println!("{} stabilizers, {} syndromes", code.stabilizers.len(), code.recovery.len());
+```
+
+Symbolic algebra on exact rationals:
+
+```rust
+use quantumforge::analytic::{ExactComplex, Rational, ScalarExpr};
+
+let x = ScalarExpr::symbol("x");
+let f = ScalarExpr::pow(x.clone(), 3).unwrap();
+println!("{}", f.differentiate("x").unwrap()); // 3 * x^2
+let four = ExactComplex::real(Rational::new(4, 1).unwrap());
+let quad = ScalarExpr::subtract(ScalarExpr::pow(x, 2).unwrap(), ScalarExpr::exact(four)).unwrap();
+for root in quad.solve("x") { println!("{root}"); } // exact roots of x^2 - 4
+```
+
+Every example above is a compiled, tested doctest in the crate
+documentation (docs.rs) — copy them straight into your project.
+
 The `shots` command reruns the circuit from `|0...0>` and uses the supplied seed
 to make the sample reproducible. To inspect the state without sampling, use
 `run` followed by `state`.

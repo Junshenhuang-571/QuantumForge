@@ -1,12 +1,222 @@
+//! QuantumForge: exact-rational quantum simulation in Rust.
+//!
+//! QuantumForge is a Rust quantum-computing toolkit: an **exact-rational
+//! analytic core**, a **CPU simulator** (state vectors, density matrices,
+//! seeded shots), an **interactive REPL**, **QEC encoders/decoders**,
+//! variational algorithms, and optional **CUDA / LLVM** acceleration. It is a
+//! classical simulator and research toolkit, not a quantum-hardware runtime.
+//!
+//! # Quick start: one Bell pair
+//!
+//! Build circuits with the builder API, run them exactly, and inspect the
+//! probability distribution:
+//!
+//! ```
+//! use quantumforge::{Circuit, Gate, StateVector};
+//!
+//! let mut bell = Circuit::new();
+//! bell.push(Gate::H, 0);
+//! bell.cnot(0, 1);
+//!
+//! let state = bell.run(StateVector::zero(2).unwrap()).unwrap();
+//! let probs = state.probabilities();
+//! assert!((probs[0] - 0.5).abs() < 1e-12);
+//! assert!((probs[3] - 0.5).abs() < 1e-12);
+//! println!("{}", bell.draw());
+//! ```
+//!
+//! # Two ways to build a circuit
+//!
+//! Every circuit can be written as a Wolfram-style expression with
+//! [`parse_circuit`], or assembled operation by operation:
+//!
+//! ```
+//! use quantumforge::{Circuit, Gate, parse_circuit};
+//!
+//! let from_text = parse_circuit("Circuit[H[0], CNOT[0,1], Measure[0,0], Measure[1,1]]").unwrap();
+//!
+//! let mut from_builder = Circuit::new();
+//! from_builder.push(Gate::H, 0);
+//! from_builder.cnot(0, 1);
+//! from_builder.measure(0, 0);
+//! from_builder.measure(1, 1);
+//!
+//! assert_eq!(from_text.operations().len(), from_builder.operations().len());
+//! ```
+//!
+//! # Sampling with seeds
+//!
+//! [`Circuit::run_shots`] executes seeded trajectories and returns classical
+//! outcome counts, with Wilson confidence intervals available per outcome:
+//!
+//! ```
+//! use quantumforge::{parse_circuit, StateVector};
+//!
+//! let circuit = parse_circuit("Circuit[H[0], CNOT[0,1], Measure[0,0], Measure[1,1]]").unwrap();
+//! let state = StateVector::zero(2).unwrap();
+//! let result = circuit.run_shots(&state, 1024, 42).unwrap();
+//!
+//! assert_eq!(result.shots, 1024);
+//! // The Bell pair collapses to 00 or 11 only.
+//! let total = result.counts.values().sum::<usize>();
+//! assert_eq!(total, 1024);
+//! assert!(result.counts.keys().all(|bits| bits[0] == bits[1]));
+//!
+//! let (p, (lo, hi)) = result.probability_with_ci(&vec![0, 0]);
+//! println!("P(00) = {p:.3}  95% CI [{lo:.3}, {hi:.3}]");
+//! ```
+//!
+//! # Quantum error correction
+//!
+//! Encoder/decoder helpers for the surface, repetition, Shor, and Steane
+//! codes. [`qec::verify_code`] checks stabilizer commutation, logical-operator
+//! commutation, and anticommutation of the logical pair:
+//!
+//! ```
+//! use quantumforge::qec::{surface_code_rotated, verify_code};
+//!
+//! // Rotated d=3: 9 data qubits, 1 logical qubit (boundary-inclusive).
+//! let code = surface_code_rotated(3);
+//! assert_eq!(code.n_physical, 9);
+//! assert_eq!(code.n_logical, 1);
+//! assert!(verify_code(&code));
+//! println!("{} stabilizer generators, recovery table for {} syndromes",
+//!          code.stabilizers.len(), code.recovery.len());
+//! ```
+//!
+//! Note: [`surface_code_planar`] uses face stabilizers only (no boundary
+//! stabilizers), so a `d x d` planar code encodes `2d - 1` logical qubits
+//! rather than one; prefer `surface_code_rotated` for single-logical-qubit
+//! workloads.
+//!
+//! # Symbolic algebra on exact rationals
+//!
+//! [`ScalarExpr`] differentiates, integrates, solves, and factors without
+//! floating-point error:
+//!
+//! ```
+//! use quantumforge::analytic::{ExactComplex, Rational, ScalarExpr};
+//!
+//! let x = ScalarExpr::symbol("x");
+//! let f = ScalarExpr::pow(x.clone(), 3).unwrap(); // x^3
+//! let df = f.differentiate("x").unwrap();
+//! let area = f.integrate("x").unwrap(); // ∫x^3 dx = x^4/4
+//! println!("d/dx x^3 = {df};  ∫x^3 dx = {area}");
+//!
+//! let four = ExactComplex::real(Rational::new(4, 1).unwrap());
+//! let quadratic = ScalarExpr::subtract(ScalarExpr::pow(x, 2).unwrap(), ScalarExpr::exact(four)).unwrap();
+//! let roots = quadratic.solve("x");
+//! assert_eq!(roots.len(), 2);
+//! for r in &roots { println!("exact root: {r}"); } // exact symbolic form
+//! ```
+//!
+//! # Hamiltonians as Pauli sums
+//!
+//! [`PauliSum`] stores exact-rational coefficients over Pauli words and can
+//! be converted to a sparse operator:
+//!
+//! ```
+//! use quantumforge::analytic::{ExactComplex, Pauli, PauliSum, PauliWord};
+//!
+//! // H = X⊗I + I⊗Z
+//! let mut h = PauliSum::zero(2);
+//! h.add_term(ExactComplex::ONE, PauliWord::new(vec![Pauli::X, Pauli::I])).unwrap();
+//! h.add_term(ExactComplex::ONE, PauliWord::new(vec![Pauli::I, Pauli::Z])).unwrap();
+//! assert_eq!(h.terms().len(), 2);
+//!
+//! let op = h.to_sparse_operator().unwrap();
+//! println!("H acts on a {}-dimensional space", op.output_space().dimension());
+//! ```
+//!
+//! # QASM 2.0 import / export
+//!
+//! Circuits round-trip through OpenQASM 2.0:
+//!
+//! ```
+//! use quantumforge::qasm::parse_qasm;
+//! use quantumforge::qasm_export::export_qasm;
+//!
+//! let source = r#"OPENQASM 2.0;
+//! include "qelib1.inc";
+//! qreg q[2];
+//! creg c[2];
+//! h q[0];
+//! cx q[0],q[1];
+//! measure q -> c;"#;
+//! let circuit = parse_qasm(source).unwrap();
+//! let text = export_qasm(&circuit);
+//! assert!(text.contains("cx q[0], q[1]"));
+//! ```
+//!
+//! # Cost-aware circuit optimization
+//!
+//! The optimizer rewrites a circuit against a weighted cost model and returns
+//! the original circuit unless the rewrite strictly lowers the estimate:
+//!
+//! ```
+//! use quantumforge::{Circuit, Gate};
+//! use quantumforge::optimizer::{optimize_for_cost_model, CircuitCostModel, OptimizeConfig};
+//!
+//! let mut circuit = Circuit::new();
+//! circuit.push(Gate::H, 0);
+//! circuit.push(Gate::H, 0); // cancelable pair
+//! circuit.cnot(0, 1);
+//!
+//! let model = CircuitCostModel { cnot_gate: 10.0, depth: 2.0, ..Default::default() };
+//! let (optimized, decision) = optimize_for_cost_model(&circuit, &OptimizeConfig::all(), &model)?;
+//! assert!(optimized.operations().len() <= circuit.operations().len());
+//! # Ok::<(), quantumforge::optimizer::CircuitCostModelError>(())
+//! ```
+//!
+//! # Python bindings
+//!
+//! With the `python` cargo feature, the crate builds as an abi3 wheel
+//! (`maturin build --features python`). The `quantumforge` Python package
+//! exposes `Circuit`, `StateVector`, `Gate`, the surface-code builders, and
+//! more; see `python/smoke_test.py` in the repository for a worked script.
+//!
+//! # The `qf` REPL
+//!
+//! The repository also ships an interactive REPL binary:
+//!
+//! ```text
+//! $ cargo run --bin qf
+//! qf> qubits 2
+//! qf> add H[0]
+//! qf> add CNOT[0,1]
+//! qf> run
+//! qf> probs
+//!   |00>  0.500000
+//!   |11>  0.500000
+//! qf> quit
+//! ```
+//!
+//! # Optional features
+//!
+//! | Feature   | Effect                                              |
+//! |-----------|-----------------------------------------------------|
+//! | `rayon`   | Parallel shot execution (on by default)             |
+//! | `cuda`    | Legacy CUDA FFI path (requires a CUDA toolkit)      |
+//! | `gpu`     | Dynamic-loading GPU path via `cudarc`               |
+//! | `llvm`    | Scalar JIT compilation of numeric expressions       |
+//! | `python`  | PyO3 bindings; builds an abi3 wheel with maturin    |
+//! | `ibm` / `ionq` / `rigetti` | Hardware-provider scaffolds (offline)    |
+//!
+//! # Scope and limitations
+//!
+//! - State-vector memory is exponential in qubit count; density matrices
+//!   grow faster and suit small systems.
+//! - Pre-1.0: APIs may change between minor versions. See `API_STABILITY.md`
+//!   in the repository for the compatibility contract.
+//! - The CUDA path targets selected workloads; not every module has an
+//!   accelerated backend.
+//!
 //! # Contributing
 //!
 //! Contributions are welcome! See [CONTRIBUTING.md](https://github.com/Junshenhuang-571/QuantumForge/blob/main/CONTRIBUTING.md)
 //! for development setup, code style, and PR process. Good first issues include
 //! adding doc comments, test coverage, and examples.
-//! QuantumForge: a small, backend-neutral quantum simulation kernel.
 //!
-//! The kernel provides CPU quantum simulation, optional CUDA simulation, and
-//! optional LLVM JIT compilation for scalar numeric expressions.
 
 pub mod analytic;
 pub mod aqc;
