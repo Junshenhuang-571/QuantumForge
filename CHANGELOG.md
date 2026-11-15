@@ -3,6 +3,17 @@
 ## [Unreleased]
 
 ### Added
+- Add user-visible changes here as they are merged.
+
+### Changed
+- Add behavior or API changes here, including migration notes.
+
+### Fixed
+- Add user-visible bug fixes here.
+
+## [0.2.7] - 2026-11-15
+
+### Added
 - Python wheel smoke test (`python/smoke_test.py`): imports, Bell-state
   sampling, and rotated surface-code construction, verified against a real
   maturin-built wheel.
