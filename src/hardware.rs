@@ -119,9 +119,11 @@ pub mod ibm {
         Result,
     };
     use reqwest::Client;
-    use std::sync::Arc;
 
     /// IBM Quantum backend using Qiskit Runtime REST API.
+    ///
+    /// Scaffold: all trait methods currently return `UnsupportedOperation`.
+    #[allow(dead_code)]
     pub struct IbmBackend {
         client: Client,
         api_token: String,
@@ -142,6 +144,7 @@ pub mod ibm {
             }
         }
 
+        #[allow(dead_code)]
         fn auth_header(&self) -> String {
             format!("Bearer {}", self.api_token)
         }
@@ -159,7 +162,7 @@ pub mod ibm {
             ))
         }
 
-        fn get_device(&self, device_id: &str) -> Result<DeviceInfo> {
+        fn get_device(&self, _device_id: &str) -> Result<DeviceInfo> {
             Err(QuantumError::UnsupportedOperation(
                 "IBM backend not fully implemented".into(),
             ))
@@ -201,6 +204,9 @@ pub mod ionq {
     use reqwest::Client;
 
     /// IonQ backend using IonQ REST API.
+    ///
+    /// Scaffold: all trait methods currently return `UnsupportedOperation`.
+    #[allow(dead_code)]
     pub struct IonqBackend {
         client: Client,
         api_key: String,
@@ -230,7 +236,7 @@ pub mod ionq {
             ))
         }
 
-        fn get_device(&self, device_id: &str) -> Result<DeviceInfo> {
+        fn get_device(&self, _device_id: &str) -> Result<DeviceInfo> {
             Err(QuantumError::UnsupportedOperation(
                 "IonQ backend not fully implemented".into(),
             ))
@@ -272,6 +278,9 @@ pub mod rigetti {
     use reqwest::Client;
 
     /// Rigetti QCS backend.
+    ///
+    /// Scaffold: all trait methods currently return `UnsupportedOperation`.
+    #[allow(dead_code)]
     pub struct RigettiBackend {
         client: Client,
         api_key: String,
@@ -301,7 +310,7 @@ pub mod rigetti {
             ))
         }
 
-        fn get_device(&self, device_id: &str) -> Result<DeviceInfo> {
+        fn get_device(&self, _device_id: &str) -> Result<DeviceInfo> {
             Err(QuantumError::UnsupportedOperation(
                 "Rigetti backend not fully implemented".into(),
             ))
