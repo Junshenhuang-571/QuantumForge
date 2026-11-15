@@ -9,6 +9,7 @@ documentation = "https://docs.rs/quantumforge"
 readme = "README.md"
 keywords = ["quantum", "simulation", "quantum-computing", "vqe", "cuda"]
 categories = ["science", "simulation", "hardware-support"]
+exclude = ["dist/*", "wheeltest*/", "__pycache__/", "**/*.pyc", "target/pkg/*"]
 
 [lib]
 crate-type = ["lib", "cdylib"]
