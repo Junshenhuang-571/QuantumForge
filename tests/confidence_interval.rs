@@ -4,12 +4,7 @@ use quantumforge::wilson_ci;
 fn ci_contains_true_probability() {
     // 50 successes out of 100 shots → true p = 0.5
     let (lo, hi) = wilson_ci(50, 100, 0.95);
-    assert!(
-        lo < 0.5 && hi > 0.5,
-        "CI [{}, {}] should contain 0.5",
-        lo,
-        hi
-    );
+    assert!(lo < 0.5 && hi > 0.5, "CI [{lo}, {hi}] should contain 0.5");
     // Width should scale as 1/sqrt(N)
     let (lo2, hi2) = wilson_ci(500, 1000, 0.95);
     assert!((hi2 - lo2) < (hi - lo), "larger N should have narrower CI");

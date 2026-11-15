@@ -69,9 +69,8 @@ impl PauliString {
         self.paulis.iter().filter(|&&p| p != 0).count()
     }
 
-    #[allow(clippy::manual_is_multiple_of)]
     pub fn commutes(&self, other: &PauliString) -> bool {
-        let mut anticommute_count = 0;
+        let mut anticommute_count = 0usize;
         for i in 0..self.paulis.len() {
             let p = self.paulis[i];
             let q = other.paulis[i];
@@ -88,7 +87,7 @@ impl PauliString {
                 }
             }
         }
-        anticommute_count % 2 == 0
+        !anticommute_count.is_multiple_of(2)
     }
 }
 

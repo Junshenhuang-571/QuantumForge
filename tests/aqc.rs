@@ -93,13 +93,13 @@ fn anneal_path_endpoints_and_monotonicity() {
         AnnealPath::Polynomial(2.0),
     ];
     for p in &paths {
-        assert!((p.at(0.0)).abs() < 1e-12, "{:?} at 0", p);
-        assert!((p.at(1.0) - 1.0).abs() < 1e-12, "{:?} at 1", p);
+        assert!((p.at(0.0)).abs() < 1e-12, "{p:?} at 0");
+        assert!((p.at(1.0) - 1.0).abs() < 1e-12, "{p:?} at 1");
         let mut prev = -1.0;
         for k in 0..=20 {
             let s = p.at(k as f64 / 20.0);
-            assert!(s >= prev - 1e-12, "{:?} not monotonic at {}", p, k);
-            assert!((0.0..=1.0).contains(&s), "{:?} out of range: {}", p, s);
+            assert!(s >= prev - 1e-12, "{p:?} not monotonic at {k}");
+            assert!((0.0..=1.0).contains(&s), "{p:?} out of range: {s}");
             prev = s;
         }
     }

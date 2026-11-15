@@ -213,8 +213,7 @@ pub mod python_bindings {
                 "phase_damping" => crate::NoiseChannel::PhaseDamping { gamma: param },
                 _ => {
                     return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
-                        "Unknown channel: {}",
-                        channel
+                        "Unknown channel: {channel}"
                     )));
                 }
             };
@@ -881,8 +880,7 @@ pub mod python_bindings {
                 "Ry" => Ok(Gate::Ry(angle)),
                 "Rz" => Ok(Gate::Rz(angle)),
                 _ => Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
-                    "unknown parameterized gate {}",
-                    name
+                    "unknown parameterized gate {name}"
                 ))),
             }
         } else {
@@ -897,8 +895,7 @@ pub mod python_bindings {
                 "T" => Ok(Gate::T),
                 "Tdg" => Ok(Gate::Tdg),
                 _ => Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
-                    "unknown gate {}",
-                    s
+                    "unknown gate {s}"
                 ))),
             }
         }

@@ -32,7 +32,7 @@ fn main() {
     ])
     .unwrap();
     let result = ScalarExpr::verify_identity(&lhs, &rhs).unwrap();
-    println!("(a+b)^2 = a^2 + 2ab + b^2  =>  {}", result);
+    println!("(a+b)^2 = a^2 + 2ab + b^2  =>  {result}");
 
     // Identity 2: (a-b)(a+b) = a^2 - b^2
     let lhs2 = ScalarExpr::mul([
@@ -46,7 +46,7 @@ fn main() {
     ])
     .unwrap();
     let result2 = ScalarExpr::verify_identity(&lhs2, &rhs2).unwrap();
-    println!("(a-b)(a+b) = a^2 - b^2  =>  {}", result2);
+    println!("(a-b)(a+b) = a^2 - b^2  =>  {result2}");
 
     // Identity 3: a^3 - b^3 = (a-b)(a^2 + ab + b^2)
     let lhs3 = ScalarExpr::add([
@@ -65,16 +65,13 @@ fn main() {
     ])
     .unwrap();
     let result3 = ScalarExpr::verify_identity(&lhs3, &rhs3).unwrap();
-    println!("a^3 - b^3 = (a-b)(a^2+ab+b^2)  =>  {}", result3);
+    println!("a^3 - b^3 = (a-b)(a^2+ab+b^2)  =>  {result3}");
 
     // Identity 4: Non-polynomial expressions are rejected (hard gate)
     let trig_lhs = ScalarExpr::sin(a.clone());
     let trig_rhs = ScalarExpr::sin(a.clone());
     match ScalarExpr::verify_identity(&trig_lhs, &trig_rhs) {
-        Err(e) => println!(
-            "sin(a) = sin(a)  =>  Err({}) (non-polynomial, correct rejection)",
-            e
-        ),
+        Err(e) => println!("sin(a) = sin(a)  =>  Err({e}) (non-polynomial, correct rejection)"),
         Ok(_) => println!("UNEXPECTED: trig accepted"),
     }
 
@@ -87,8 +84,8 @@ fn main() {
     .unwrap();
     let cse_result = expr.cse();
     println!("\nCSE of a*b + a*b + a^2:");
-    println!("  original: {}", expr);
-    println!("  CSE'd:    {:?}", cse_result);
+    println!("  original: {expr}");
+    println!("  CSE'd:    {cse_result:?}");
 
     println!("\n=== All identities verified exactly (no floating point) ===");
 }

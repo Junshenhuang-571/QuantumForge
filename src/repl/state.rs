@@ -1888,8 +1888,7 @@ impl Session {
         // tebd.set_hamiltonian_gates(even_gates, odd_gates, even_single_gates, odd_single_gates);
 
         println!(
-            "TEBD: n_sites={}, dt={}, max_bond={}, tol={}, steps={}",
-            n_sites, dt, max_bond, truncation_tol, max_steps
+            "TEBD: n_sites={n_sites}, dt={dt}, max_bond={max_bond}, tol={truncation_tol}, steps={max_steps}"
         );
         // TEBD imaginary-time evolution has numerical stability issues.
         // Use DMRG (verified correct against exact diagonalization) for the
@@ -1901,7 +1900,7 @@ impl Session {
         let odd_h = zz;
         match dmrg.run(&even_h, &odd_h) {
             Ok(energy) => {
-                println!("TEBD converged: ground state energy = {:.6}", energy);
+                println!("TEBD converged: ground state energy = {energy:.6}");
                 // Move DMRG's MPS into a TEBD instance for correlation queries
                 let mut tebd2 = TEBD::new(dmrg.mps, dt, max_bond, truncation_tol);
                 tebd2.set_hamiltonian_gates(
@@ -1989,8 +1988,7 @@ impl Session {
         let odd_h = zz;
 
         println!(
-            "DMRG: n_sites={}, max_bond={}, tol={}, sweeps={}",
-            n_sites, max_bond, truncation_tol, max_sweeps
+            "DMRG: n_sites={n_sites}, max_bond={max_bond}, tol={truncation_tol}, sweeps={max_sweeps}"
         );
         let max_gpu_q = crate::tensor_network::gpu_max_qubits();
         if n_sites >= 13 && n_sites <= max_gpu_q {
@@ -2005,13 +2003,12 @@ impl Session {
             println!("  Using CPU (exact diagonalization)");
         } else {
             println!(
-                "  Using MPS-based DMRG (CPU, {} qubits exceeds GPU capacity of {})",
-                n_sites, max_gpu_q
+                "  Using MPS-based DMRG (CPU, {n_sites} qubits exceeds GPU capacity of {max_gpu_q})"
             );
         }
         match dmrg.run(&even_h, &odd_h) {
             Ok(energy) => {
-                println!("DMRG converged: ground state energy = {:.6}", energy);
+                println!("DMRG converged: ground state energy = {energy:.6}");
                 self.dmrg = Some(dmrg);
             }
             Err(e) => eprintln!("DMRG error: {e}"),
@@ -2100,7 +2097,7 @@ impl Session {
             for i in 0..n - 1 {
                 match tebd.mps.expectation_two_site(&zz, i) {
                     Ok(val) => println!("  <Z_{} Z_{}> = {:.6}", i, i + 1, val),
-                    Err(e) => eprintln!("  site {}: {}", i, e),
+                    Err(e) => eprintln!("  site {i}: {e}"),
                 }
             }
         } else {
@@ -2125,7 +2122,7 @@ impl Session {
             for i in 0..n {
                 let zval = tebd.mps.expectation_single_site(&z, i).re;
                 let xval = tebd.mps.expectation_single_site(&x, i).re;
-                println!("  site {}: <Z> = {:.6}, <X> = {:.6}", i, zval, xval);
+                println!("  site {i}: <Z> = {zval:.6}, <X> = {xval:.6}");
             }
         } else {
             eprintln!("No TEBD state loaded. Run `tebd` first.");
@@ -2329,8 +2326,7 @@ impl Session {
             }
             _ => {
                 eprintln!(
-                    "unknown code type: {} (try bitflip|phaseflip|shor|steane|surface|rotated)",
-                    code_type
+                    "unknown code type: {code_type} (try bitflip|phaseflip|shor|steane|surface|rotated)"
                 );
                 return;
             }
@@ -2342,7 +2338,7 @@ impl Session {
         );
         println!("Stabilizers ({}):", code.stabilizers.len());
         for (i, s) in code.stabilizers.iter().enumerate() {
-            println!("  S{} = {}", i, s);
+            println!("  S{i} = {s}");
         }
         println!("Logical X: {:?}", code.logical_x);
         println!("Logical Z: {:?}", code.logical_z);
@@ -2409,10 +2405,7 @@ impl Session {
 
         match encode_repetition_bitflip(&logical, n) {
             Ok(encoded) => {
-                println!(
-                    "Encoded logical |{}> into {}-qubit repetition code",
-                    state, n
-                );
+                println!("Encoded logical |{state}> into {n}-qubit repetition code");
                 self.state = encoded;
                 self.qubits = n;
                 self.circuit.clear();
@@ -2448,8 +2441,7 @@ impl Session {
                     self.density = Some(result);
                     self.qubits = n_total;
                     println!(
-                        "Syndrome measurement complete. Ancilla qubits measured. Total qubits: {}",
-                        n_total
+                        "Syndrome measurement complete. Ancilla qubits measured. Total qubits: {n_total}"
                     );
                     self.cmd_probs();
                 }
@@ -2511,7 +2503,7 @@ impl Session {
                 match recovery.run_density(density) {
                     Ok(result) => {
                         self.density = Some(result);
-                        println!("Recovery applied for syndrome {}.", syndrome);
+                        println!("Recovery applied for syndrome {syndrome}.");
                         self.cmd_probs();
                     }
                     Err(e) => eprintln!("recovery error: {e}"),

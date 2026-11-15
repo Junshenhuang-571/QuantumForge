@@ -9,6 +9,6 @@ fn parse_mqt_ghz() {
     let sv = quantumforge::StateVector::zero(4).unwrap();
     let sv = circuit.run(sv).unwrap();
     let norm: f64 = sv.amplitudes().iter().map(|a| a.norm_sqr()).sum();
-    println!("Norm: {}", norm);
+    println!("Norm: {norm}");
     assert!((norm - 1.0).abs() < 1e-10);
 }

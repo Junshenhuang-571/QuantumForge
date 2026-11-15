@@ -6,7 +6,7 @@ fn planar_logicals_verify() {
         let code = surface_code_planar(d);
         let n = code.n_physical;
         // face-only construction encodes n - (d-1)^2 = 2d-1 logicals
-        assert_eq!(code.n_logical, 2 * d - 1, "d={} logical count", d);
+        assert_eq!(code.n_logical, 2 * d - 1, "d={d} logical count");
         assert_eq!(code.logical_x.len(), code.n_logical);
         assert_eq!(code.logical_z.len(), code.n_logical);
         assert_eq!(code.stabilizers.len(), (d - 1) * (d - 1));
@@ -20,9 +20,7 @@ fn planar_logicals_verify() {
                     .count();
                 assert!(
                     ac.is_multiple_of(2),
-                    "d={} logical_x {} anticommutes with stabilizer",
-                    d,
-                    i
+                    "d={d} logical_x {i} anticommutes with stabilizer"
                 );
             }
         }
@@ -35,9 +33,7 @@ fn planar_logicals_verify() {
                     .count();
                 assert!(
                     ac.is_multiple_of(2),
-                    "d={} logical_z {} anticommutes with stabilizer",
-                    d,
-                    i
+                    "d={d} logical_z {i} anticommutes with stabilizer"
                 );
             }
         }
@@ -48,7 +44,7 @@ fn planar_logicals_verify() {
             let ac = (0..n)
                 .filter(|&q| lx.paulis[q] != 0 && lz.paulis[q] != 0 && lx.paulis[q] != lz.paulis[q])
                 .count();
-            assert_eq!(ac % 2, 1, "d={} logical pair {} does not anticommute", d, i);
+            assert_eq!(ac % 2, 1, "d={d} logical pair {i} does not anticommute");
         }
         // all logicals nonzero
         for l in &code.logical_x {

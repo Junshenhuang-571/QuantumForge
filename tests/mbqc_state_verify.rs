@@ -28,20 +28,11 @@ fn mbqc_cnot_state_verification() {
             assert_eq!(
                 (out0 as u8, out1 as u8),
                 (e0, e1),
-                "mbqc_cnot_state({}, {}) seed {} = ({}, {}) expected ({}, {}), prob={:.4}",
-                b0,
-                b1,
-                seed,
-                out0,
-                out1,
-                e0,
-                e1,
-                max_prob
+                "mbqc_cnot_state({b0}, {b1}) seed {seed} = ({out0}, {out1}) expected ({e0}, {e1}), prob={max_prob:.4}"
             );
             assert!(
                 max_prob > 0.99,
-                "Output state not deterministic: prob={:.4}",
-                max_prob
+                "Output state not deterministic: prob={max_prob:.4}"
             );
         }
     }

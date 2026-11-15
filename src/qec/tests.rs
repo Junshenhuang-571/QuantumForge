@@ -23,20 +23,15 @@ mod recovery_tests {
             assert_eq!(
                 ops.len(),
                 1,
-                "syndrome {} should have 1 recovery op",
-                syndrome
+                "syndrome {syndrome} should have 1 recovery op"
             );
             match &ops[0] {
                 crate::CircuitOp::SingleQubit { gate, target } => {
-                    assert_eq!(
-                        *target, expected_qubit,
-                        "syndrome {} wrong target",
-                        syndrome
-                    );
+                    assert_eq!(*target, expected_qubit, "syndrome {syndrome} wrong target");
                     // Gate should be X (check via debug or matrix)
-                    assert_eq!(*gate, Gate::X, "syndrome {} should be X gate", syndrome);
+                    assert_eq!(*gate, Gate::X, "syndrome {syndrome} should be X gate");
                 }
-                _ => panic!("expected single-qubit gate for syndrome {}", syndrome),
+                _ => panic!("expected single-qubit gate for syndrome {syndrome}"),
             }
         }
     }
@@ -53,7 +48,7 @@ mod recovery_tests {
         // k=3 -> bits 2,3 -> syndrome = 0b1100 = 12
         let cases = [(1u64, 0usize), (3, 1), (6, 2), (12, 3), (8, 4)];
         for (syn, _q) in cases {
-            assert!(code.recovery.contains_key(&syn), "missing syndrome {}", syn);
+            assert!(code.recovery.contains_key(&syn), "missing syndrome {syn}");
         }
     }
 

@@ -289,7 +289,7 @@ fn deserialize_gate(name: &str, params: &[f64]) -> Result<Gate, serde_json::Erro
         _ => {
             return Err(serde_json::Error::io(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
-                format!("Unknown gate: {}", name),
+                format!("Unknown gate: {name}"),
             )));
         }
     })
@@ -314,7 +314,7 @@ fn deserialize_channel(
         _ => {
             return Err(serde_json::Error::io(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
-                format!("Unknown noise channel: {}", name),
+                format!("Unknown noise channel: {name}"),
             )));
         }
     })

@@ -20,10 +20,7 @@ fn main() {
         let sv = c.run(sv).unwrap();
         let dt = t0.elapsed().as_secs_f64() * 1000.0;
         let norm: f64 = sv.amplitudes().iter().map(|a| a.norm_sqr()).sum();
-        println!(
-            "QFT, MQT/QKNOB/HamLib, {}, {}, {:.3}, {:.10}",
-            n, gates, dt, norm
-        );
+        println!("QFT, MQT/QKNOB/HamLib, {n}, {gates}, {dt:.3}, {norm:.10}");
     }
 
     // GHZ (found in MQT Bench, HamLib)
@@ -39,7 +36,7 @@ fn main() {
         let sv = c.run(sv).unwrap();
         let dt = t0.elapsed().as_secs_f64() * 1000.0;
         let norm: f64 = sv.amplitudes().iter().map(|a| a.norm_sqr()).sum();
-        println!("GHZ, MQT/HamLib, {}, {}, {:.3}, {:.10}", n, gates, dt, norm);
+        println!("GHZ, MQT/HamLib, {n}, {gates}, {dt:.3}, {norm:.10}");
     }
 
     // Grover 4q (found in MQT Bench)
@@ -55,7 +52,7 @@ fn main() {
         let sv = c.run(sv).unwrap();
         let dt = t0.elapsed().as_secs_f64() * 1000.0;
         let norm: f64 = sv.amplitudes().iter().map(|a| a.norm_sqr()).sum();
-        println!("Grover, MQT Bench, 4, {}, {:.3}, {:.10}", gates, dt, norm);
+        println!("Grover, MQT Bench, 4, {gates}, {dt:.3}, {norm:.10}");
     }
 
     // BV 4q (found in MQT Bench, QKNOB)
@@ -76,9 +73,6 @@ fn main() {
         let sv = c.run(sv).unwrap();
         let dt = t0.elapsed().as_secs_f64() * 1000.0;
         let norm: f64 = sv.amplitudes().iter().map(|a| a.norm_sqr()).sum();
-        println!(
-            "Bernstein-Vazirani, MQT/QKNOB, 4, {}, {:.3}, {:.10}",
-            gates, dt, norm
-        );
+        println!("Bernstein-Vazirani, MQT/QKNOB, 4, {gates}, {dt:.3}, {norm:.10}");
     }
 }

@@ -14,14 +14,7 @@ fn mbqc_cnot_truth_table() {
             assert_eq!(
                 (r0, r1),
                 (exp0, exp1),
-                "CNOT({}, {}) seed {} = ({}, {}) expected ({}, {})",
-                b0,
-                b1,
-                seed,
-                r0,
-                r1,
-                exp0,
-                exp1
+                "CNOT({b0}, {b1}) seed {seed} = ({r0}, {r1}) expected ({exp0}, {exp1})"
             );
         }
     }

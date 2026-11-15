@@ -30,8 +30,8 @@ fn hhl_multiple_matrices() {
         let nrm_ref = (x_ref[0] * x_ref[0] + x_ref[1] * x_ref[1]).sqrt();
         let xn = [x_ref[0] / nrm_ref, x_ref[1] / nrm_ref];
         let dot = (x[0] * xn[0] + x[1] * xn[1]).abs();
-        println!("HHL overlap: {:.6} for A={:?} b={:?}", dot, a, b);
-        assert!(dot > 0.999, "HHL overlap too low: {}", dot);
+        println!("HHL overlap: {dot:.6} for A={a:?} b={b:?}");
+        assert!(dot > 0.999, "HHL overlap too low: {dot}");
     }
 }
 
@@ -52,14 +52,7 @@ fn mbqc_cnot_deterministic() {
             assert_eq!(
                 (r0, r1),
                 (e0, e1),
-                "CNOT({}, {}) seed {} = ({}, {}) expected ({}, {})",
-                b0,
-                b1,
-                seed,
-                r0,
-                r1,
-                e0,
-                e1
+                "CNOT({b0}, {b1}) seed {seed} = ({r0}, {r1}) expected ({e0}, {e1})"
             );
         }
         // All seeds should give same result

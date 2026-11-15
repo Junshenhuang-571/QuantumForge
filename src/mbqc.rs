@@ -536,7 +536,7 @@ pub fn compile_single_qubit(
             "T" => std::f64::consts::FRAC_PI_4,
             "X" => std::f64::consts::PI,
             "Z" => 0.0,
-            _ => return Err(format!("Unsupported gate: {}", gate)),
+            _ => return Err(format!("Unsupported gate: {gate}")),
         };
         pattern.push(MeasurementStep {
             qubit,
@@ -626,7 +626,7 @@ pub fn compile_circuit(
                 "T" => std::f64::consts::FRAC_PI_4,
                 "X" => std::f64::consts::PI,
                 "Z" => 0.0,
-                _ => return Err(format!("Unsupported gate: {}", gate)),
+                _ => return Err(format!("Unsupported gate: {gate}")),
             };
 
             let depends_on_x = if qubit > n_qubits {
@@ -755,7 +755,7 @@ pub fn compile_circuit(
                     measured: false,
                 });
             }
-            _ => return Err(format!("Unsupported gate: {}", gate)),
+            _ => return Err(format!("Unsupported gate: {gate}")),
         }
     }
 

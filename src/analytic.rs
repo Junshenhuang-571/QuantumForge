@@ -1247,10 +1247,7 @@ impl ScalarExpr {
             Self::Mul(factors) => {
                 let mut sum = 0i32;
                 for f in factors {
-                    match f.degree(variable) {
-                        Some(d) => sum += d,
-                        None => return None,
-                    }
+                    sum += f.degree(variable)?;
                 }
                 Some(sum)
             }

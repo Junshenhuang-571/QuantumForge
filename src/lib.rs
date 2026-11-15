@@ -1595,9 +1595,9 @@ impl fmt::Display for Gate {
             Self::Sdg => write!(f, "Sdg"),
             Self::T => write!(f, "T"),
             Self::Tdg => write!(f, "Tdg"),
-            Self::Rx(t) => write!(f, "Rx({})", t),
-            Self::Ry(t) => write!(f, "Ry({})", t),
-            Self::Rz(t) => write!(f, "Rz({})", t),
+            Self::Rx(t) => write!(f, "Rx({t})"),
+            Self::Ry(t) => write!(f, "Ry({t})"),
+            Self::Rz(t) => write!(f, "Rz({t})"),
         }
     }
 }
@@ -1777,15 +1777,15 @@ impl Circuit {
         }
 
         // Build timeline
-        let mut lines: Vec<String> = (0..n).map(|i| format!("q{}: ", i)).collect();
+        let mut lines: Vec<String> = (0..n).map(|i| format!("q{i}: ")).collect();
         for op in &self.operations {
             match op {
                 CircuitOp::SingleQubit { gate, target } => {
-                    let label = format!("{:?}", gate);
+                    let label = format!("{gate:?}");
                     let short = if label.len() > 4 { &label[..4] } else { &label };
                     for (i, line) in lines.iter_mut().enumerate() {
                         if i == *target {
-                            line.push_str(&format!("[{}]--", short));
+                            line.push_str(&format!("[{short}]--"));
                         } else {
                             line.push_str("-------");
                         }
@@ -1861,8 +1861,7 @@ impl Circuit {
         let height = margin * 2.0 + (n as f64 - 1.0) * qubit_spacing + 20.0;
 
         let mut svg = format!(
-            "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{}\" height=\"{}\" viewBox=\"0 0 {} {}\">\n",
-            width, height, width, height
+            "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{width}\" height=\"{height}\" viewBox=\"0 0 {width} {height}\">\n"
         );
 
         // Draw qubit lines
@@ -1873,8 +1872,7 @@ impl Circuit {
                 margin, y, width - margin, y
             ));
             svg.push_str(&format!(
-                "  <text x=\"5\" y=\"{}\" font-size=\"12\" dominant-baseline=\"middle\">q{}</text>\n",
-                y, i
+                "  <text x=\"5\" y=\"{y}\" font-size=\"12\" dominant-baseline=\"middle\">q{i}</text>\n"
             ));
         }
 
@@ -1884,15 +1882,14 @@ impl Circuit {
             match op {
                 CircuitOp::SingleQubit { gate, target } => {
                     let y = margin + *target as f64 * qubit_spacing;
-                    let label = format!("{:?}", gate);
+                    let label = format!("{gate:?}");
                     let short = if label.len() > 3 { &label[..3] } else { &label };
                     svg.push_str(&format!(
                         "  <rect x=\"{}\" y=\"{}\" width=\"24\" height=\"24\" fill=\"lightblue\" stroke=\"black\" rx=\"3\"/>\n",
                         x - 12.0, y - 12.0
                     ));
                     svg.push_str(&format!(
-                        "  <text x=\"{}\" y=\"{}\" font-size=\"10\" text-anchor=\"middle\" dominant-baseline=\"middle\">{}</text>\n",
-                        x, y, short
+                        "  <text x=\"{x}\" y=\"{y}\" font-size=\"10\" text-anchor=\"middle\" dominant-baseline=\"middle\">{short}</text>\n"
                     ));
                 }
                 CircuitOp::Cnot { control, target } => {
@@ -1900,13 +1897,11 @@ impl Circuit {
                     let yt = margin + *target as f64 * qubit_spacing;
                     // Control dot
                     svg.push_str(&format!(
-                        "  <circle cx=\"{}\" cy=\"{}\" r=\"4\" fill=\"black\"/>\n",
-                        x, yc
+                        "  <circle cx=\"{x}\" cy=\"{yc}\" r=\"4\" fill=\"black\"/>\n"
                     ));
                     // Target X
                     svg.push_str(&format!(
-                        "  <circle cx=\"{}\" cy=\"{}\" r=\"10\" fill=\"none\" stroke=\"black\"/>\n",
-                        x, yt
+                        "  <circle cx=\"{x}\" cy=\"{yt}\" r=\"10\" fill=\"none\" stroke=\"black\"/>\n"
                     ));
                     svg.push_str(&format!(
                         "  <line x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"black\"/>\n",
@@ -1925,8 +1920,7 @@ impl Circuit {
                     // Vertical line
                     let (y_top, y_bot) = if yc < yt { (yc, yt) } else { (yt, yc) };
                     svg.push_str(&format!(
-                        "  <line x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"black\"/>\n",
-                        x, y_top, x, y_bot
+                        "  <line x1=\"{x}\" y1=\"{y_top}\" x2=\"{x}\" y2=\"{y_bot}\" stroke=\"black\"/>\n"
                     ));
                 }
                 _ => {}

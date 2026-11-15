@@ -88,5 +88,5 @@ fn grover_success_probability() {
     }
     // Probability of measuring |11> should be ~1.0
     let p11 = sv.amplitudes()[3].norm_sqr();
-    assert!(p11 > 0.9, "Grover success = {}", p11);
+    assert!(p11 > 0.9, "Grover success = {p11}");
 }

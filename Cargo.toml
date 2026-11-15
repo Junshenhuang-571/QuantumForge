@@ -5,7 +5,6 @@ edition = "2024"
 description = "A Rust quantum simulation toolkit with CPU and CUDA circuit simulation, LLVM scalar JIT, VQE/QML, MBQC, adiabatic QC, and unitary Turing machines."
 license = "Apache-2.0"
 repository = "https://github.com/Junshenhuang-571/QuantumForge"
-homepage = "https://github.com/Junshenhuang-571/QuantumForge"
 documentation = "https://docs.rs/quantumforge"
 readme = "README.md"
 keywords = ["quantum", "simulation", "quantum-computing", "vqe", "cuda"]

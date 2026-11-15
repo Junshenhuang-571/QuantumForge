@@ -24,12 +24,12 @@ fn hhl_circuit_output_matches_numerical() {
         x[0] /= nrm;
         x[1] /= nrm;
     }
-    println!("Circuit solution (normalized): {:?}", x);
+    println!("Circuit solution (normalized): {x:?}");
 
     let x_ref = hhl_solve_quantum([[a[0][0], a[0][1]], [a[1][0], a[1][1]]], [b[0], b[1]]);
     let nrm_ref = (x_ref[0] * x_ref[0] + x_ref[1] * x_ref[1]).sqrt();
     let x_ref_norm = [x_ref[0] / nrm_ref, x_ref[1] / nrm_ref];
-    println!("Numerical solution (normalized): {:?}", x_ref_norm);
+    println!("Numerical solution (normalized): {x_ref_norm:?}");
 
     let dot = x[0] * x_ref_norm[0] + x[1] * x_ref_norm[1];
     println!("Overlap: {:.4}", dot.abs());

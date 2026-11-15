@@ -1990,7 +1990,7 @@ mod tests {
         // Run a few steps - just verify it runs without error
         let energy = tebd.find_ground_state(5, 1e-6).unwrap();
         // Energy computed (may not be accurate with simplified expectation)
-        println!("TEBD energy: {}", energy);
+        println!("TEBD energy: {energy}");
     }
 
     #[test]
@@ -2038,6 +2038,6 @@ mod tests {
         let energy = dmrg.run(&even_h, &odd_h).unwrap();
         // Verify it runs and returns a finite energy
         assert!(energy.is_finite());
-        println!("DMRG energy: {}", energy);
+        println!("DMRG energy: {energy}");
     }
 }

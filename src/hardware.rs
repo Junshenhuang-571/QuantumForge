@@ -714,7 +714,7 @@ pub mod transpile {
                 }
                 CircuitOp::Channel { channel, target } => {
                     gates.push(serde_json::json!({
-                        "name": format!("{:?}", channel).to_lowercase(),
+                        "name": format!("{channel:?}").to_lowercase(),
                         "qubits": [target],
                         "params": channel.params(),
                     }));
@@ -743,19 +743,19 @@ pub mod transpile {
                     lines.push(format!("    {} {}", gate_to_quil(*gate), target));
                 }
                 CircuitOp::Cnot { control, target } => {
-                    lines.push(format!("    CNOT {} {}", control, target));
+                    lines.push(format!("    CNOT {control} {target}"));
                 }
                 CircuitOp::Cz { first, second } => {
-                    lines.push(format!("    CZ {} {}", first, second));
+                    lines.push(format!("    CZ {first} {second}"));
                 }
                 CircuitOp::Swap { first, second } => {
-                    lines.push(format!("    SWAP {} {}", first, second));
+                    lines.push(format!("    SWAP {first} {second}"));
                 }
                 CircuitOp::Measure {
                     target,
                     classical_bit,
                 } => {
-                    lines.push(format!("    MEASURE {} ro[{}]", target, classical_bit));
+                    lines.push(format!("    MEASURE {target} ro[{classical_bit}]"));
                 }
                 CircuitOp::ConditionalSingleQubit {
                     classical_bit,
@@ -773,8 +773,7 @@ pub mod transpile {
                 }
                 CircuitOp::Channel { channel, target } => {
                     lines.push(format!(
-                        "    # Channel {:?} on qubit {} (not native)",
-                        channel, target
+                        "    # Channel {channel:?} on qubit {target} (not native)"
                     ));
                 }
             }

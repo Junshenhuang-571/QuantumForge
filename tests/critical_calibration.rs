@@ -56,16 +56,14 @@ fn critical_point_energy_convergence() {
         let energy = dmrg.run_mps_only(&zz, &zz).unwrap();
         let per_site = energy / n as f64;
         println!(
-            "n={}: E={:.6}, E/site={:.6}, thermodynamic={:.6}",
-            n, energy, per_site, thermodynamic_limit
+            "n={n}: E={energy:.6}, E/site={per_site:.6}, thermodynamic={thermodynamic_limit:.6}"
         );
         // Energy should be above thermodynamic limit (finite-size correction)
         assert!(
             per_site > thermodynamic_limit - 0.5,
-            "n={}: E/site too low",
-            n
+            "n={n}: E/site too low"
         );
-        assert!(per_site < 0.0, "n={}: E/site should be negative", n);
+        assert!(per_site < 0.0, "n={n}: E/site should be negative");
     }
 }
 
@@ -99,17 +97,14 @@ fn bond_dimension_scaling_analysis() {
         let sum_xx: f64 = errors.iter().map(|(x, _)| x.ln().powi(2)).sum();
         let sum_xy: f64 = errors.iter().map(|(x, y)| x.ln() * y.ln()).sum();
         let kappa = (n_pts * sum_xy - sum_x * sum_y) / (n_pts * sum_xx - sum_x * sum_x);
-        println!("n={}: χ scaling: {:?}, fitted κ={:.3}", n, errors, kappa);
+        println!("n={n}: χ scaling: {errors:?}, fitted κ={kappa:.3}");
         // κ documents convergence rate (may be ~0 for exact diag, positive for MPS)
-        println!("n={}: fitted convergence exponent κ={:.3}", n, kappa);
+        println!("n={n}: fitted convergence exponent κ={kappa:.3}");
         // Best energy should be close to thermodynamic limit
         let best = energies.last().unwrap().1 / n as f64;
         assert!(
             (best - thermodynamic_limit).abs() < 0.5,
-            "n={}: best E/site={:.6}, thermodynamic={:.6}",
-            n,
-            best,
-            thermodynamic_limit
+            "n={n}: best E/site={best:.6}, thermodynamic={thermodynamic_limit:.6}"
         );
     }
 }

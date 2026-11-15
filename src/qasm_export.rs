@@ -158,17 +158,17 @@ impl<'a> QasmExporter<'a> {
             Cnot { control, target } => {
                 let c = self.format_qubit(*control)?;
                 let t = self.format_qubit(*target)?;
-                Some(format!("cx {}, {};", c, t))
+                Some(format!("cx {c}, {t};"))
             }
             Cz { first, second } => {
                 let f = self.format_qubit(*first)?;
                 let s = self.format_qubit(*second)?;
-                Some(format!("cz {}, {};", f, s))
+                Some(format!("cz {f}, {s};"))
             }
             Swap { first, second } => {
                 let f = self.format_qubit(*first)?;
                 let s = self.format_qubit(*second)?;
-                Some(format!("swap {}, {};", f, s))
+                Some(format!("swap {f}, {s};"))
             }
             Measure {
                 target,
@@ -176,7 +176,7 @@ impl<'a> QasmExporter<'a> {
             } => {
                 let q = self.format_qubit(*target)?;
                 let c = self.format_cbit(*classical_bit)?;
-                Some(format!("measure {} -> {};", q, c))
+                Some(format!("measure {q} -> {c};"))
             }
             ConditionalSingleQubit {
                 classical_bit,
@@ -205,13 +205,13 @@ impl<'a> QasmExporter<'a> {
     fn format_qubit(&self, idx: usize) -> Option<String> {
         self.qubit_map
             .get(&idx)
-            .map(|(reg, idx)| format!("{}[{}]", reg, idx))
+            .map(|(reg, idx)| format!("{reg}[{idx}]"))
     }
 
     fn format_cbit(&self, idx: usize) -> Option<String> {
         self.cbit_map
             .get(&idx)
-            .map(|(reg, idx)| format!("{}[{}]", reg, idx))
+            .map(|(reg, idx)| format!("{reg}[{idx}]"))
     }
 
     fn gate_to_qasm(&self, gate: Gate) -> Option<String> {
@@ -250,7 +250,7 @@ fn format_angle(angle: f64) -> String {
             } else if denom == -1 {
                 return "-pi".to_string();
             } else if denom > 0 {
-                return format!("pi/{}", denom);
+                return format!("pi/{denom}");
             } else {
                 return format!("-pi/{}", -denom);
             }
@@ -258,7 +258,7 @@ fn format_angle(angle: f64) -> String {
     }
 
     // Default to decimal
-    format!("{:.10}", angle)
+    format!("{angle:.10}")
         .trim_end_matches('0')
         .trim_end_matches('.')
         .to_string()

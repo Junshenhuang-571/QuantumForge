@@ -106,9 +106,7 @@ fn ghz_state_amplitudes() {
     for (i, amp) in amps.iter().enumerate().skip(1).take((1 << n) - 2) {
         assert!(
             amp.norm_sqr() < 1e-24,
-            "non-zero amplitude at {} = {:?}",
-            i,
-            amp
+            "non-zero amplitude at {i} = {amp:?}"
         );
     }
 }

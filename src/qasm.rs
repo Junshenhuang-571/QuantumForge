@@ -268,7 +268,7 @@ impl<'a> QasmParser<'a> {
                 if let Some(brace_start) = next_line.find('{') {
                     // Found opening brace
                     let header_part = &next_line[..brace_start];
-                    header = format!("{} {}", header, header_part);
+                    header = format!("{header} {header_part}");
                     let body_part = &next_line[brace_start + 1..];
                     if !body_part.trim().is_empty() {
                         body_lines.push(body_part.to_string());
@@ -276,7 +276,7 @@ impl<'a> QasmParser<'a> {
                     break;
                 } else {
                     // Continuation of header
-                    header = format!("{} {}", header, next_line);
+                    header = format!("{header} {next_line}");
                 }
             }
         }

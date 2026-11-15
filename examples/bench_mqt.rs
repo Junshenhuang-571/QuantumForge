@@ -13,10 +13,7 @@ fn bench(name: &str, path: &str) {
     let sv = circuit.run(sv).unwrap();
     let dt = t0.elapsed().as_secs_f64() * 1000.0;
     let norm: f64 = sv.amplitudes().iter().map(|a| a.norm_sqr()).sum();
-    println!(
-        "{}, MQT Bench, {}, {}, {:.3}, {:.10}",
-        name, n, gates, dt, norm
-    );
+    println!("{name}, MQT Bench, {n}, {gates}, {dt:.3}, {norm:.10}");
 }
 
 fn main() {
