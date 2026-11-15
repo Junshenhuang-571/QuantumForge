@@ -1,6 +1,6 @@
 # API Stability Policy
 
-QuantumForge is currently published as version `0.2.7`. The Rust crate is
+QuantumForge is currently published as version `0.2.8`. The Rust crate is
 pre-1.0, so its public API is not yet declared stable. This policy describes
 how changes are communicated and how stability will be introduced; it does not
 promise that every current public item will remain unchanged.
