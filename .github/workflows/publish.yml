@@ -30,8 +30,6 @@ jobs:
             feature: llvm
             target: x86_64-unknown-linux-gnu
             artifact: linux-llvm
-          - os: ubuntu-latest
-            feature: cuda,llvm,python
             target: x86_64-unknown-linux-gnu
             artifact: linux-full
           # macOS wheels

@@ -23,7 +23,7 @@ classifiers = [
 
 [tool.maturin]
 features = ["python"]
-manylinux = "2014"
+manylinux = "2_28"
 
 [project.optional-dependencies]
 cuda = []
