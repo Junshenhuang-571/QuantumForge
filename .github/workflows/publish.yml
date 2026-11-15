@@ -18,7 +18,10 @@ jobs:
       matrix:
         include:
           # Linux wheels (note: `python` feature is mandatory — `default`
-          # alone leaves no pyo3 module and maturin then probes cffi)
+          # alone leaves no pyo3 module and maturin then probes cffi).
+          # No `cuda` wheel: `feature = "cuda"` is legacy hand-rolled FFI
+          # that links libcuda at build time, impossible on GPU-less runners.
+          # The dynamic-loading `gpu` feature covers GPU builds anywhere.
           - os: ubuntu-latest
             feature: python
             wheel: linux-cpu
@@ -29,11 +32,6 @@ jobs:
             wheel: linux-llvm
             target: x86_64-unknown-linux-gnu
             artifact: linux-llvm
-          - os: ubuntu-latest
-            feature: python,cuda
-            wheel: linux-cuda
-            target: x86_64-unknown-linux-gnu
-            artifact: linux-cuda
           # macOS wheels
           - os: macos-latest
             feature: python
