@@ -239,9 +239,9 @@ impl ExactStateVector {
                 qubits: self.qubits,
             });
         }
-        let n = 1usize << self.qubits;
         let step = 1usize << qubit;
         let half = crate::analytic::Rational::new(1, 2).unwrap();
+        let n = self.amplitudes.len();
         let mut i = 0;
         while i < n {
             for j in i..(i + step) {
@@ -322,12 +322,11 @@ impl ExactStateVector {
                 qubits: self.qubits,
             });
         }
-        let n = 1usize << self.qubits;
-        for i in 0..n {
+        for (i, amp_slot) in self.amplitudes.iter_mut().enumerate() {
             if (i >> qubit) & 1 == 1 {
-                self.amplitudes[i] = crate::analytic::QuadComplex {
-                    a: self.amplitudes[i].a.mul_i(),
-                    b: self.amplitudes[i].b.mul_i(),
+                *amp_slot = crate::analytic::QuadComplex {
+                    a: amp_slot.a.mul_i(),
+                    b: amp_slot.b.mul_i(),
                 };
             }
         }
@@ -341,11 +340,9 @@ impl ExactStateVector {
                 qubits: self.qubits,
             });
         }
-        let n = 1usize << self.qubits;
-        for i in 0..n {
+        for (i, amp_slot) in self.amplitudes.iter_mut().enumerate() {
             if (i >> qubit) & 1 == 1 {
-                let amp = self.amplitudes[i];
-                self.amplitudes[i] = amp.mul_t_factor();
+                *amp_slot = amp_slot.mul_t_factor();
             }
         }
         Ok(())
@@ -357,8 +354,8 @@ impl ExactStateVector {
                 qubits: self.qubits,
             });
         }
-        let n = 1usize << self.qubits;
         let step = 1usize << qubit;
+        let n = self.amplitudes.len();
         let mut i = 0;
         while i < n {
             for j in i..(i + step) {
@@ -376,24 +373,15 @@ impl ExactStateVector {
                 qubits: self.qubits,
             });
         }
-        let n = 1usize << self.qubits;
         let step = 1usize << qubit;
-        for i in 0..n {
+        let neg_one = crate::analytic::ExactComplex {
+            re: crate::analytic::Rational::MINUS_ONE,
+            im: crate::analytic::Rational::ZERO,
+        };
+        for (i, amp_slot) in self.amplitudes.iter_mut().enumerate() {
             if (i >> qubit) & 1 == 1 {
-                self.amplitudes[i].a = self.amplitudes[i]
-                    .a
-                    .checked_mul(crate::analytic::ExactComplex {
-                        re: crate::analytic::Rational::MINUS_ONE,
-                        im: crate::analytic::Rational::ZERO,
-                    })
-                    .unwrap_or(self.amplitudes[i].a);
-                self.amplitudes[i].b = self.amplitudes[i]
-                    .b
-                    .checked_mul(crate::analytic::ExactComplex {
-                        re: crate::analytic::Rational::MINUS_ONE,
-                        im: crate::analytic::Rational::ZERO,
-                    })
-                    .unwrap_or(self.amplitudes[i].b);
+                amp_slot.a = amp_slot.a.checked_mul(neg_one).unwrap_or(amp_slot.a);
+                amp_slot.b = amp_slot.b.checked_mul(neg_one).unwrap_or(amp_slot.b);
             }
         }
         let _ = step;
@@ -408,12 +396,11 @@ impl ExactStateVector {
             });
         }
         let n = 1usize << self.qubits;
-        for i in 0..n {
-            if (i >> control) & 1 == 1 {
-                let j = i ^ (1 << target);
-                if j > i {
-                    self.amplitudes.swap(i, j);
-                }
+        let affected: Vec<usize> = (0..n).filter(|&i| (i >> control) & 1 == 1).collect();
+        for i in affected {
+            let j = i ^ (1 << target);
+            if j > i {
+                self.amplitudes.swap(i, j);
             }
         }
         Ok(())
@@ -426,23 +413,14 @@ impl ExactStateVector {
                 qubits: self.qubits,
             });
         }
-        let n = 1usize << self.qubits;
-        for i in 0..n {
+        let neg_one = crate::analytic::ExactComplex {
+            re: crate::analytic::Rational::MINUS_ONE,
+            im: crate::analytic::Rational::ZERO,
+        };
+        for (i, amp_slot) in self.amplitudes.iter_mut().enumerate() {
             if (i >> q0) & 1 == 1 && (i >> q1) & 1 == 1 {
-                self.amplitudes[i].a = self.amplitudes[i]
-                    .a
-                    .checked_mul(crate::analytic::ExactComplex {
-                        re: crate::analytic::Rational::MINUS_ONE,
-                        im: crate::analytic::Rational::ZERO,
-                    })
-                    .unwrap_or(self.amplitudes[i].a);
-                self.amplitudes[i].b = self.amplitudes[i]
-                    .b
-                    .checked_mul(crate::analytic::ExactComplex {
-                        re: crate::analytic::Rational::MINUS_ONE,
-                        im: crate::analytic::Rational::ZERO,
-                    })
-                    .unwrap_or(self.amplitudes[i].b);
+                amp_slot.a = amp_slot.a.checked_mul(neg_one).unwrap_or(amp_slot.a);
+                amp_slot.b = amp_slot.b.checked_mul(neg_one).unwrap_or(amp_slot.b);
             }
         }
         Ok(())

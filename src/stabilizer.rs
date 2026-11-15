@@ -94,8 +94,8 @@ impl StabilizerTableau {
     pub fn measure(&mut self, q: usize) -> (bool, f64) {
         // Find a row r where X_r[q] = 1 (antocommuting stabilizer)
         let mut r = None;
-        for i in 0..self.n {
-            if self.x[i][q] {
+        for (i, row) in self.x.iter().enumerate() {
+            if row[q] {
                 r = Some(i);
                 break;
             }

@@ -241,14 +241,14 @@ pub fn blossom_match(n: usize, weight: &[Vec<i64>]) -> Vec<(usize, usize)> {
                 dual_var: vec![0; n],
                 weight: w,
             };
-            for i in 0..n {
-                st.in_blossom[i][i] = true;
+            for (i, row) in st.in_blossom.iter_mut().enumerate() {
+                row[i] = true;
             }
-            for u in 0..n {
+            for (u, weights_u) in st.weight.iter().enumerate() {
                 let mut min_w = INF;
-                for v in 0..n {
-                    if u != v && st.weight[u][v] < min_w {
-                        min_w = st.weight[u][v];
+                for (v, &w_v) in weights_u.iter().enumerate() {
+                    if u != v && w_v < min_w {
+                        min_w = w_v;
                     }
                 }
                 if min_w < INF {
@@ -424,9 +424,9 @@ pub fn blossom_match(n: usize, weight: &[Vec<i64>]) -> Vec<(usize, usize)> {
     }
 
     let mut result = Vec::new();
-    for u in 0..n {
-        if state.match_to[u] != usize::MAX && state.match_to[u] > u {
-            result.push((u, state.match_to[u]));
+    for (u, &m) in state.match_to.iter().enumerate() {
+        if m != usize::MAX && m > u {
+            result.push((u, m));
         }
     }
     result
