@@ -935,21 +935,20 @@ impl MPS {
         // Build the combined MPS x MPO tensors for the region [lo, hi].
         // The MPO is: copy at `lo`, identity in between, diagonal at `hi`,
         // with a bond of dimension 2 carrying the first qubit's value.
-        for k in lo..=hi {
-            let t = &self.tensors[k];
-            let (bl, br) = (t.shape[0], t.shape[2]);
-            if k == lo {
+        for (k, slot) in self.tensors.iter_mut().enumerate().take(hi + 1).skip(lo) {
+            let (bl, br) = (slot.shape[0], slot.shape[2]);
+            let n = if k == lo {
                 // N[(a, 1), o, (b, g)] = A[a, o, b] * delta_{o, g}
                 let mut n = Tensor::new([bl, 2, br * 2]);
                 for a in 0..bl {
                     for o in 0..2 {
                         for b in 0..br {
-                            let v = t.get(a, o, b);
+                            let v = slot.get(a, o, b);
                             n.set(a, o, b * 2 + o, v);
                         }
                     }
                 }
-                self.tensors[k] = n;
+                n
             } else if k == hi {
                 // N[(a, g), o, (b, 1)] = A[a, o, b] * diag[g, o]
                 let mut n = Tensor::new([bl * 2, 2, br]);
@@ -957,12 +956,12 @@ impl MPS {
                     for g in 0..2 {
                         for o in 0..2 {
                             for b in 0..br {
-                                n.set(a * 2 + g, o, b, t.get(a, o, b) * diag[g * 2 + o]);
+                                n.set(a * 2 + g, o, b, slot.get(a, o, b) * diag[g * 2 + o]);
                             }
                         }
                     }
                 }
-                self.tensors[k] = n;
+                n
             } else {
                 // N[(a, g), o, (b, g')] = A[a, o, b] * delta_{g, g'}
                 let mut n = Tensor::new([bl * 2, 2, br * 2]);
@@ -970,14 +969,15 @@ impl MPS {
                     for g in 0..2 {
                         for o in 0..2 {
                             for b in 0..br {
-                                let v = t.get(a, o, b);
+                                let v = slot.get(a, o, b);
                                 n.set(a * 2 + g, o, b * 2 + g, v);
                             }
                         }
                     }
                 }
-                self.tensors[k] = n;
-            }
+                n
+            };
+            *slot = n;
         }
 
         self.compress_range(lo, hi, max_bond, tol)
@@ -1017,8 +1017,7 @@ impl MPS {
         };
         let mut env = vec![Complex64::ONE];
         let mut bl = 1usize;
-        for k in 0..self.n_sites {
-            let t = &self.tensors[k];
+        for (k, t) in self.tensors.iter().enumerate() {
             let br = t.shape[2];
             let op: Option<&[[Complex64; 2]; 2]> = if k == site1 {
                 Some(op1)
@@ -1072,8 +1071,7 @@ impl MPS {
                                 if tval == Complex64::ZERO {
                                     continue;
                                 }
-                                for sp in 0..2 {
-                                    let coeff = o[s_][sp];
+                                for (sp, &coeff) in o[s_].iter().enumerate() {
                                     if coeff == Complex64::ZERO {
                                         continue;
                                     }

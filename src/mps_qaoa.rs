@@ -54,7 +54,7 @@ impl MaxCutProblem {
     /// rejected). Deterministic for a given seed.
     pub fn random_3_regular(num_qubits: usize, seed: u64) -> Self {
         assert!(
-            num_qubits >= 4 && num_qubits % 2 == 0,
+            num_qubits >= 4 && num_qubits.is_multiple_of(2),
             "3-regular graphs need an even number of vertices >= 4"
         );
         let mut rng = SmallRng::seeded(seed);
@@ -83,7 +83,7 @@ impl MaxCutProblem {
                 edges.push((u, v, 1.0));
             }
             if ok {
-                edges.sort_by(|a, b| (a.0, a.1).cmp(&(b.0, b.1)));
+                edges.sort_by_key(|a| (a.0, a.1));
                 return Self::new(num_qubits, edges);
             }
         }
