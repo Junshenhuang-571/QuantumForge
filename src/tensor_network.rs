@@ -17,8 +17,10 @@ use faer::dyn_stack::{MemBuffer, MemStack};
 use faer::linalg::evd::{ComputeEigenvectors, self_adjoint_evd, self_adjoint_evd_scratch};
 use faer::prelude::*;
 
-/// Simple SVD implementation for small matrices without external dependencies.
-/// Uses the Jacobi eigenvalue algorithm on A^H A to find singular values/vectors.
+/// SVD for small dense matrices (faer thin SVD).
+///
+/// Returns `(u, s, vt)` with `u` of size `rows x k`, `s` of length `k`, and
+/// `vt` of size `k x cols`, where `k = min(rows, cols)`.
 fn svd_jacobi(
     a: &[Complex64],
     rows: usize,
@@ -27,21 +29,18 @@ fn svd_jacobi(
     use faer::Mat;
     use num_complex::Complex as FaerComplex;
 
-    // Convert to faer matrix (num_complex::Complex<f64>)
     let mut mat = Mat::<FaerComplex<f64>>::zeros(rows, cols);
     for i in 0..rows {
         for j in 0..cols {
             mat[(i, j)] = FaerComplex::new(a[i * cols + j].re, a[i * cols + j].im);
         }
     }
-    // Compute thin SVD
     let svd = mat.thin_svd().unwrap();
     let u_mat = svd.U();
     let s_diag = svd.S();
     let v_mat = svd.V();
     let k = rows.min(cols);
 
-    // Extract U
     let mut u = vec![Complex64::ZERO; rows * k];
     for i in 0..rows {
         for j in 0..k {
@@ -49,20 +48,42 @@ fn svd_jacobi(
             u[i * k + j] = Complex64::new(c.re, c.im);
         }
     }
-    // Extract S
     let mut s = vec![0.0f64; k];
     for i in 0..k {
         s[i] = s_diag[i].re;
     }
-    // Extract V^H: V is (cols, k), V^H is (k, cols)
     let mut vt = vec![Complex64::ZERO; k * cols];
     for i in 0..k {
         for j in 0..cols {
             let c = v_mat[(j, i)];
-            vt[i * cols + j] = Complex64::new(c.re, -c.im); // conj
+            vt[i * cols + j] = Complex64::new(c.re, -c.im);
         }
     }
     (u, s, vt)
+}
+
+/// SVD with truncation. Returns `(u, s, vt, kept)` where `u` is `rows x kept`
+/// (row-major), `s` has `kept` entries, and `vt` is `kept x cols`.
+fn svd_truncated(
+    a: &[Complex64],
+    rows: usize,
+    cols: usize,
+    max_bond: usize,
+    tol: f64,
+) -> (Vec<Complex64>, Vec<f64>, Vec<Complex64>, usize) {
+    let (u, s, vt) = svd_jacobi(a, rows, cols);
+    let k = s.len();
+    let mut kept = k.min(max_bond);
+    for (i, &sv) in s.iter().enumerate().take(kept) {
+        if sv < tol {
+            kept = i;
+            break;
+        }
+    }
+    if kept == 0 {
+        kept = 1;
+    }
+    (u, s, vt, kept)
 }
 
 /// Complex QR decomposition via modified Gram-Schmidt.
@@ -645,6 +666,9 @@ impl MPS {
         }
     }
     /// Convert MPS to full state vector (for small systems).
+    ///
+    /// The output uses the crate-wide convention: site `i` is bit `i` of the
+    /// basis index (site 0 = least significant), matching [`crate::StateVector`].
     #[allow(clippy::needless_range_loop)]
     pub fn to_state_vector(&self) -> Vec<Complex64> {
         let n = self.n_sites;
@@ -654,7 +678,7 @@ impl MPS {
         for config in 0..dim {
             let mut bits = vec![0usize; n];
             for i in 0..n {
-                bits[i] = (config >> (n - 1 - i)) & 1;
+                bits[i] = (config >> i) & 1;
             }
 
             let mut amp = vec![Complex64::ZERO; self.tensors[0].shape[2]];
@@ -699,9 +723,9 @@ impl MPS {
         let mut expect = Complex64::ZERO;
         for i in 0..dim {
             for j in 0..dim {
-                let i_bit = (i >> (n - 1 - site)) & 1;
-                let j_bit = (j >> (n - 1 - site)) & 1;
-                let other_match = (i & !(1 << (n - 1 - site))) == (j & !(1 << (n - 1 - site)));
+                let i_bit = (i >> site) & 1;
+                let j_bit = (j >> site) & 1;
+                let other_match = (i & !(1 << site)) == (j & !(1 << site));
 
                 if other_match {
                     let op_val = op[i_bit][j_bit];
@@ -739,12 +763,12 @@ impl MPS {
         let mut expect = Complex64::ZERO;
         for i in 0..dim {
             for j in 0..dim {
-                let mask = !((1 << (n - 1 - site)) | (1 << (n - 2 - site)));
+                let mask = !((1 << site) | (1 << (site + 1)));
                 let other_match = (i & mask) == (j & mask);
 
                 if other_match {
-                    let i_bits = ((i >> (n - 1 - site)) & 1) * 2 + ((i >> (n - 2 - site)) & 1);
-                    let j_bits = ((j >> (n - 1 - site)) & 1) * 2 + ((j >> (n - 2 - site)) & 1);
+                    let i_bits = ((i >> site) & 1) * 2 + ((i >> (site + 1)) & 1);
+                    let j_bits = ((j >> site) & 1) * 2 + ((j >> (site + 1)) & 1);
                     let op_val = op[i_bits][j_bits];
                     expect = expect + state[i].conj() * op_val * state[j];
                 }
@@ -757,6 +781,327 @@ impl MPS {
         }
 
         Ok(expect.re)
+    }
+
+    /// Compress the MPS to `max_bond` with a two-sweep SVD (right-to-left then
+    /// left-to-right), discarding singular values below `tol`.
+    ///
+    /// This is the standard SVD-compression of an MPS: it changes the
+    /// representation without changing the state beyond the discarded weight.
+    /// The boundary bonds at `lo-1`/`hi+1` are left untouched.
+    pub fn compress_range(
+        &mut self,
+        lo: usize,
+        hi: usize,
+        max_bond: usize,
+        tol: f64,
+    ) -> Result<(), &'static str> {
+        if lo > hi || hi >= self.n_sites {
+            return Err("Invalid compression range");
+        }
+        if max_bond == 0 {
+            return Err("max_bond must be positive");
+        }
+
+        // Right-to-left: make the region right-canonical, norm moves left.
+        for k in (lo + 1..=hi).rev() {
+            let (l, two_r) = {
+                let t = &self.tensors[k];
+                (t.shape[0], t.shape[1] * t.shape[2])
+            };
+            let mut matrix = vec![Complex64::ZERO; l * two_r];
+            for a in 0..l {
+                for s in 0..2 {
+                    for c in 0..two_r / 2 {
+                        matrix[a * two_r + s * (two_r / 2) + c] = self.tensors[k].get(a, s, c);
+                    }
+                }
+            }
+            let (u, s, vt, kept) = svd_truncated(&matrix, l, two_r, max_bond, tol);
+
+            let mut right = Tensor::new([kept, 2, two_r / 2]);
+            for b in 0..kept {
+                for s_ in 0..2 {
+                    for c in 0..two_r / 2 {
+                        right.set(b, s_, c, vt[b * two_r + s_ * (two_r / 2) + c]);
+                    }
+                }
+            }
+            self.tensors[k] = right;
+
+            // Absorb U * S into the left neighbour.
+            let left = &self.tensors[k - 1];
+            let (ll, lr) = (left.shape[0], left.shape[2]);
+            let mut merged = Tensor::new([ll, 2, kept]);
+            for a in 0..ll {
+                for s_ in 0..2 {
+                    for b in 0..kept {
+                        let mut sum = Complex64::ZERO;
+                        for c in 0..lr {
+                            sum = sum + left.get(a, s_, c) * (u[c * s.len() + b] * s[b]);
+                        }
+                        merged.set(a, s_, b, sum);
+                    }
+                }
+            }
+            self.tensors[k - 1] = merged;
+        }
+
+        // Left-to-right: make the region left-canonical, norm moves right.
+        for k in lo..hi {
+            let (two_l, r) = {
+                let t = &self.tensors[k];
+                (t.shape[0] * t.shape[1], t.shape[2])
+            };
+            let mut matrix = vec![Complex64::ZERO; two_l * r];
+            for a in 0..two_l / 2 {
+                for s_ in 0..2 {
+                    for c in 0..r {
+                        matrix[(a * 2 + s_) * r + c] = self.tensors[k].get(a, s_, c);
+                    }
+                }
+            }
+            let (u, s, vt, kept) = svd_truncated(&matrix, two_l, r, max_bond, tol);
+
+            let mut left = Tensor::new([two_l / 2, 2, kept]);
+            for a in 0..two_l / 2 {
+                for s_ in 0..2 {
+                    for b in 0..kept {
+                        left.set(a, s_, b, u[(a * 2 + s_) * s.len() + b]);
+                    }
+                }
+            }
+            self.tensors[k] = left;
+
+            // Absorb S * V^H into the right neighbour.
+            let right = &self.tensors[k + 1];
+            let (rl, rr) = (right.shape[0], right.shape[2]);
+            let mut merged = Tensor::new([kept, 2, rr]);
+            for b in 0..kept {
+                for s_ in 0..2 {
+                    for c in 0..rr {
+                        let mut sum = Complex64::ZERO;
+                        for a in 0..rl {
+                            sum = sum
+                                + (Complex64::new(s[b], 0.0) * vt[b * rl + a])
+                                    * right.get(a, s_, c);
+                        }
+                        merged.set(b, s_, c, sum);
+                    }
+                }
+            }
+            self.tensors[k + 1] = merged;
+        }
+
+        Ok(())
+    }
+
+    /// Apply a diagonal two-qubit gate to sites `i` and `j` (any distance).
+    ///
+    /// `diag` holds the four diagonal entries in the |00>, |01>, |10>, |11>
+    /// basis (first qubit = more significant bit). The gate is applied exactly
+    /// as a matrix-product operator of bond dimension 2, then the affected
+    /// region is compressed back to `max_bond`. Cost is linear in the distance
+    /// between the sites, with a small constant (no SWAP network).
+    pub fn apply_diagonal_two_site(
+        &mut self,
+        diag: &[Complex64; 4],
+        i: usize,
+        j: usize,
+        max_bond: usize,
+        tol: f64,
+    ) -> Result<(), &'static str> {
+        if i >= self.n_sites || j >= self.n_sites {
+            return Err("Site index out of bounds");
+        }
+        if i == j {
+            return Err("Two-site gate requires distinct sites");
+        }
+        let (lo, hi) = if i < j { (i, j) } else { (j, i) };
+        if max_bond == 0 {
+            return Err("max_bond must be positive");
+        }
+        // Convention: the gate's first qubit is `i`, its second is `j`. When
+        // `i > j` the diagonal must be reordered so that diag[first * 2 + second]
+        // still refers to (i, j).
+        let diag_owned;
+        let diag = if i < j {
+            diag
+        } else {
+            diag_owned = [diag[0], diag[2], diag[1], diag[3]];
+            &diag_owned
+        };
+
+        // Build the combined MPS x MPO tensors for the region [lo, hi].
+        // The MPO is: copy at `lo`, identity in between, diagonal at `hi`,
+        // with a bond of dimension 2 carrying the first qubit's value.
+        for k in lo..=hi {
+            let t = &self.tensors[k];
+            let (bl, br) = (t.shape[0], t.shape[2]);
+            if k == lo {
+                // N[(a, 1), o, (b, g)] = A[a, o, b] * delta_{o, g}
+                let mut n = Tensor::new([bl, 2, br * 2]);
+                for a in 0..bl {
+                    for o in 0..2 {
+                        for b in 0..br {
+                            let v = t.get(a, o, b);
+                            n.set(a, o, b * 2 + o, v);
+                        }
+                    }
+                }
+                self.tensors[k] = n;
+            } else if k == hi {
+                // N[(a, g), o, (b, 1)] = A[a, o, b] * diag[g, o]
+                let mut n = Tensor::new([bl * 2, 2, br]);
+                for a in 0..bl {
+                    for g in 0..2 {
+                        for o in 0..2 {
+                            for b in 0..br {
+                                n.set(a * 2 + g, o, b, t.get(a, o, b) * diag[g * 2 + o]);
+                            }
+                        }
+                    }
+                }
+                self.tensors[k] = n;
+            } else {
+                // N[(a, g), o, (b, g')] = A[a, o, b] * delta_{g, g'}
+                let mut n = Tensor::new([bl * 2, 2, br * 2]);
+                for a in 0..bl {
+                    for g in 0..2 {
+                        for o in 0..2 {
+                            for b in 0..br {
+                                let v = t.get(a, o, b);
+                                n.set(a * 2 + g, o, b * 2 + g, v);
+                            }
+                        }
+                    }
+                }
+                self.tensors[k] = n;
+            }
+        }
+
+        self.compress_range(lo, hi, max_bond, tol)
+    }
+
+    /// Expectation `<psi| op1(site1) * op2(site2) |psi>` computed by transfer
+    /// contraction, without expanding the state vector. Works for any pair of
+    /// sites. Returns the unnormalized value; divide by `norm_sqr_mps`.
+    pub fn expectation_two_site_product(
+        &self,
+        op1: &[[Complex64; 2]; 2],
+        site1: usize,
+        op2: &[[Complex64; 2]; 2],
+        site2: usize,
+    ) -> Result<Complex64, &'static str> {
+        if site1 >= self.n_sites || site2 >= self.n_sites {
+            return Err("Site index out of bounds");
+        }
+        // Same-site case: compose the two operators into one (2x2 product).
+        let mut composed = [[Complex64::ZERO; 2]; 2];
+        if site1 == site2 {
+            composed = [
+                [
+                    op1[0][0] * op2[0][0] + op1[0][1] * op2[1][0],
+                    op1[0][0] * op2[0][1] + op1[0][1] * op2[1][1],
+                ],
+                [
+                    op1[1][0] * op2[0][0] + op1[1][1] * op2[1][0],
+                    op1[1][0] * op2[0][1] + op1[1][1] * op2[1][1],
+                ],
+            ];
+        }
+        let (op1, op2) = if site1 == site2 {
+            (&composed, &composed)
+        } else {
+            (op1, op2)
+        };
+        let mut env = vec![Complex64::ONE];
+        let mut bl = 1usize;
+        for k in 0..self.n_sites {
+            let t = &self.tensors[k];
+            let br = t.shape[2];
+            let op: Option<&[[Complex64; 2]; 2]> = if k == site1 {
+                Some(op1)
+            } else if k == site2 {
+                Some(op2)
+            } else {
+                None
+            };
+            // tmp[a', s, b] = sum_a env[a, a'] * conj(A[a, s, b])
+            let mut tmp = vec![Complex64::ZERO; bl * 2 * br];
+            for a in 0..bl {
+                for ap in 0..bl {
+                    let e = env[a * bl + ap];
+                    if e == Complex64::ZERO {
+                        continue;
+                    }
+                    for s_ in 0..2 {
+                        for b in 0..br {
+                            tmp[ap * 2 * br + s_ * br + b] =
+                                tmp[ap * 2 * br + s_ * br + b] + e * t.get(a, s_, b).conj();
+                        }
+                    }
+                }
+            }
+            // new_env[b, b'] = sum_{a', s, s'} tmp[a', s, b] * op[s, s'] * A[a', s', b']
+            let mut new_env = vec![Complex64::ZERO; br * br];
+            match op {
+                None => {
+                    // No insertion: sum over the physical index only; the bond
+                    // indices b and b' stay independent.
+                    for ap in 0..bl {
+                        for s_ in 0..2 {
+                            for b in 0..br {
+                                let tval = tmp[ap * 2 * br + s_ * br + b];
+                                if tval == Complex64::ZERO {
+                                    continue;
+                                }
+                                for bp in 0..br {
+                                    new_env[b * br + bp] =
+                                        new_env[b * br + bp] + tval * t.get(ap, s_, bp);
+                                }
+                            }
+                        }
+                    }
+                }
+                Some(o) => {
+                    for ap in 0..bl {
+                        for s_ in 0..2 {
+                            for b in 0..br {
+                                let tval = tmp[ap * 2 * br + s_ * br + b];
+                                if tval == Complex64::ZERO {
+                                    continue;
+                                }
+                                for sp in 0..2 {
+                                    let coeff = o[s_][sp];
+                                    if coeff == Complex64::ZERO {
+                                        continue;
+                                    }
+                                    for bp in 0..br {
+                                        new_env[b * br + bp] =
+                                            new_env[b * br + bp] + tval * coeff * t.get(ap, sp, bp);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            env = new_env;
+            bl = br;
+        }
+        Ok(env[0])
+    }
+
+    /// Squared norm `<psi|psi>` by transfer contraction (no state expansion).
+    pub fn norm_sqr_mps(&self) -> f64 {
+        let id = [
+            [Complex64::ONE, Complex64::ZERO],
+            [Complex64::ZERO, Complex64::ONE],
+        ];
+        self.expectation_two_site_product(&id, 0, &id, 0)
+            .map(|v| v.re)
+            .unwrap_or(0.0)
     }
 }
 
@@ -2039,5 +2384,80 @@ mod tests {
         // Verify it runs and returns a finite energy
         assert!(energy.is_finite());
         println!("DMRG energy: {energy}");
+    }
+
+    #[test]
+    fn svd_reconstruction() {
+        let cases = [
+            (8usize, 8usize),
+            (16, 8),
+            (8, 16),
+            (32, 64),
+            (64, 32),
+            (64, 64),
+        ];
+        for &(rows, cols) in &cases {
+            let mut a = vec![Complex64::ZERO; rows * cols];
+            for i in 0..rows {
+                for j in 0..cols {
+                    let x = ((i * 7 + j * 13) % 11) as f64 / 11.0;
+                    let y = ((i * 3 + j * 5) % 7) as f64 / 7.0;
+                    a[i * cols + j] = Complex64::new(x, y);
+                }
+            }
+            let (u, s, vt) = svd_jacobi(&a, rows, cols);
+            let k = s.len();
+            let mut err = 0.0f64;
+            for i in 0..rows {
+                for j in 0..cols {
+                    let mut sum = Complex64::ZERO;
+                    for c in 0..k {
+                        sum = sum + u[i * k + c] * Complex64::new(s[c], 0.0) * vt[c * cols + j];
+                    }
+                    err = err.max((sum - a[i * cols + j]).norm_sqr().sqrt());
+                }
+            }
+            println!("{rows}x{cols}: k={k} max reconstruction error = {err:.3e}");
+            assert!(
+                err < 1e-10,
+                "SVD reconstruction failed for {rows}x{cols}: {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn svd_reconstruction_rank_deficient() {
+        // Rank-2 matrices in larger shapes, plus exact zero rows/columns.
+        let cases = [(8usize, 8usize), (4, 6), (6, 4), (16, 8)];
+        for &(rows, cols) in &cases {
+            // A = sum_{c=0..2} v_c w_c^H  (rank 2).
+            let mut a = vec![Complex64::ZERO; rows * cols];
+            for r in 0..rows {
+                for c in 0..cols {
+                    let v0 = ((r * 3 + 1) % 5) as f64 / 5.0;
+                    let v1 = ((r * 5 + 2) % 7) as f64 / 7.0;
+                    let w0 = ((c * 2 + 1) % 3) as f64 / 3.0;
+                    let w1 = ((c * 4 + 3) % 5) as f64 / 5.0;
+                    a[r * cols + c] = Complex64::new(v0 * w0 + v1 * w1, v0 * w1 - v1 * w0);
+                }
+            }
+            let (u, s, vt) = svd_jacobi(&a, rows, cols);
+            let k = s.len();
+            let mut err = 0.0f64;
+            for i in 0..rows {
+                for j in 0..cols {
+                    let mut sum = Complex64::ZERO;
+                    for c in 0..k {
+                        sum = sum + u[i * k + c] * Complex64::new(s[c], 0.0) * vt[c * cols + j];
+                    }
+                    err = err.max((sum - a[i * cols + j]).norm_sqr().sqrt());
+                }
+            }
+            println!("rank2 {rows}x{cols}: k={k} err={err:.3e} s={s:?}");
+            assert!(
+                err < 1e-10,
+                "rank-deficient SVD failed for {rows}x{cols}: {err}"
+            );
+        }
     }
 }

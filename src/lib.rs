@@ -225,6 +225,7 @@ pub mod cuda;
 #[cfg(feature = "llvm")]
 pub mod llvm_backend;
 pub mod mbqc;
+pub mod mps_qaoa;
 pub mod numeric_ir;
 pub mod parser;
 pub use parser::parse_circuit;

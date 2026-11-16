@@ -3,6 +3,14 @@
 ## [Unreleased]
 
 ### Added
+- **MPS-based QAOA** (`mps_qaoa` module): MaxCut on matrix product states with a
+  bounded bond dimension. Long-range diagonal gates applied as exact bond-2
+  MPOs, two-sweep SVD compression, transfer-contraction cost expectations
+  (no state-vector expansion), seeded 3-regular graph generator, and
+  parameter-shift angle finding with restarts. Example
+  `examples/mps_qaoa.rs` and guide `docs/wiki/MPS-QAOA.md`.
+- MPS: `apply_diagonal_two_site`, `compress_range`,
+  `expectation_two_site_product`, `norm_sqr_mps`.
 - Examples: `qec_roundtrip` (surface-code verification + repetition-code
   encode/inject/syndrome/recover cycle), `qasm_roundtrip` (OpenQASM 2.0
   import/export/re-import), `vqe_exact` (VQE vs exact ground-state energy).
@@ -13,6 +21,9 @@
 - Add behavior or API changes here, including migration notes.
 
 ### Fixed
+- `MPS::to_state_vector` and the MPS expectations used site 0 as the most
+  significant bit while `StateVector` uses qubit 0 as the least significant;
+  both now follow the crate convention.
 - Repetition-code syndrome extraction now measures the ancilla qubits, so
   `QecCode::syndrome_circuit` produces a readable syndrome instead of
   entangling ancillas without readout. Surface-code extraction already did

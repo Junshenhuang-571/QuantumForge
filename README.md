@@ -174,6 +174,7 @@ A few quick starting points:
   repetition-code encode → inject → syndrome → recover → verify cycle
 - `examples/qasm_roundtrip.rs` — OpenQASM 2.0 import → export → re-import
 - `examples/vqe_exact.rs` — VQE converged against the exact ground-state energy
+- `examples/mps_qaoa.rs` — QAOA on a matrix product state, with a bond-dimension sweep
 - `examples/cost_aware_optimization.rs` — compare a rewrite against a
   target-weighted logical cost model
 - `examples/qtm_probe.rs` — QTM exploration code
@@ -516,6 +517,7 @@ Guides and reference material beyond this README:
 - [Architecture](docs/wiki/Architecture.md) — module layout and data flow
 - [QEC codes](docs/wiki/QEC-Codes.md) — stabilizer codes, encoders, decoders
 - [GPU acceleration](docs/wiki/GPU-Acceleration.md) — `cuda` vs `gpu` features
+- [MPS-based QAOA](docs/wiki/MPS-QAOA.md) — MaxCut on matrix product states
 - [Contributing](docs/wiki/Contributing.md) / [CONTRIBUTING.md](CONTRIBUTING.md)
 - [Release checklist](docs/releasing.md) — how a version is cut and published
 - [Python bindings](python/README.md) — install, quickstart, and worked scripts
