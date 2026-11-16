@@ -3,13 +3,20 @@
 ## [Unreleased]
 
 ### Added
-- Add user-visible changes here as they are merged.
+- Examples: `qec_roundtrip` (surface-code verification + repetition-code
+  encode/inject/syndrome/recover cycle), `qasm_roundtrip` (OpenQASM 2.0
+  import/export/re-import), `vqe_exact` (VQE vs exact ground-state energy).
+- Python first-run path: `python/README.md` plus worked scripts
+  `python/examples/bell.py`, `qec.py`, `vqe.py`.
 
 ### Changed
 - Add behavior or API changes here, including migration notes.
 
 ### Fixed
-- Add user-visible bug fixes here.
+- Repetition-code syndrome extraction now measures the ancilla qubits, so
+  `QecCode::syndrome_circuit` produces a readable syndrome instead of
+  entangling ancillas without readout. Surface-code extraction already did
+  this; the repetition and phase-flip builders now match it.
 
 ## [0.2.8] - 2026-11-15
 
