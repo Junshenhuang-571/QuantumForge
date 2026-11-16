@@ -192,6 +192,10 @@ fn build_repetition_syndrome(n: usize, bitflip: bool) -> Circuit {
             circuit.push(Gate::H, n + i);
         }
     }
+    // Read out each ancilla into its own classical bit (bit i <-> stabilizer i).
+    for i in 0..n_ancilla {
+        circuit.measure(n + i, i);
+    }
     circuit
 }
 

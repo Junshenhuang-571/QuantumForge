@@ -170,10 +170,16 @@ println!("{:?}", result.counts);
 A few quick starting points:
 
 - `examples/hello_world.rs` — minimal Bell-state example
+- `examples/qec_roundtrip.rs` — surface-code verification plus a full
+  repetition-code encode → inject → syndrome → recover → verify cycle
+- `examples/qasm_roundtrip.rs` — OpenQASM 2.0 import → export → re-import
+- `examples/vqe_exact.rs` — VQE converged against the exact ground-state energy
 - `examples/cost_aware_optimization.rs` — compare a rewrite against a
   target-weighted logical cost model
 - `examples/qtm_probe.rs` — QTM exploration code
 - `examples/gpu_bench.rs` — GPU benchmark entry point
+
+Run any of them with `cargo run --example <name>`.
 
 ## Highlights
 
@@ -512,6 +518,7 @@ Guides and reference material beyond this README:
 - [GPU acceleration](docs/wiki/GPU-Acceleration.md) — `cuda` vs `gpu` features
 - [Contributing](docs/wiki/Contributing.md) / [CONTRIBUTING.md](CONTRIBUTING.md)
 - [Release checklist](docs/releasing.md) — how a version is cut and published
+- [Python bindings](python/README.md) — install, quickstart, and worked scripts
 
 API reference with runnable examples: [docs.rs/quantumforge](https://docs.rs/quantumforge).
 
