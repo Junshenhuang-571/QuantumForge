@@ -56,17 +56,18 @@ jobs:
       - name: Build docs
         run: cargo doc --workspace --no-deps --verbose
 
-  # The crate declares rust-version = "1.87" (edition 2024 floor + `is_multiple_of`, stable 1.87). This job
+  # The crate declares rust-version = "1.88" (what the full workspace, including the
+  # proptest dev-dependency, actually compiles on). This job
   # proves the workspace still compiles on the declared MSRV so users on older
   # toolchains get a working build rather than cryptic errors.
   msrv:
-    name: msrv / rust 1.87
+    name: msrv / rust 1.88
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       - name: Install Rust 1.85
-        uses: dtolnay/rust-toolchain@1.87.0
+        uses: dtolnay/rust-toolchain@1.88.0
         with:
           components: rustfmt
 

@@ -208,7 +208,7 @@ A few quick starting points:
 
 ## Requirements
 
-- Rust 1.87+ (edition 2024; this is the declared MSRV) and Cargo.
+- Rust 1.88+ (edition 2024; this is the declared MSRV) and Cargo.
 - Optional: CUDA toolkit + NVRTC (for `--features cuda`), LLVM tools
   (`opt`, `llc`) and `clang` (for `--features llvm` JIT).
 
