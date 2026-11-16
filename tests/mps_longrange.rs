@@ -125,15 +125,18 @@ fn mps_expectation_matches_statevector() {
         for a in 0..sv.len() {
             let a1 = (a >> s1) & 1;
             let a2 = (a >> s2) & 1;
-            for b1 in 0..2 {
-                for b2 in 0..2 {
-                    if op1[a1][b1] == Complex64::ZERO || op2[a2][b2] == Complex64::ZERO {
+            for (b1, &o1) in op1[a1].iter().enumerate() {
+                if o1 == Complex64::ZERO {
+                    continue;
+                }
+                for (b2, &o2) in op2[a2].iter().enumerate() {
+                    if o2 == Complex64::ZERO {
                         continue;
                     }
                     let shift1 = s1;
                     let shift2 = s2;
                     let y = (a & !(1 << shift1) & !(1 << shift2)) | (b1 << shift1) | (b2 << shift2);
-                    want += (sv[a].conj() * op1[a1][b1] * op2[a2][b2] * sv[y]).re;
+                    want += (sv[a].conj() * o1 * o2 * sv[y]).re;
                 }
             }
         }
