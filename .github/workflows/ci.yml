@@ -56,6 +56,37 @@ jobs:
       - name: Build docs
         run: cargo doc --workspace --no-deps --verbose
 
+  # The crate declares rust-version = "1.87" (edition 2024 floor + `is_multiple_of`, stable 1.87). This job
+  # proves the workspace still compiles on the declared MSRV so users on older
+  # toolchains get a working build rather than cryptic errors.
+  msrv:
+    name: msrv / rust 1.87
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust 1.85
+        uses: dtolnay/rust-toolchain@1.87.0
+        with:
+          components: rustfmt
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Compile on MSRV
+        run: cargo check --workspace --all-targets
+
   # Feature-gated code paths (llvm, python, provider backends) are not exercised
   # by the default-feature test matrix above. CUDA/GPU need an external toolkit
   # and are intentionally excluded. These jobs prove the code compiles under

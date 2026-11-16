@@ -67,6 +67,11 @@ Inside the REPL, try:
 
 ## Next steps
 
-- Read the project README for the full feature overview.
-- Explore the examples directory for domain-specific workflows.
+- [Algorithms](https://github.com/Junshenhuang-571/QuantumForge/blob/main/docs/wiki/Algorithms.md)
+  and [Architecture](https://github.com/Junshenhuang-571/QuantumForge/blob/main/docs/wiki/Architecture.md)
+  explain how the modules fit together.
+- [QEC codes](https://github.com/Junshenhuang-571/QuantumForge/blob/main/docs/wiki/QEC-Codes.md)
+  and [GPU acceleration](https://github.com/Junshenhuang-571/QuantumForge/blob/main/docs/wiki/GPU-Acceleration.md)
+  go deeper on those subsystems.
+- Explore the `examples/` directory for domain-specific workflows.
 - Start with a small gate-model circuit before moving to variational or QEC tasks.

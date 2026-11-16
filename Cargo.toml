@@ -2,6 +2,7 @@
 name = "quantumforge"
 version = "0.2.8"
 edition = "2024"
+rust-version = "1.87"
 description = "A Rust quantum simulation toolkit with CPU and CUDA circuit simulation, LLVM scalar JIT, VQE/QML, MBQC, adiabatic QC, and unitary Turing machines."
 license = "Apache-2.0"
 repository = "https://github.com/Junshenhuang-571/QuantumForge"
@@ -56,6 +57,13 @@ path = "benches/core.rs"
 harness = false
 
 # Python package config
+[package.metadata.docs.rs]
+# `cuda` is excluded on purpose: its build script requires a CUDA toolkit
+# (CUDA_PATH) to link, which docs.rs runners do not provide. The dynamic
+# `gpu` feature covers the documented GPU API surface.
+features = ["rayon", "llvm", "gpu", "python", "ibm", "ionq", "rigetti"]
+rustdoc-args = ["--cfg", "docsrs"]
+
 [package.metadata.maturin]
 # Build separate wheels for each feature combination
 # maturin build --features default     -> quantumforge (CPU only)

@@ -208,7 +208,7 @@ A few quick starting points:
 
 ## Requirements
 
-- Rust (edition 2024) and Cargo.
+- Rust 1.87+ (edition 2024; this is the declared MSRV) and Cargo.
 - Optional: CUDA toolkit + NVRTC (for `--features cuda`), LLVM tools
   (`opt`, `llc`) and `clang` (for `--features llvm` JIT).
 
@@ -500,6 +500,20 @@ cargo fmt --all -- --check
 cargo clippy --all-targets -- -D warnings
 cargo test
 ```
+
+## Documentation
+
+Guides and reference material beyond this README:
+
+- [Getting started](docs/getting-started.md) — install, first circuit, REPL tour
+- [Algorithms](docs/wiki/Algorithms.md) — algorithm modules and how they fit together
+- [Architecture](docs/wiki/Architecture.md) — module layout and data flow
+- [QEC codes](docs/wiki/QEC-Codes.md) — stabilizer codes, encoders, decoders
+- [GPU acceleration](docs/wiki/GPU-Acceleration.md) — `cuda` vs `gpu` features
+- [Contributing](docs/wiki/Contributing.md) / [CONTRIBUTING.md](CONTRIBUTING.md)
+- [Release checklist](docs/releasing.md) — how a version is cut and published
+
+API reference with runnable examples: [docs.rs/quantumforge](https://docs.rs/quantumforge).
 
 ## Project policies
 

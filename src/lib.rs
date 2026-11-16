@@ -84,14 +84,14 @@
 //!          code.stabilizers.len(), code.recovery.len());
 //! ```
 //!
-//! Note: [`surface_code_planar`] uses face stabilizers only (no boundary
+//! Note: [`qec::surface_code_planar`] uses face stabilizers only (no boundary
 //! stabilizers), so a `d x d` planar code encodes `2d - 1` logical qubits
 //! rather than one; prefer `surface_code_rotated` for single-logical-qubit
 //! workloads.
 //!
 //! # Symbolic algebra on exact rationals
 //!
-//! [`ScalarExpr`] differentiates, integrates, solves, and factors without
+//! [`analytic::ScalarExpr`] differentiates, integrates, solves, and factors without
 //! floating-point error:
 //!
 //! ```
@@ -112,7 +112,7 @@
 //!
 //! # Hamiltonians as Pauli sums
 //!
-//! [`PauliSum`] stores exact-rational coefficients over Pauli words and can
+//! [`analytic::PauliSum`] stores exact-rational coefficients over Pauli words and can
 //! be converted to a sparse operator:
 //!
 //! ```
