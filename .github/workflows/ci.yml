@@ -148,7 +148,15 @@ jobs:
             ${{ runner.os }}-cargo-audit-
 
       - name: Install cargo-audit
-        run: cargo install cargo-audit --locked
+        # The binary lives in the cached ~/.cargo/bin, which a previous
+        # interrupted run may have restored only partially — `cargo install`
+        # then refuses to overwrite it. Skip the install when it is present.
+        run: |
+          if command -v cargo-audit >/dev/null 2>&1; then
+            echo "cargo-audit already installed: $(cargo audit --version)"
+          else
+            cargo install cargo-audit --locked
+          fi
 
       - name: Audit dependencies
         # Two pyo3 advisories (RUSTSEC-2025-0020, RUSTSEC-2026-0177) are ignored
