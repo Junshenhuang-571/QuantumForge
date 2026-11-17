@@ -56,19 +56,20 @@ QuantumForge REPL — one session, live state. Type 'help' for this, 'quit' to e
                         Adiabatic QC: interpolate driver -> problem Hamiltonian
                           NAME = ising|tfim|heisenberg|xxz|hubbard (default demo ZZ)
   qaoa-transfer [donor=8] [acceptor=N] [p=6] [dt=0.75] [lr=0.05] [iters=100]
-                [lambda=1e-4] [full=0] [seed=42]
-                        QAOA parameter transfer + targeted-single-layer
-                        optimization (arXiv:2601.15760) on seeded 3-regular
-                        graphs: optimize the donor, transfer the angles, pick a
-                        target layer, optimize only its two angles.
+                [lambda=1e-4] [layers=3] [sweeps=2] [full=0] [seed=42]
+                        QAOA parameter transfer + targeted-layer optimization
+                        (arXiv:2601.15760) on seeded 3-regular graphs: optimize
+                        the donor, transfer the angles, then jointly optimize
+                        the last `layers` layers (the paper uses 1; 3 recovers
+                        most of the gap to a full re-optimization).
                         acceptor defaults to the live qubit count (otherwise
-                        donor+2); prints r_n (transferred), r_s (targeted) and,
-                        with full=1, r_f (full re-optimization). lr=0.1 is the
-                        paper's value but stalls with finite-difference
-                        gradients; 0.05 is the default. Debug builds are tens of
-                        times slower than release — lower p/iters there.
+                        donor+2); prints r_n (transferred), r_s (targeted), the
+                        per-sweep refinement and, with full=1, r_f (full
+                        re-optimization). lr=0.1 is the paper's value but stalls
+                        with finite-difference gradients; 0.05 is the default.
+                        Debug builds are tens of times slower than release.
   qaoa-angles [which]     print stored angles: which = donor|transferred|optimized
-  qaoa-layers            print the cut expectation of every targeted layer
+  qaoa-layers            scan every single layer and print its cut expectation
   qaoa-layer K           optimize only layer K and report its ratio
     gas [qubits=N] [edges=a-b:w,..] [shots=N] [seed=N] [max-outer=N]
                             Grover Adaptive Search for MaxCut:

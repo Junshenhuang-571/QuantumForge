@@ -24,14 +24,17 @@
   (no state-vector expansion), seeded 3-regular graph generator, and
   parameter-shift angle finding with restarts. Example
   `examples/mps_qaoa.rs` and guide `docs/wiki/MPS-QAOA.md`.
-- **QAOA parameter transfer + targeted-single-layer optimization**
+- **QAOA parameter transfer + targeted-layer optimization**
   (`qaoa_transfer` module, arXiv:2601.15760): TQA angle initialization,
   finite-difference Adagrad on a small donor graph, transfer of the optimized
-  angles to a larger acceptor, layer selection (single pass or majority vote
-  over an ensemble), and a ridge-regularized two-angle targeted step.
-  `TransferOutcome` reports `r_n`, `r_s` and optionally `r_f`. Example
-  `examples/qaoa_transfer.rs` and guide
-  `docs/wiki/QAOA-Parameter-Transfer.md`.
+  angles to a larger acceptor, then a ridge-regularized joint optimization of
+  the trailing layers. `TransferOutcome` reports `r_n`, `r_s`, per-sweep
+  refinement energies and optionally `r_f`. Example `examples/qaoa_transfer.rs`
+  and guide `docs/wiki/QAOA-Parameter-Transfer.md`.
+  Defaults deviate from the paper in three measured ways: donor `lr = 0.05`
+  (0.1 stalls under finite-difference gradients), the targeted block is the
+  last 3 layers rather than 1 (98.7% of `r_f` versus 95.9% at 10 vertices),
+  and the block runs twice.
 - REPL: `qaoa-transfer` runs the pipeline and stores it on the session;
   `qaoa-angles`, `qaoa-layers` and `qaoa-layer` inspect the stored run.
   The default donor learning rate is 0.05 rather than the paper's 0.1, which

@@ -77,20 +77,18 @@ fn main() {
     }
 
     println!();
-    println!("per-layer outcome on the acceptor (cut expectation):");
-    for (layer, energy) in outcome.layer_energies.iter().enumerate() {
-        let marker = if layer == outcome.target_layer {
-            " <- best"
-        } else {
-            ""
-        };
-        println!("  layer {layer:2}: {energy:.5}{marker}");
+    println!("refinement (cut expectation after each targeted sweep):");
+    for (sweep, energy) in outcome.refinement_energies.iter().enumerate() {
+        println!("  sweep {sweep}: {energy:.5}");
     }
 
     println!();
     println!(
-        "targeted layer           : {} (ensemble vote: {}, votes {:?})",
-        outcome.target_layer, voted_layer, votes
+        "targeted block           : layers {}..{} (ensemble vote for a single layer: {}, votes {:?})",
+        outcome.target_layer,
+        outcome.optimized.depth() - 1,
+        voted_layer,
+        votes
     );
     println!(
         "transferred  r_n         : {:.5}",

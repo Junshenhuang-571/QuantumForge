@@ -3,8 +3,9 @@
 use quantumforge::mps_qaoa::MaxCutProblem;
 use quantumforge::qaoa_transfer::{
     QaoaParameters, TargetedLayerOptions, TransferOptions, adagrad, maxcut_expectation,
-    nelder_mead, optimize_targeted_layer, run_parameter_transfer, select_target_layer_majority,
-    targeted_layer_objective, tqa_initialization,
+    maxcut_qaoa_expectation, nelder_mead, optimize_targeted_layer, optimize_trailing_layers,
+    run_parameter_transfer, select_target_layer_majority, targeted_layer_objective,
+    tqa_initialization,
 };
 use quantumforge::{Gate, StateVector};
 
@@ -123,25 +124,20 @@ fn targeted_layer_improves_on_transferred_angles() {
     };
 
     let outcome = run_parameter_transfer(&donor(), &acceptor, &options).unwrap();
-    assert!(
-        outcome.energy
-            >= outcome
-                .layer_energies
-                .iter()
-                .copied()
-                .fold(f64::NEG_INFINITY, f64::max)
-                - 1e-9,
-        "the reported energy must match the best layer tried"
+    assert_eq!(
+        outcome.target_layer, 0,
+        "a 3-layer block on depth 3 starts at layer 0"
     );
-    assert_eq!(outcome.target_layer, {
-        let mut best = 0;
-        for (layer, &energy) in outcome.layer_energies.iter().enumerate() {
-            if energy > outcome.layer_energies[best] {
-                best = layer;
-            }
-        }
-        best
-    });
+    assert_eq!(outcome.refinement_energies.len(), 2, "one entry per sweep");
+    assert!(
+        outcome.refinement_energies[1] >= outcome.refinement_energies[0],
+        "refinement must not degrade the cut"
+    );
+    assert_eq!(
+        outcome.energy,
+        outcome.refinement_energies.last().copied().unwrap_or(0.0),
+        "energy must be the final sweep's value"
+    );
     assert!(
         outcome.transferred_ratio > 0.0 && outcome.approximation_ratio > 0.0,
         "ratios must be positive"
@@ -163,6 +159,7 @@ fn optimizing_a_single_layer_moves_only_that_layer() {
         lambda: 1e-4,
         tolerance: 1e-10,
         max_iterations: 150,
+        ..TargetedLayerOptions::default()
     };
     let (optimized, _) = optimize_targeted_layer(&problem, &params, 2, &options).unwrap();
     for layer in 0..4 {
@@ -178,6 +175,59 @@ fn optimizing_a_single_layer_moves_only_that_layer() {
 }
 
 #[test]
+fn trailing_block_moves_only_its_own_layers() {
+    let problem = acceptor();
+    let params = tqa_initialization(4, 0.75);
+    let options = TargetedLayerOptions {
+        layers: 2,
+        sweeps: 1,
+        ..TargetedLayerOptions::default()
+    };
+    let base = maxcut_qaoa_expectation(&problem, &params).unwrap();
+    let (updated, energies) = optimize_trailing_layers(&problem, &params, &options).unwrap();
+    assert_eq!(energies.len(), 1, "one energy per sweep");
+    assert!(
+        energies[0] >= base - 1e-9,
+        "refinement must not degrade the cut"
+    );
+    for layer in 0..2 {
+        assert_eq!(updated.gammas[layer], params.gammas[layer]);
+        assert_eq!(updated.betas[layer], params.betas[layer]);
+    }
+}
+
+#[test]
+fn block_of_one_matches_the_single_layer_step() {
+    let problem = acceptor();
+    let params = tqa_initialization(4, 0.75);
+    let last = params.depth() - 1;
+    let single =
+        optimize_targeted_layer(&problem, &params, last, &TargetedLayerOptions::default()).unwrap();
+    let block = optimize_trailing_layers(
+        &problem,
+        &params,
+        &TargetedLayerOptions {
+            layers: 1,
+            sweeps: 1,
+            ..TargetedLayerOptions::default()
+        },
+    )
+    .unwrap();
+    assert!((single.1 - block.1[0]).abs() < 1e-9);
+    assert_eq!(single.0.gammas, block.0.gammas);
+    assert_eq!(single.0.betas, block.0.betas);
+}
+
+#[test]
+fn trailing_block_rejects_empty_problems() {
+    let empty = MaxCutProblem::new(4, Vec::new());
+    let params = QaoaParameters::zeros(2);
+    let error =
+        optimize_trailing_layers(&empty, &params, &TargetedLayerOptions::default()).unwrap_err();
+    assert_eq!(format!("{error}"), "the problem has no edges");
+}
+
+#[test]
 fn majority_vote_counts_every_instance() {
     let problems = vec![
         MaxCutProblem::random_3_regular(8, 1),
@@ -189,6 +239,7 @@ fn majority_vote_counts_every_instance() {
         lambda: 1e-4,
         tolerance: 1e-8,
         max_iterations: 80,
+        ..TargetedLayerOptions::default()
     };
     let (layer, votes) = select_target_layer_majority(&problems, &params, &options).unwrap();
     assert_eq!(votes.len(), 3);

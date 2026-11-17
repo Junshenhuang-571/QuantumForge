@@ -4,7 +4,7 @@ use crate::analytic::{Assumptions, ExactComplex, Rational, ScalarExpr, Simplifie
 use crate::mps_qaoa::MaxCutProblem;
 use crate::parser::{parse_circuit, parse_scalar_expr};
 use crate::qaoa_transfer::{
-    QaoaParameters, TargetedLayerOptions, TransferOptions, TransferOutcome,
+    QaoaParameters, TargetedLayerOptions, TransferOptions, TransferOutcome, select_target_layer,
 };
 use crate::qec::{
     QecCode, encode_repetition_bitflip, repetition_code_bitflip, repetition_code_phaseflip,
@@ -1537,6 +1537,8 @@ impl Session {
         let mut iterations = 100usize;
         let mut learning_rate = 0.05f64;
         let mut lambda = 1e-4f64;
+        let mut layers = 3usize;
+        let mut sweeps = 2usize;
         let mut compare_full = false;
         let mut seed = 42u64;
 
@@ -1574,6 +1576,18 @@ impl Session {
             match value.parse::<f64>() {
                 Ok(v) => learning_rate = v,
                 Err(_) => return eprintln!("qaoa-transfer error: lr must be a number"),
+            }
+        }
+        if let Some(value) = Self::qaoa_kw(rest, "layers") {
+            match value.parse::<usize>() {
+                Ok(v) => layers = v,
+                Err(_) => return eprintln!("qaoa-transfer error: layers must be an integer"),
+            }
+        }
+        if let Some(value) = Self::qaoa_kw(rest, "sweeps") {
+            match value.parse::<usize>() {
+                Ok(v) => sweeps = v,
+                Err(_) => return eprintln!("qaoa-transfer error: sweeps must be an integer"),
             }
         }
         if let Some(value) = Self::qaoa_kw(rest, "lambda") {
@@ -1620,6 +1634,8 @@ impl Session {
             donor_iterations: iterations,
             targeted: TargetedLayerOptions {
                 lambda,
+                layers,
+                sweeps,
                 ..TargetedLayerOptions::default()
             },
             compare_full_optimization: compare_full,
@@ -1628,7 +1644,8 @@ impl Session {
 
         println!(
             "qaoa-transfer: {donor_nodes} -> {acceptor_nodes} vertices, p={depth}, \
-             TQA dt={dt}, Adagrad lr={learning_rate} iters={iterations}, lambda={lambda}"
+             TQA dt={dt}, Adagrad lr={learning_rate} iters={iterations}, \
+             lambda={lambda}, layers={layers}, sweeps={sweeps}"
         );
         if cfg!(debug_assertions) {
             println!(
@@ -1649,6 +1666,13 @@ impl Session {
         println!("  target layer      : {}", outcome.target_layer);
         println!("  r_n (transferred) : {:.5}", outcome.transferred_ratio);
         println!("  r_s (targeted)    : {:.5}", outcome.approximation_ratio);
+        if outcome.refinement_energies.len() > 1 {
+            print!("  refinement        :");
+            for energy in &outcome.refinement_energies {
+                print!(" {energy:.5}");
+            }
+            println!();
+        }
         if let Some(full) = outcome.full_optimization_ratio {
             println!("  r_f (full)        : {full:.5}");
             println!(
@@ -1702,14 +1726,21 @@ impl Session {
                 return eprintln!("qaoa-layers: no run yet — try `qaoa-transfer` first");
             }
         };
-        println!("qaoa-layers: cut expectation per targeted layer");
-        for (layer, energy) in session.outcome.layer_energies.iter().enumerate() {
-            let marker = if layer == session.outcome.target_layer {
-                " <- best"
-            } else {
-                ""
-            };
-            println!("  layer {layer:2}: {energy:.5}{marker}");
+        println!("qaoa-layers: cut expectation when each single layer is targeted");
+        println!("  (scans every layer — a few seconds; the run above targeted a block)");
+        let options = TargetedLayerOptions {
+            layers: 1,
+            sweeps: 1,
+            ..TargetedLayerOptions::default()
+        };
+        match select_target_layer(&session.acceptor, &session.outcome.transferred, &options) {
+            Ok((best, energies)) => {
+                for (layer, energy) in energies.iter().enumerate() {
+                    let marker = if layer == best { " <- best" } else { "" };
+                    println!("  layer {layer:2}: {energy:.5}{marker}");
+                }
+            }
+            Err(e) => eprintln!("qaoa-layers error: {e}"),
         }
     }
 

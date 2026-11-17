@@ -84,12 +84,15 @@ and stalls in a poor local optimum: on a seeded 8-vertex 3-regular donor at
 `p = 6`, the donor reaches r = 0.825 at `lr = 0.1` but 0.980 at `lr = 0.05`, and
 the transferred acceptor ratio goes from 0.630 to 0.878. The default is
 therefore `0.05`. With that setting the pipeline reproduces the paper's headline
-closely — 8 → 10 vertices at `p = 6`:
+closely — 8 → 10 vertices at `p = 6`, single-layer (paper) setting:
 
 ```
 iters=100:  r_n = 0.9065   r_s = 0.9068   r_f = 0.9459   r_s/r_f = 95.9%
 iters=300:  r_n = 0.9239   r_s = 0.9255   r_f = 0.9459   r_s/r_f = 97.8%
 ```
+
+With the default 3-layer block (see below) the same run reaches `r_s = 0.9337`
+at 100 iterations — 98.7% of `r_f`.
 
 **Sign convention.** The paper defines the approximation ratio as
 `r = <H_C> / C_max` with `<H_C>` the cut weight to be *maximized*, but writes
@@ -109,21 +112,70 @@ the transferred angles are no longer near-optimal. For acceptors beyond roughly
 [`mps_qaoa`](https://docs.rs/quantumforge/latest/quantumforge/mps_qaoa/)
 instead of the state-vector path.
 
+## Tuning the quality
+
+The paper optimizes one layer's two angles. That leaves most of the gap to a
+full re-optimization on the table, because QAOA layers interact — so this crate
+defaults to optimizing the **last three layers jointly**, twice.
+
+Measured on seeded 3-regular graphs at `p = 6`, donor 8 vertices, 100 Adagrad
+iterations on the donor:
+
+| acceptor | r_n | 1 layer (paper) | last 3, 2 sweeps | r_f | quality |
+|---|---|---|---|---|---|
+| 10 vertices, seed 43 | 0.9065 | 0.9068 | **0.9337** | 0.9459 | 98.7% |
+| 10 vertices, seed 77 | 0.9197 | 0.9210 | 0.9381 | 0.9503 | 98.7% |
+| 12 vertices, seed 43 | 0.8583 | 0.8665 | 0.8752 | 0.9062 | 96.6% |
+| 12 vertices, seed 77 | 0.9146 | 0.9167 | 0.9394 | 0.9647 | 97.4% |
+
+Cost at 10 vertices (release build, full re-optimization = 10.7 s, r_f = 0.9459):
+
+| setting | time | r_s | % of r_f | speed vs full |
+|---|---|---|---|---|
+| `layers=1 sweeps=1` (paper) | 5.4 s | 0.9067 | 95.9% | 1.98× |
+| `layers=3 sweeps=1` | 8.2 s | 0.9294 | 98.3% | 1.30× |
+| `layers=3 sweeps=2` (default) | 9.3 s | 0.9337 | 98.7% | 1.15× |
+| full `2p` re-optimization | 10.7 s | 0.9459 | 100% | 1.0× |
+
+So the default buys 2.8 further points of approximation ratio for 13% more
+time than the paper's setting. At 12 vertices the same default takes 25.8 s
+against ~48 s for full (1.85×) at 96.6% of `r_f`.
+
+Set `layers=1 sweeps=1` for the paper's exact trade-off.
+
+### What does *not* work
+
+Worth recording so it is not re-tried:
+
+- **Optimizing a single layer harder, or sweeping single layers.** Four
+  single-layer sweeps reach only 0.919 at 10 vertices — they saturate below the
+  joint block, because coordinate descent cannot move interacting angles
+  together.
+- **Spending more on the donor.** This is counter-intuitive but real: a fully
+  converged donor (1200 Adagrad iterations) lifts r_n from 0.9065 to 0.9365 and
+  the acceptor's final quality with it — but the donor then costs ~74 s, more
+  than full-optimizing the 10-vertex acceptor (10.7 s). The speedup *comes from*
+  the donor being under-optimized. Multi-start donors are likewise worse per
+  second than one longer run.
+- **Optimizing the last 4 or 6 layers jointly.** Nelder-Mead degrades in higher
+  dimensions: the last 4 gives 0.9145 and all 6 gives 0.9170, both below the
+  last 3. Three is the sweet spot at `p = 6`.
+
 ## In the REPL
 
 ```
 qf> qaoa-transfer                 # 8 -> 10 vertices, p=6, 100 Adagrad steps
-qf> qaoa-layers                   # cut expectation for every targeted layer
+qf> qaoa-layers                   # cut expectation for every single layer
 qf> qaoa-angles donor             # donor | transferred | optimized
 qf> qaoa-layer 3                  # what if only layer 3 were optimized?
 ```
 
 `qaoa-transfer` takes `donor=`, `acceptor=`, `p=`, `dt=`, `lr=`, `iters=`,
-`lambda=`, `full=` and `seed=`. The run is stored on the session, so the other
-three commands work on it afterwards. `full=1` adds the `r_f` comparison, which
-roughly triples the runtime.
+`lambda=`, `layers=`, `sweeps=`, `full=` and `seed=`. The run is stored on the
+session, so the other three commands work on it afterwards. `full=1` adds the
+`r_f` comparison, which roughly triples the runtime.
 
-Expect ~7 s per run in a release build and tens of seconds in a debug build —
+Expect ~9 s per run in a release build and tens of seconds in a debug build —
 the command says so before it starts.
 
 ## Related
