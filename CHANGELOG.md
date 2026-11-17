@@ -3,6 +3,14 @@
 ## [Unreleased]
 
 ### Added
+- **Complete API documentation.** Every public item in the crate now carries a
+  doc comment (775 items added across 24 modules), verified by a
+  `missing_docs` lint that is now a hard error rather than a warning, so the
+  completeness cannot silently regress. This includes items that only compile
+  behind a feature flag (the `cuda` backend).
+- Documentation map: `docs/README.md` ties together docs.rs, the wiki guides,
+  the Python README, the examples and the release checklist, with an
+  API-by-subsystem index.
 - Dependency hygiene: Dependabot configuration (weekly cargo updates) and a
   `cargo audit` CI job against the RustSec advisory database.
 - Property-based tests for the simulation core (`tests/proptest_quantum_core.rs`):

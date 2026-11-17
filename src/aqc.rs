@@ -37,8 +37,11 @@ pub enum AdiabaticError {
     Linear(LinearError),
     /// The integrator could not converge even at the relaxed tolerance floor.
     NonConvergent {
+        /// Total evolution time requested for the run.
         total_time: f64,
+        /// Relaxed tolerance that also failed to converge.
         tolerance: f64,
+        /// Step budget given to the integrator.
         max_steps: usize,
     },
 }
@@ -189,6 +192,7 @@ impl AdiabaticSchedule {
         Ok(op.lowest_eigenpairs(1, 1e-10, 1000)?.eigenvalues()[0])
     }
 
+    /// Number of qubits; the register dimension is `2^qubits`.
     pub fn qubits(&self) -> usize {
         self.qubits
     }
@@ -349,7 +353,9 @@ pub fn kron2(a: &[f64; 4], b: &[f64; 4]) -> Vec<f64> {
 
 /// Pauli matrices as 2×2 row-major arrays.
 pub const PAULI_I: [f64; 4] = [1.0, 0.0, 0.0, 1.0];
+/// Pauli X matrix as a 2×2 row-major array.
 pub const PAULI_X: [f64; 4] = [0.0, 1.0, 1.0, 0.0];
+/// Pauli Z matrix as a 2×2 row-major array.
 pub const PAULI_Z: [f64; 4] = [1.0, 0.0, 0.0, -1.0];
 
 /// The canonical 2-qubit demo schedule: transverse-field driver

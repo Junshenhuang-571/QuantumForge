@@ -4,6 +4,10 @@ use super::{Circuit, Gate, PauliString, QecCode};
 use crate::StateVector;
 use std::collections::HashMap;
 
+/// Build the n-qubit bit-flip repetition code (`n` must be odd and >= 3):
+/// stabilizers Z_i Z_{i+1}, logical X = X on all qubits and logical Z = Z on
+/// all qubits, together with a syndrome-extraction circuit and a per-syndrome
+/// recovery map.
 pub fn repetition_code_bitflip(n: usize) -> QecCode {
     assert!(n >= 3 && n % 2 == 1, "n must be odd and >= 3");
 

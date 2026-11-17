@@ -12,52 +12,85 @@
 //! A future unification would make `ScalarExpr` the single source of truth
 //! with `NumericProgram` as a compiled view, eliminating the duplicate
 //! operation dispatch.
-//! lowering boundary for future LLVM code generation. It deliberately contains
-//! only pure `f64` operations; symbolic expressions remain in `analytic` until
-//! explicitly lowered through the supported real-valued scalar subset.
+//! `NumericProgram` is the lowering boundary for future LLVM code generation.
+//! It deliberately contains only pure `f64` operations; symbolic expressions
+//! remain in `analytic` until explicitly lowered through the supported
+//! real-valued scalar subset.
 
 use crate::analytic::{NamedConstant, ScalarExpr};
 use std::collections::HashMap;
 use std::error::Error;
 use std::fmt;
 
+/// SSA register identifier: the index of the instruction that produced a value.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Register(usize);
 
 impl Register {
+    /// Return the underlying instruction index this register refers to.
     pub fn index(self) -> usize {
         self.0
     }
 }
 
+/// A single pure-`f64` SSA instruction in a [`NumericProgram`].
 #[derive(Clone, Debug, PartialEq)]
 pub enum NumericInstruction {
+    /// Literal `f64` constant value.
     Constant(f64),
+    /// Read the program input at the given index.
     Input(usize),
+    /// Add the values held in two registers.
     Add(Register, Register),
+    /// Subtract the second register's value from the first.
     Subtract(Register, Register),
+    /// Multiply the values held in two registers.
     Multiply(Register, Register),
+    /// Divide the first register's value by the second.
     Divide(Register, Register),
+    /// Raise a register's value to an integer power.
     PowerI(Register, i32),
+    /// Negate a register's value.
     Negate(Register),
+    /// Absolute value of a register's value.
     Abs(Register),
+    /// Square root of a register's value.
     Sqrt(Register),
+    /// Sine of a register's value.
     Sin(Register),
+    /// Cosine of a register's value.
     Cos(Register),
+    /// Natural exponential of a register's value.
     Exp(Register),
+    /// Natural logarithm of a register's value.
     Log(Register),
 }
 
+/// Errors produced while lowering, building, or evaluating numeric IR.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum NumericIrError {
-    InvalidInputCount { expected: usize, actual: usize },
+    /// Evaluation received the wrong number of inputs.
+    InvalidInputCount {
+        /// Number of inputs the program expects.
+        expected: usize,
+        /// Number of inputs actually supplied.
+        actual: usize,
+    },
+    /// An `Input` instruction referenced an index outside the program's inputs.
     InputOutOfRange(usize),
+    /// A register index did not correspond to an emitted instruction.
     RegisterOutOfRange(usize),
+    /// The same input symbol was bound more than once during lowering.
     DuplicateInputSymbol(String),
+    /// A symbol in the expression had no bound input.
     UnknownSymbol(String),
+    /// The expression is complex-valued and cannot be lowered to real IR.
     ComplexValueUnsupported,
+    /// The scalar expression uses operations outside the real-valued subset.
     UnsupportedScalarExpression,
+    /// An input or computed value was not finite.
     NonFiniteValue,
+    /// A division by zero was attempted during evaluation.
     DivisionByZero,
 }
 
@@ -126,22 +159,31 @@ impl NumericProgram {
         builder.finish(output)
     }
 
+    /// Return the number of inputs the program expects.
     pub fn input_count(&self) -> usize {
         self.input_count
     }
 
+    /// Return the number of emitted instructions.
     pub fn instruction_count(&self) -> usize {
         self.instructions.len()
     }
 
+    /// Return the instruction stream in emission order.
     pub fn instructions(&self) -> &[NumericInstruction] {
         &self.instructions
     }
 
+    /// Return the register holding the program output.
     pub fn output(&self) -> Register {
         self.output
     }
 
+    /// Interpret the program on the given inputs and return the output value.
+    ///
+    /// The slice length must equal [`Self::input_count`], every input must be
+    /// finite, and every intermediate result must stay finite; division by zero
+    /// is rejected rather than producing infinity.
     pub fn evaluate(&self, inputs: &[f64]) -> Result<f64, NumericIrError> {
         if inputs.len() != self.input_count {
             return Err(NumericIrError::InvalidInputCount {
@@ -204,6 +246,7 @@ pub struct NumericBuilder {
 }
 
 impl NumericBuilder {
+    /// Create an empty builder for a program with `input_count` inputs.
     pub fn new(input_count: usize) -> Self {
         Self {
             input_count,
@@ -225,6 +268,7 @@ impl NumericBuilder {
         }
     }
 
+    /// Emit a constant, rejecting non-finite values.
     pub fn constant(&mut self, value: f64) -> Result<Register, NumericIrError> {
         if !value.is_finite() {
             return Err(NumericIrError::NonFiniteValue);
@@ -232,6 +276,7 @@ impl NumericBuilder {
         Ok(self.emit(NumericInstruction::Constant(value)))
     }
 
+    /// Emit an input read, rejecting indices outside the declared input count.
     pub fn input(&mut self, index: usize) -> Result<Register, NumericIrError> {
         if index >= self.input_count {
             return Err(NumericIrError::InputOutOfRange(index));
@@ -239,15 +284,19 @@ impl NumericBuilder {
         Ok(self.emit(NumericInstruction::Input(index)))
     }
 
+    /// Emit an addition of two existing registers.
     pub fn add(&mut self, a: Register, b: Register) -> Result<Register, NumericIrError> {
         self.binary(a, b, NumericInstruction::Add)
     }
+    /// Emit a subtraction of two existing registers.
     pub fn subtract(&mut self, a: Register, b: Register) -> Result<Register, NumericIrError> {
         self.binary(a, b, NumericInstruction::Subtract)
     }
+    /// Emit a multiplication of two existing registers.
     pub fn multiply(&mut self, a: Register, b: Register) -> Result<Register, NumericIrError> {
         self.binary(a, b, NumericInstruction::Multiply)
     }
+    /// Emit a division of two existing registers.
     pub fn divide(&mut self, a: Register, b: Register) -> Result<Register, NumericIrError> {
         self.binary(a, b, NumericInstruction::Divide)
     }
@@ -262,27 +311,35 @@ impl NumericBuilder {
         Ok(self.emit(make(a, b)))
     }
 
+    /// Emit an integer-power instruction on an existing register.
     pub fn powi(&mut self, value: Register, exponent: i32) -> Result<Register, NumericIrError> {
         self.unary(value, |v| NumericInstruction::PowerI(v, exponent))
     }
+    /// Emit a negation of an existing register.
     pub fn negate(&mut self, value: Register) -> Result<Register, NumericIrError> {
         self.unary(value, NumericInstruction::Negate)
     }
+    /// Emit an absolute-value instruction on an existing register.
     pub fn abs(&mut self, value: Register) -> Result<Register, NumericIrError> {
         self.unary(value, NumericInstruction::Abs)
     }
+    /// Emit a square-root instruction on an existing register.
     pub fn sqrt(&mut self, value: Register) -> Result<Register, NumericIrError> {
         self.unary(value, NumericInstruction::Sqrt)
     }
+    /// Emit a sine instruction on an existing register.
     pub fn sin(&mut self, value: Register) -> Result<Register, NumericIrError> {
         self.unary(value, NumericInstruction::Sin)
     }
+    /// Emit a cosine instruction on an existing register.
     pub fn cos(&mut self, value: Register) -> Result<Register, NumericIrError> {
         self.unary(value, NumericInstruction::Cos)
     }
+    /// Emit a natural-exponential instruction on an existing register.
     pub fn exp(&mut self, value: Register) -> Result<Register, NumericIrError> {
         self.unary(value, NumericInstruction::Exp)
     }
+    /// Emit a natural-logarithm instruction on an existing register.
     pub fn log(&mut self, value: Register) -> Result<Register, NumericIrError> {
         self.unary(value, NumericInstruction::Log)
     }
@@ -295,6 +352,9 @@ impl NumericBuilder {
         Ok(self.emit(make(value)))
     }
 
+    /// Finish the program, designating `output` as its result register.
+    ///
+    /// Returns an error if `output` does not refer to an emitted instruction.
     pub fn finish(self, output: Register) -> Result<NumericProgram, NumericIrError> {
         if output.0 >= self.instructions.len() {
             return Err(NumericIrError::RegisterOutOfRange(output.0));

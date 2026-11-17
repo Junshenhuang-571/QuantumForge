@@ -57,57 +57,87 @@ pub trait HardwareBackend: Send + Sync {
 /// Device information.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeviceInfo {
+    /// Device identifier used when submitting jobs.
     pub id: String,
+    /// Human-readable device name.
     pub name: String,
+    /// Provider that owns the device.
     pub provider: String,
+    /// Number of qubits the device provides.
     pub num_qubits: usize,
+    /// Coupling-map edges as qubit-index pairs.
     pub topology: Vec<(usize, usize)>, // Coupling map edges
+    /// Gate set supported natively by the device.
     pub basis_gates: Vec<String>,
+    /// Maximum number of shots accepted per job.
     pub max_shots: usize,
+    /// Maximum number of experiments accepted per job.
     pub max_experiments: usize,
+    /// Whether the device is a simulator rather than real hardware.
     pub simulator: bool,
+    /// Whether the device is currently operational.
     pub operational: bool,
+    /// Average readout error rate, when the provider reports one.
     pub avg_readout_error: Option<f64>,
+    /// Average CNOT error rate, when the provider reports one.
     pub avg_cnot_error: Option<f64>,
+    /// Average single-qubit error rate, when the provider reports one.
     pub avg_single_qubit_error: Option<f64>,
 }
 
 /// Job submission request.
 #[derive(Debug, Clone, Serialize)]
 pub struct JobRequest {
+    /// Identifier of the device the circuit should run on.
     pub device_id: String,
     /// Circuit serialized as OpenQASM 2.0
     pub circuit_qasm: String,
+    /// Number of measurement shots to run.
     pub shots: usize,
+    /// Optional RNG seed for reproducible sampling.
     pub seed: Option<u64>,
+    /// Arbitrary metadata to associate with the job.
     pub metadata: HashMap<String, serde_json::Value>,
 }
 
 /// Opaque job handle.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct JobHandle {
+    /// Provider-assigned job identifier.
     pub id: String,
+    /// Provider that owns the job.
     pub provider: String,
 }
 
 /// Job execution status.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum JobStatus {
+    /// The job is waiting in the provider queue.
     Queued,
+    /// The job is currently executing.
     Running,
+    /// The job finished successfully.
     Completed,
+    /// The job terminated with an error.
     Failed,
+    /// The job was cancelled before completion.
     Cancelled,
 }
 
 /// Job results.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JobResults {
+    /// Handle of the job that produced these results.
     pub handle: JobHandle,
+    /// Final status of the job.
     pub status: JobStatus,
+    /// Measured bitstrings mapped to their occurrence counts.
     pub counts: HashMap<Vec<u8>, usize>, // bitstring -> count
+    /// Number of shots that were requested for the job.
     pub shots: usize,
+    /// Wall-clock time spent executing the job.
     pub execution_time: Duration,
+    /// Metadata echoed from the job request.
     pub metadata: HashMap<String, serde_json::Value>,
 }
 
@@ -359,10 +389,13 @@ pub mod local {
         cuda_backend: Option<CudaBackend>,
     }
 
+    /// Local CPU simulator backend, used when the `cuda` feature is disabled.
     #[cfg(not(feature = "cuda"))]
     pub struct LocalBackend;
 
     impl LocalBackend {
+        /// Create a local backend, attaching CUDA device 0 when the `cuda`
+        /// feature is enabled.
         pub fn new() -> Self {
             #[cfg(feature = "cuda")]
             let cuda_backend = CudaBackend::new(0).ok();
@@ -448,6 +481,10 @@ pub mod local {
             Ok(results)
         }
 
+        /// Create a local backend bound to the given CUDA device.
+        ///
+        /// Returns [`QuantumError::UnsupportedOperation`] when the `cuda`
+        /// feature is disabled.
         pub fn with_cuda(device: i32) -> Result<Self> {
             #[cfg(feature = "cuda")]
             {
@@ -646,6 +683,8 @@ fn uuid_simple() -> u64 {
         .unwrap_or_default()
         .as_nanos() as u64
 }
+/// Circuit transpilation to provider interchange formats (OpenQASM 2.0,
+/// Qiskit JSON, IonQ JSON, and Rigetti Quil).
 pub mod transpile {
     use super::{Circuit, CircuitOp, Gate};
     use crate::qasm_export;

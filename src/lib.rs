@@ -218,6 +218,8 @@
 //! adding doc comments, test coverage, and examples.
 //!
 
+#![deny(missing_docs)]
+
 pub mod analytic;
 pub mod aqc;
 #[cfg(feature = "cuda")]
@@ -261,19 +263,26 @@ pub struct Complex64 {
 }
 
 impl Complex64 {
+    /// The additive identity `0 + 0i`.
     pub const ZERO: Self = Self { re: 0.0, im: 0.0 };
+    /// The multiplicative identity `1 + 0i`.
     pub const ONE: Self = Self { re: 1.0, im: 0.0 };
+    /// The imaginary unit `i`.
     pub const I: Self = Self { re: 0.0, im: 1.0 };
 
+    /// Creates a complex number from real and imaginary parts.
     pub const fn new(re: f64, im: f64) -> Self {
         Self { re, im }
     }
+    /// Returns the squared modulus `re^2 + im^2`.
     pub fn norm_sqr(self) -> f64 {
         self.re * self.re + self.im * self.im
     }
+    /// Returns the modulus (absolute value).
     pub fn abs(self) -> f64 {
         self.norm_sqr().sqrt()
     }
+    /// Returns the complex conjugate.
     pub fn conj(self) -> Self {
         Self::new(self.re, -self.im)
     }
@@ -316,36 +325,62 @@ impl std::ops::Div<f64> for Complex64 {
 #[derive(Clone, Debug, PartialEq)]
 /// Errors that can occur during quantum operations.
 pub enum QuantumError {
+    /// The state contains no qubits.
     ZeroQubits,
+    /// The state-vector length is not a power of two; carries the offending length.
     StateSizeNotPowerOfTwo(usize),
+    /// A qubit index is outside the valid range.
     QubitOutOfRange {
+        /// The requested qubit index.
         qubit: usize,
+        /// The number of qubits in the state.
         qubits: usize,
     },
+    /// A two-qubit operation received an out-of-range or repeated qubit.
     InvalidQubitPair {
+        /// The first qubit index.
         first: usize,
+        /// The second qubit index.
         second: usize,
     },
+    /// A probability outside `[0, 1]`; carries the value.
     InvalidProbability(f64),
+    /// Training data is empty or contains non-finite values.
     InvalidTrainingData,
+    /// A partial-trace subsystem selection is out of range or duplicated.
     InvalidSubsystemSelection,
+    /// The operation requires a density-matrix state.
     OperationRequiresDensityMatrix,
+    /// The operation requires shot execution.
     OperationRequiresShotExecution,
+    /// The shot count is zero.
     InvalidShotCount,
+    /// A classical bit index exceeds the supported maximum; carries the index.
     ClassicalBitOutOfRange(usize),
+    /// The supplied parameter count does not match the circuit.
     InvalidParameterCount {
+        /// The expected number of parameters.
         expected: usize,
+        /// The number of parameters supplied.
         actual: usize,
     },
+    /// The supplied input count does not match the circuit.
     InvalidInputCount {
+        /// The expected number of encoded inputs.
         expected: usize,
+        /// The number of inputs supplied.
         actual: usize,
     },
+    /// A circuit parameter is not finite.
     NonFiniteParameter,
+    /// The optimizer learning rate or batch size is invalid.
     InvalidOptimizerConfiguration,
+    /// An unsupported operation; carries a description.
     UnsupportedOperation(String),
+    /// The operation exceeded its time budget.
     Timeout,
     #[cfg(feature = "cuda")]
+    /// A CUDA operation failed; carries the driver, compiler, or backend message.
     CudaError(String),
 }
 
@@ -416,17 +451,24 @@ impl From<crate::cuda::CudaError> for QuantumError {
 #[derive(Clone, Debug, PartialEq)]
 /// A quantum state vector over 2^n amplitudes.
 pub struct StateVector {
+    /// Complex amplitudes indexed by computational-basis state, least-significant
+    /// qubit first.
     pub amplitudes: Vec<Complex64>,
+    /// Number of qubits; `amplitudes.len() == 2^qubits`.
     pub qubits: usize,
 }
 
 #[derive(Clone, Debug)]
+/// State vector whose amplitudes are exact `analytic::QuadComplex` values.
 pub struct ExactStateVector {
+    /// Exact amplitudes stored as rational coefficients of `1` and `sqrt(2)`.
     pub amplitudes: Vec<crate::analytic::QuadComplex>,
+    /// Number of qubits.
     pub qubits: usize,
 }
 
 impl ExactStateVector {
+    /// Returns the exact all-zero state on `qubits` qubits.
     pub fn zero(qubits: usize) -> Result<Self, QuantumError> {
         if qubits == 0 {
             return Err(QuantumError::ZeroQubits);
@@ -436,13 +478,16 @@ impl ExactStateVector {
         Ok(Self { amplitudes, qubits })
     }
 
+    /// Returns the exact amplitudes.
     pub fn amplitudes(&self) -> &[crate::analytic::QuadComplex] {
         &self.amplitudes
     }
+    /// Returns the number of qubits.
     pub fn qubits(&self) -> usize {
         self.qubits
     }
 
+    /// Applies a Hadamard gate to `qubit`.
     pub fn apply_h(&mut self, qubit: usize) -> Result<(), QuantumError> {
         if qubit >= self.qubits {
             return Err(QuantumError::QubitOutOfRange {
@@ -526,6 +571,7 @@ impl ExactStateVector {
         }
         Ok(())
     }
+    /// Applies an S gate to `qubit`.
     pub fn apply_s(&mut self, qubit: usize) -> Result<(), QuantumError> {
         if qubit >= self.qubits {
             return Err(QuantumError::QubitOutOfRange {
@@ -544,6 +590,7 @@ impl ExactStateVector {
         Ok(())
     }
 
+    /// Applies a T gate to `qubit`.
     pub fn apply_t(&mut self, qubit: usize) -> Result<(), QuantumError> {
         if qubit >= self.qubits {
             return Err(QuantumError::QubitOutOfRange {
@@ -558,6 +605,7 @@ impl ExactStateVector {
         }
         Ok(())
     }
+    /// Applies an X gate to `qubit`.
     pub fn apply_x(&mut self, qubit: usize) -> Result<(), QuantumError> {
         if qubit >= self.qubits {
             return Err(QuantumError::QubitOutOfRange {
@@ -577,6 +625,7 @@ impl ExactStateVector {
         Ok(())
     }
 
+    /// Applies a Z gate to `qubit`.
     pub fn apply_z(&mut self, qubit: usize) -> Result<(), QuantumError> {
         if qubit >= self.qubits {
             return Err(QuantumError::QubitOutOfRange {
@@ -599,6 +648,7 @@ impl ExactStateVector {
         Ok(())
     }
 
+    /// Applies a CNOT gate with the given control and target.
     pub fn apply_cnot(&mut self, control: usize, target: usize) -> Result<(), QuantumError> {
         if control >= self.qubits || target >= self.qubits {
             return Err(QuantumError::QubitOutOfRange {
@@ -617,6 +667,7 @@ impl ExactStateVector {
         Ok(())
     }
 
+    /// Applies a controlled-Z gate to `q0` and `q1`.
     pub fn apply_cz(&mut self, q0: usize, q1: usize) -> Result<(), QuantumError> {
         if q0 >= self.qubits || q1 >= self.qubits {
             return Err(QuantumError::QubitOutOfRange {
@@ -637,6 +688,7 @@ impl ExactStateVector {
         Ok(())
     }
 
+    /// Returns the squared norm, evaluated numerically and rounded to a rational.
     pub fn norm_sqr(&self) -> crate::analytic::Rational {
         // Compute numerically via Complex64 conversion since QuadComplex
         // involves √2 cross terms that aren't purely rational.
@@ -654,6 +706,7 @@ impl ExactStateVector {
 }
 
 impl StateVector {
+    /// Returns the all-zero state on `qubits` qubits.
     pub fn zero(qubits: usize) -> Result<Self, QuantumError> {
         if qubits == 0 {
             return Err(QuantumError::ZeroQubits);
@@ -663,6 +716,7 @@ impl StateVector {
         Ok(Self { amplitudes, qubits })
     }
 
+    /// Builds a state vector from amplitudes; the length must be a power of two of at least 2.
     pub fn from_amplitudes(amplitudes: Vec<Complex64>) -> Result<Self, QuantumError> {
         if amplitudes.len() < 2 {
             return Err(QuantumError::ZeroQubits);
@@ -674,25 +728,31 @@ impl StateVector {
         Ok(Self { amplitudes, qubits })
     }
 
+    /// Returns the number of qubits.
     pub fn qubits(&self) -> usize {
         self.qubits
     }
+    /// Converts the state into a `quantum::Ket` in a matching Hilbert space.
     pub fn to_ket(&self) -> Result<crate::quantum::Ket, crate::quantum::LinearError> {
         crate::quantum::Ket::new(
             crate::quantum::HilbertSpace::qubits(self.qubits)?,
             self.amplitudes.clone(),
         )
     }
+    /// Returns the amplitudes.
     pub fn amplitudes(&self) -> &[Complex64] {
         &self.amplitudes
     }
+    /// Returns mutable access to the amplitudes.
     pub fn amplitudes_mut(&mut self) -> &mut [Complex64] {
         &mut self.amplitudes
     }
+    /// Returns the sum of the squared amplitude moduli.
     pub fn norm_sqr(&self) -> f64 {
         self.amplitudes.iter().map(|a| a.norm_sqr()).sum()
     }
 
+    /// Divides every amplitude by the state norm; errors if the norm is zero or non-finite.
     pub fn normalize(&mut self) -> Result<(), QuantumError> {
         let norm = self.norm_sqr().sqrt();
         if norm == 0.0 || !norm.is_finite() {
@@ -749,6 +809,7 @@ impl StateVector {
         Ok(())
     }
 
+    /// Applies a CNOT gate.
     pub fn apply_cnot(&mut self, control: usize, target: usize) -> Result<(), QuantumError> {
         self.check_pair(control, target)?;
         let control_mask = 1usize << control;
@@ -769,6 +830,7 @@ impl StateVector {
         Ok(())
     }
 
+    /// Applies a controlled-Z gate.
     pub fn apply_cz(&mut self, first: usize, second: usize) -> Result<(), QuantumError> {
         self.check_pair(first, second)?;
         let first_mask = 1usize << first;
@@ -789,6 +851,7 @@ impl StateVector {
         Ok(())
     }
 
+    /// Applies a SWAP gate.
     pub fn apply_swap(&mut self, first: usize, second: usize) -> Result<(), QuantumError> {
         self.check_pair(first, second)?;
         let first_mask = 1usize << first;
@@ -828,10 +891,12 @@ impl StateVector {
         Ok(())
     }
 
+    /// Returns the squared modulus of each amplitude.
     pub fn probabilities(&self) -> Vec<f64> {
         self.amplitudes.iter().map(|a| a.norm_sqr()).collect()
     }
 
+    /// Returns the expectation of Z on `qubit`.
     pub fn expectation_z(&self, qubit: usize) -> Result<f64, QuantumError> {
         if qubit >= self.qubits {
             return Err(QuantumError::QubitOutOfRange {
@@ -960,6 +1025,7 @@ impl StateVector {
         }
         Ok(s_val)
     }
+    /// Returns the expectation of X on `qubit`.
     pub fn expectation_x(&self, qubit: usize) -> Result<f64, QuantumError> {
         if qubit >= self.qubits {
             return Err(QuantumError::QubitOutOfRange {
@@ -974,6 +1040,7 @@ impl StateVector {
             .sum())
     }
 
+    /// Returns the expectation of Y on `qubit`.
     pub fn expectation_y(&self, qubit: usize) -> Result<f64, QuantumError> {
         if qubit >= self.qubits {
             return Err(QuantumError::QubitOutOfRange {
@@ -988,6 +1055,7 @@ impl StateVector {
             .sum())
     }
 
+    /// Returns the expectation of `observable` on `qubit`.
     pub fn expectation(
         &self,
         observable: SingleQubitObservable,
@@ -1172,13 +1240,28 @@ pub struct DensityMatrix {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+/// A local single-qubit noise channel.
 pub enum NoiseChannel {
-    Depolarizing { probability: f64 },
-    AmplitudeDamping { gamma: f64 },
-    PhaseDamping { gamma: f64 },
+    /// Depolarizing channel: with probability `probability` the qubit is
+    /// replaced by the completely mixed state.
+    Depolarizing {
+        /// Probability that the qubit is depolarized.
+        probability: f64,
+    },
+    /// Amplitude-damping channel.
+    AmplitudeDamping {
+        /// Damping rate in `[0, 1]`.
+        gamma: f64,
+    },
+    /// Phase-damping channel.
+    PhaseDamping {
+        /// Damping rate in `[0, 1]`.
+        gamma: f64,
+    },
 }
 
 impl NoiseChannel {
+    /// Returns the channel parameters as a one-element vector.
     pub fn params(&self) -> Vec<f64> {
         match self {
             Self::Depolarizing { probability } => vec![*probability],
@@ -1199,6 +1282,7 @@ impl DensityMatrix {
         }
     }
 
+    /// Builds the pure-state density matrix `rho = |psi><psi|`.
     pub fn from_state(state: &StateVector) -> Self {
         let dimension = state.amplitudes.len();
         let mut entries = vec![Complex64::ZERO; dimension * dimension];
@@ -1215,6 +1299,7 @@ impl DensityMatrix {
         }
     }
 
+    /// Returns the maximally mixed state `I / 2^n`.
     pub fn maximally_mixed(qubits: usize) -> Result<Self, QuantumError> {
         if qubits == 0 {
             return Err(QuantumError::ZeroQubits);
@@ -1243,6 +1328,7 @@ impl DensityMatrix {
         }
     }
 
+    /// Returns the number of qubits.
     pub fn qubits(&self) -> usize {
         self.qubits
     }
@@ -1252,14 +1338,17 @@ impl DensityMatrix {
         self.dimension
     }
 
+    /// Returns the row-major density-matrix entries.
     pub fn entries(&self) -> &[Complex64] {
         &self.entries
     }
+    /// Returns the trace of the density matrix.
     pub fn trace(&self) -> Complex64 {
         (0..self.dimension)
             .map(|i| self.entries[i * self.dimension + i])
             .fold(Complex64::ZERO, |a, b| a + b)
     }
+    /// Returns the purity `Tr(rho^2)`.
     pub fn purity(&self) -> f64 {
         // For Hermitian rho, Tr(rho^2) = sum_ij |rho_ij|^2.
         self.entries.iter().map(|x| x.norm_sqr()).sum()
@@ -1329,6 +1418,7 @@ impl DensityMatrix {
         self.apply_unitary(&evolution, tolerance)
     }
 
+    /// Returns the expectation of Z on `qubit`.
     pub fn expectation_z(&self, qubit: usize) -> Result<f64, QuantumError> {
         if qubit >= self.qubits {
             return Err(QuantumError::QubitOutOfRange {
@@ -1345,6 +1435,7 @@ impl DensityMatrix {
             .sum())
     }
 
+    /// Returns the expectation of `observable` on `qubit`.
     pub fn expectation(
         &self,
         observable: SingleQubitObservable,
@@ -1377,6 +1468,7 @@ impl DensityMatrix {
         }
     }
 
+    /// Returns the probability of measuring `1` on `qubit`.
     pub fn probability_one(&self, qubit: usize) -> Result<f64, QuantumError> {
         if qubit >= self.qubits {
             return Err(QuantumError::QubitOutOfRange {
@@ -1452,6 +1544,7 @@ impl DensityMatrix {
         })
     }
 
+    /// Applies a CNOT gate to both sides of the density matrix.
     pub fn apply_cnot(&mut self, control: usize, target: usize) -> Result<(), QuantumError> {
         check_qubit_pair(control, target, self.qubits)?;
         let control_mask = 1usize << control;
@@ -1466,6 +1559,7 @@ impl DensityMatrix {
         Ok(())
     }
 
+    /// Applies a controlled-Z gate.
     pub fn apply_cz(&mut self, first: usize, second: usize) -> Result<(), QuantumError> {
         check_qubit_pair(first, second, self.qubits)?;
         let a = 1usize << first;
@@ -1485,6 +1579,7 @@ impl DensityMatrix {
         Ok(())
     }
 
+    /// Applies a SWAP gate.
     pub fn apply_swap(&mut self, first: usize, second: usize) -> Result<(), QuantumError> {
         check_qubit_pair(first, second, self.qubits)?;
         let a = 1usize << first;
@@ -1522,6 +1617,7 @@ impl DensityMatrix {
         Ok(())
     }
 
+    /// Applies a noise channel to `qubit`.
     pub fn apply_channel(
         &mut self,
         channel: NoiseChannel,
@@ -1682,20 +1778,33 @@ fn validate_probability(probability: f64) -> Result<(), QuantumError> {
 /// Quantum gates supported by the simulator.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Gate {
+    /// Identity gate.
     I,
+    /// Pauli-X gate.
     X,
+    /// Pauli-Y gate.
     Y,
+    /// Pauli-Z gate.
     Z,
+    /// Hadamard gate.
     H,
+    /// S (phase) gate.
     S,
+    /// Adjoint of the S gate.
     Sdg,
+    /// T gate.
     T,
+    /// Adjoint of the T gate.
     Tdg,
+    /// Rotation about the X axis by `theta` radians.
     Rx(f64),
+    /// Rotation about the Y axis by `theta` radians.
     Ry(f64),
+    /// Rotation about the Z axis by `theta` radians.
     Rz(f64),
 }
 impl Gate {
+    /// Returns the 2x2 matrix as `(m00, m01, m10, m11)` in row-major order.
     pub fn matrix(self) -> (Complex64, Complex64, Complex64, Complex64) {
         let z = Complex64::ZERO;
         let o = Complex64::ONE;
@@ -1764,6 +1873,7 @@ impl Gate {
         }
     }
 
+    /// Returns the rotation angle for `Rx`/`Ry`/`Rz`, otherwise an empty vector.
     pub fn params(&self) -> Vec<f64> {
         match self {
             Self::Rx(theta) | Self::Ry(theta) | Self::Rz(theta) => vec![*theta],
@@ -1813,35 +1923,59 @@ fn adjoint_gate(gate: Gate) -> Gate {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+/// One operation in a `Circuit`.
 pub enum CircuitOp {
+    /// A one-qubit gate applied to `target`.
     SingleQubit {
+        /// The gate to apply.
         gate: Gate,
+        /// The target qubit.
         target: usize,
     },
+    /// A CNOT gate.
     Cnot {
+        /// The control qubit.
         control: usize,
+        /// The target qubit.
         target: usize,
     },
+    /// A controlled-Z gate.
     Cz {
+        /// The first qubit.
         first: usize,
+        /// The second qubit.
         second: usize,
     },
+    /// A SWAP gate.
     Swap {
+        /// The first qubit.
         first: usize,
+        /// The second qubit.
         second: usize,
     },
+    /// A noise channel applied to `target`.
     Channel {
+        /// The noise channel to apply.
         channel: NoiseChannel,
+        /// The target qubit.
         target: usize,
     },
+    /// A projective measurement whose outcome is written to a classical bit.
     Measure {
+        /// The measured qubit.
         target: usize,
+        /// The classical bit that receives the outcome.
         classical_bit: usize,
     },
+    /// A one-qubit gate applied only when a classical bit has the requested value.
     ConditionalSingleQubit {
+        /// The classical bit to test.
         classical_bit: usize,
+        /// The value the classical bit must hold; masked to one bit.
         value: u8,
+        /// The gate to apply when the condition holds.
         gate: Gate,
+        /// The target qubit.
         target: usize,
     },
 }
@@ -1851,7 +1985,10 @@ pub enum CircuitOp {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 /// Result of running a circuit with shots.
 pub struct ShotResult {
+    /// Number of shots executed.
     pub shots: usize,
+    /// Measured classical bit strings mapped to occurrence counts, least-significant
+    /// bit first.
     pub counts: BTreeMap<Vec<u8>, usize>,
 }
 
@@ -1897,25 +2034,32 @@ pub fn wilson_ci(successes: usize, shots: usize, confidence: f64) -> (f64, f64) 
 /// A quantum circuit composed of gate operations.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Circuit {
+    /// The operations in execution order.
     pub operations: Vec<CircuitOp>,
 }
 impl Circuit {
+    /// Returns an empty circuit.
     pub fn new() -> Self {
         Self::default()
     }
+    /// Appends a one-qubit gate on `target`.
     pub fn push(&mut self, gate: Gate, target: usize) {
         self.operations
             .push(CircuitOp::SingleQubit { gate, target });
     }
+    /// Appends a CNOT gate.
     pub fn cnot(&mut self, control: usize, target: usize) {
         self.operations.push(CircuitOp::Cnot { control, target });
     }
+    /// Appends a controlled-Z gate.
     pub fn cz(&mut self, first: usize, second: usize) {
         self.operations.push(CircuitOp::Cz { first, second });
     }
+    /// Appends a SWAP gate.
     pub fn swap(&mut self, first: usize, second: usize) {
         self.operations.push(CircuitOp::Swap { first, second });
     }
+    /// Appends a noise channel on `target`.
     pub fn channel(&mut self, target: usize, channel: NoiseChannel) {
         self.operations.push(CircuitOp::Channel { channel, target });
     }
@@ -1935,9 +2079,11 @@ impl Circuit {
             target,
         });
     }
+    /// Returns the operations in execution order.
     pub fn operations(&self) -> &[CircuitOp] {
         &self.operations
     }
+    /// Returns mutable access to the operations.
     pub fn operations_mut(&mut self) -> &mut Vec<CircuitOp> {
         &mut self.operations
     }
@@ -2119,6 +2265,7 @@ impl Circuit {
         svg.push_str("</svg>\n");
         svg
     }
+    /// Returns one plus the highest referenced qubit index, or 0 for an empty circuit.
     pub fn num_qubits(&self) -> usize {
         let mut max_qubit = 0;
         for op in &self.operations {
@@ -2142,6 +2289,7 @@ impl Circuit {
         }
         max_qubit + 1
     }
+    /// Runs the circuit on a state vector and returns the final state.
     pub fn run(&self, mut state: StateVector) -> Result<StateVector, QuantumError> {
         for op in &self.operations {
             match *op {
@@ -2159,6 +2307,7 @@ impl Circuit {
         }
         Ok(state)
     }
+    /// Runs the circuit on a density matrix and returns the final state.
     pub fn run_density(&self, mut state: DensityMatrix) -> Result<DensityMatrix, QuantumError> {
         for op in &self.operations {
             match *op {
@@ -2275,48 +2424,80 @@ impl Circuit {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+/// Axis of a parameterized rotation.
 pub enum RotationAxis {
+    /// Rotation about the X axis.
     X,
+    /// Rotation about the Y axis.
     Y,
+    /// Rotation about the Z axis.
     Z,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+/// A Pauli observable measured on one qubit.
 pub enum SingleQubitObservable {
+    /// Pauli X.
     X,
+    /// Pauli Y.
     Y,
+    /// Pauli Z.
     Z,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
+/// One operation in a `ParameterizedCircuit`.
 pub enum ParameterizedOp {
+    /// A one-qubit gate with a fixed matrix.
     Fixed {
+        /// The gate to apply.
         gate: Gate,
+        /// The target qubit.
         target: usize,
     },
+    /// A rotation whose angle is a trainable parameter.
     Rotation {
+        /// The rotation axis.
         axis: RotationAxis,
+        /// The target qubit.
         target: usize,
+        /// Index of the angle in the parameter vector.
         parameter: usize,
     },
+    /// A rotation whose angle is an encoded input.
     EncodingRotation {
+        /// The rotation axis.
         axis: RotationAxis,
+        /// The target qubit.
         target: usize,
+        /// Index of the angle in the input vector.
         input: usize,
     },
+    /// A CNOT gate.
     Cnot {
+        /// The control qubit.
         control: usize,
+        /// The target qubit.
         target: usize,
     },
+    /// A controlled-Z gate.
     Cz {
+        /// The first qubit.
         first: usize,
+        /// The second qubit.
         second: usize,
     },
+    /// A SWAP gate.
     Swap {
+        /// The first qubit.
         first: usize,
+        /// The second qubit.
         second: usize,
     },
+    /// A noise channel applied to `target`.
     Channel {
+        /// The noise channel to apply.
         channel: NoiseChannel,
+        /// The target qubit.
         target: usize,
     },
 }
@@ -2332,27 +2513,36 @@ pub struct ParameterizedCircuit {
 /// Optimizer settings shared by parameterized-circuit training routines.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct QmlTrainingConfig {
+    /// Adam learning rate.
     pub learning_rate: f64,
+    /// Number of training epochs.
     pub epochs: usize,
+    /// Mini-batch size.
     pub batch_size: usize,
+    /// Seed controlling shuffling and sampling.
     pub seed: u64,
 }
 
 /// Sampling budget and random seed for one finite-shot observable estimate.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ShotConfig {
+    /// Number of shots per expectation estimate.
     pub shots: usize,
+    /// Sampling seed.
     pub seed: u64,
 }
 
 /// Sampling and optimizer settings for finite-shot QML training.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ShotTrainingConfig {
+    /// Shots used for each expectation estimate.
     pub shots_per_expectation: usize,
+    /// Optimizer settings for training.
     pub training: QmlTrainingConfig,
 }
 
 impl ParameterizedCircuit {
+    /// Creates a circuit with `parameter_count` trainable parameters and no inputs.
     pub fn new(parameter_count: usize) -> Self {
         Self {
             operations: Vec::new(),
@@ -2360,6 +2550,7 @@ impl ParameterizedCircuit {
             input_count: 0,
         }
     }
+    /// Creates a circuit with the given parameter and input counts.
     pub fn with_inputs(parameter_count: usize, input_count: usize) -> Self {
         Self {
             operations: Vec::new(),
@@ -2367,10 +2558,12 @@ impl ParameterizedCircuit {
             input_count,
         }
     }
+    /// Appends a fixed one-qubit gate on `target`.
     pub fn push(&mut self, gate: Gate, target: usize) {
         self.operations
             .push(ParameterizedOp::Fixed { gate, target });
     }
+    /// Appends a rotation whose angle is the parameter at `parameter`.
     pub fn rotation(&mut self, axis: RotationAxis, target: usize, parameter: usize) {
         self.operations.push(ParameterizedOp::Rotation {
             axis,
@@ -2378,6 +2571,7 @@ impl ParameterizedCircuit {
             parameter,
         });
     }
+    /// Appends a rotation whose angle is the input at `input`.
     pub fn encode_rotation(&mut self, axis: RotationAxis, target: usize, input: usize) {
         self.operations.push(ParameterizedOp::EncodingRotation {
             axis,
@@ -2385,35 +2579,44 @@ impl ParameterizedCircuit {
             input,
         });
     }
+    /// Appends a CNOT gate.
     pub fn cnot(&mut self, control: usize, target: usize) {
         self.operations
             .push(ParameterizedOp::Cnot { control, target });
     }
+    /// Appends a controlled-Z gate.
     pub fn cz(&mut self, first: usize, second: usize) {
         self.operations.push(ParameterizedOp::Cz { first, second });
     }
+    /// Appends a SWAP gate.
     pub fn swap(&mut self, first: usize, second: usize) {
         self.operations
             .push(ParameterizedOp::Swap { first, second });
     }
+    /// Appends a noise channel on `target`.
     pub fn channel(&mut self, target: usize, channel: NoiseChannel) {
         self.operations
             .push(ParameterizedOp::Channel { channel, target });
     }
+    /// Returns the number of trainable parameters.
     pub fn parameter_count(&self) -> usize {
         self.parameter_count
     }
+    /// Returns the number of encoded inputs.
     pub fn input_count(&self) -> usize {
         self.input_count
     }
+    /// Returns the operations.
     pub fn operations(&self) -> &[ParameterizedOp] {
         &self.operations
     }
 
+    /// Runs on the all-zero state with `parameters` and returns the final state vector.
     pub fn run(&self, parameters: &[f64], qubits: usize) -> Result<StateVector, QuantumError> {
         self.run_with_inputs(&[], parameters, qubits)
     }
 
+    /// Runs with encoded `inputs` and `parameters` and returns the final state vector.
     pub fn run_with_inputs(
         &self,
         inputs: &[f64],
@@ -2435,6 +2638,7 @@ impl ParameterizedCircuit {
         self.run_density_with_shift(inputs, parameters, qubits, None)
     }
 
+    /// Returns the expectation of Z on `observable_qubit`.
     pub fn expectation_z(
         &self,
         parameters: &[f64],
@@ -2449,6 +2653,7 @@ impl ParameterizedCircuit {
         )
     }
 
+    /// Returns the expectation of `observable` on `observable_qubit`.
     pub fn expectation(
         &self,
         parameters: &[f64],
@@ -2460,6 +2665,7 @@ impl ParameterizedCircuit {
             .expectation(observable, observable_qubit)
     }
 
+    /// Returns the expectation with encoded inputs.
     pub fn expectation_with_inputs(
         &self,
         inputs: &[f64],
@@ -2472,6 +2678,7 @@ impl ParameterizedCircuit {
             .expectation(observable, observable_qubit)
     }
 
+    /// Returns the exact density-matrix expectation with encoded inputs.
     pub fn expectation_density_with_inputs(
         &self,
         inputs: &[f64],
@@ -2484,6 +2691,7 @@ impl ParameterizedCircuit {
             .expectation(observable, observable_qubit)
     }
 
+    /// Estimates the density-matrix expectation from `sampling` shots.
     pub fn expectation_density_with_inputs_shots(
         &self,
         inputs: &[f64],
@@ -2563,6 +2771,7 @@ impl ParameterizedCircuit {
         Ok(gradient)
     }
 
+    /// Finite-shot parameter-shift gradient through density-matrix noise channels.
     pub fn parameter_shift_gradient_density_with_inputs_shots(
         &self,
         inputs: &[f64],
@@ -2655,6 +2864,7 @@ impl ParameterizedCircuit {
         )
     }
 
+    /// Estimates the state-vector expectation from `sampling` shots.
     pub fn expectation_with_inputs_shots(
         &self,
         inputs: &[f64],
@@ -2721,6 +2931,7 @@ impl ParameterizedCircuit {
         )
     }
 
+    /// Finite-shot parameter-shift gradient for an ideal state-vector circuit.
     pub fn parameter_shift_gradient_with_inputs_shots(
         &self,
         inputs: &[f64],
@@ -2791,6 +3002,7 @@ impl ParameterizedCircuit {
         )
     }
 
+    /// Parameter-shift gradient with an explicit observable.
     pub fn parameter_shift_gradient_for(
         &self,
         parameters: &[f64],
@@ -2807,6 +3019,7 @@ impl ParameterizedCircuit {
         )
     }
 
+    /// Exact parameter-shift gradient with encoded inputs.
     pub fn parameter_shift_gradient_with_inputs(
         &self,
         inputs: &[f64],
@@ -2853,6 +3066,8 @@ impl ParameterizedCircuit {
         self.adjoint_gradient_with_inputs(&[], parameters, qubits, observable, observable_qubit)
     }
 
+    /// Exact gradient from one forward sweep and one reverse costate sweep, with
+    /// encoded inputs.
     pub fn adjoint_gradient_with_inputs(
         &self,
         inputs: &[f64],
@@ -2995,6 +3210,7 @@ impl ParameterizedCircuit {
         Ok(gradient)
     }
 
+    /// Mean squared error and parameter-shift gradient over `data`.
     pub fn mse_loss_and_gradient(
         &self,
         data: &[(Vec<f64>, f64)],
@@ -3089,6 +3305,7 @@ impl ParameterizedCircuit {
         Ok((loss / count, gradient))
     }
 
+    /// Finite-shot mean squared error and gradient through density-matrix noise.
     pub fn mse_loss_and_gradient_density_shots(
         &self,
         data: &[(Vec<f64>, f64)],
@@ -3298,6 +3515,7 @@ impl ParameterizedCircuit {
         Ok(sigmoid(logit))
     }
 
+    /// Returns whether the class-one probability is at least 0.5.
     pub fn binary_classify(
         &self,
         inputs: &[f64],
@@ -3425,6 +3643,7 @@ impl ParameterizedCircuit {
         Ok((loss / count, gradient))
     }
 
+    /// Finite-shot binary cross-entropy and gradient through density-matrix noise.
     pub fn binary_cross_entropy_and_gradient_density_shots(
         &self,
         data: &[(Vec<f64>, f64)],
@@ -3561,6 +3780,7 @@ impl ParameterizedCircuit {
         Ok((loss / count, gradient))
     }
 
+    /// Adam training of a binary classifier on exact expectations.
     pub fn train_binary_classifier_adam(
         &self,
         data: &[(Vec<f64>, f64)],
@@ -3660,6 +3880,7 @@ impl ParameterizedCircuit {
         Ok(weights)
     }
 
+    /// Finite-shot Adam training of a noisy density-matrix binary classifier.
     pub fn train_binary_classifier_adam_density_shots(
         &self,
         data: &[(Vec<f64>, f64)],
@@ -3720,6 +3941,7 @@ impl ParameterizedCircuit {
         Ok(weights)
     }
 
+    /// Finite-shot Adam training of a state-vector binary classifier.
     pub fn train_binary_classifier_adam_shots(
         &self,
         data: &[(Vec<f64>, f64)],
@@ -3780,6 +4002,7 @@ impl ParameterizedCircuit {
         Ok(weights)
     }
 
+    /// Adam training of a regressor on exact expectations.
     pub fn train_regression_adam(
         &self,
         data: &[(Vec<f64>, f64)],
@@ -3871,6 +4094,7 @@ impl ParameterizedCircuit {
         Ok(weights)
     }
 
+    /// Finite-shot Adam training of a noisy density-matrix regressor.
     pub fn train_regression_adam_density_shots(
         &self,
         data: &[(Vec<f64>, f64)],
@@ -4163,6 +4387,7 @@ fn softplus(value: f64) -> f64 {
 #[derive(Clone, Debug)]
 pub struct SmallRng(u64);
 impl SmallRng {
+    /// Creates a generator from `seed`; a zero seed is replaced by a nonzero constant.
     pub fn seeded(seed: u64) -> Self {
         Self(if seed == 0 {
             0x9e37_79b9_7f4a_7c15
@@ -4170,6 +4395,7 @@ impl SmallRng {
             seed
         })
     }
+    /// Advances the generator and returns the next `u64`.
     pub fn next_u64(&mut self) -> u64 {
         let mut x = self.0;
         x ^= x << 13;
@@ -4178,6 +4404,7 @@ impl SmallRng {
         self.0 = x;
         x
     }
+    /// Returns a uniform float in `[0, 1)`.
     pub fn next_f64(&mut self) -> f64 {
         (self.next_u64() >> 11) as f64 * (1.0 / ((1u64 << 53) as f64))
     }
@@ -4189,15 +4416,19 @@ impl SmallRng {
 /// Repeated for `layers` times. Final readout: `<Z>` on qubit 0.
 #[derive(Clone, Debug, Default)]
 pub struct VariationalQnn {
+    /// Number of qubits.
     pub num_qubits: usize,
+    /// Number of repeated ansatz layers.
     pub layers: usize,
 }
 
 impl VariationalQnn {
+    /// Creates a QNN with the given width and depth.
     pub fn new(num_qubits: usize, layers: usize) -> Self {
         Self { num_qubits, layers }
     }
 
+    /// Returns the Z expectation on qubit 0 for one input and the given weights.
     pub fn evaluate(&self, input: f64, weights: &[f64]) -> Result<f64, QuantumError> {
         if weights.len() != self.num_qubits * self.layers {
             return Err(QuantumError::InvalidParameterCount {
@@ -4339,6 +4570,7 @@ pub struct Adam {
     epsilon: f64,
 }
 impl Adam {
+    /// Creates optimizer state for `parameter_count` parameters.
     pub fn new(parameter_count: usize) -> Self {
         Self {
             first_moment: vec![0.0; parameter_count],
@@ -4349,6 +4581,7 @@ impl Adam {
             epsilon: 1e-8,
         }
     }
+    /// Applies one Adam step to `parameters` using `gradients`.
     pub fn update(
         &mut self,
         parameters: &mut [f64],

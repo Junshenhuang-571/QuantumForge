@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::fmt;
 
+/// Error returned when a scalar or circuit expression fails to parse.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ParseError {
     offset: usize,
@@ -21,9 +22,11 @@ impl ParseError {
             message: message.into(),
         }
     }
+    /// Byte offset in the source where the error occurred.
     pub fn offset(&self) -> usize {
         self.offset
     }
+    /// Human-readable description of the parse error.
     pub fn message(&self) -> &str {
         &self.message
     }
@@ -56,6 +59,12 @@ struct Token {
     offset: usize,
 }
 
+/// Parse a Wolfram-style scalar expression into a [`ScalarExpr`].
+///
+/// Supports exact integer and decimal literals, the constants `I`, `Pi`, and
+/// `E`, symbols, `+`/`-`/`*`/`/`/`^` arithmetic, implicit multiplication,
+/// parenthesized groups, and the function heads `Abs`, `Sqrt`, `Sin`, `Cos`,
+/// `Exp`, and `Log`.
 pub fn parse_scalar_expr(source: &str) -> Result<ScalarExpr, ParseError> {
     let mut parser = Parser {
         tokens: tokenize(source)?,

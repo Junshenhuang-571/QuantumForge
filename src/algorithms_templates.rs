@@ -180,14 +180,23 @@ pub struct HEABuilder {
 }
 
 #[derive(Clone)]
+/// Entanglement connectivity applied between the rotation layers of an
+/// ansatz built by `HEABuilder`.
 pub enum EntanglementPattern {
+    /// Nearest-neighbor chain: CNOT(i, i + 1) for each consecutive pair.
     Linear,
+    /// Ring: CNOT(i, (i + 1) mod n) on every qubit, including the
+    /// wrap-around pair.
     Circular,
+    /// All pairs: CNOT(i, j) for every i < j.
     Full,
+    /// Only the explicitly listed qubit pairs.
     Pairwise(Vec<(usize, usize)>),
 }
 
 impl HEABuilder {
+    /// Create an ansatz builder for `num_qubits` qubits and `layers` layers,
+    /// using a linear entanglement pattern by default.
     pub fn new(num_qubits: usize, layers: usize) -> Self {
         Self {
             num_qubits,
@@ -196,11 +205,15 @@ impl HEABuilder {
         }
     }
 
+    /// Set the entanglement pattern applied between layers.
     pub fn entanglement(mut self, pattern: EntanglementPattern) -> Self {
         self.entanglement = pattern;
         self
     }
 
+    /// Build the circuit: each layer applies Ry then Rz on every qubit,
+    /// followed by the configured CNOT entangling layer. Parameters are
+    /// consumed in order and rotations are skipped once `params` runs out.
     pub fn build(&self, params: &[f64]) -> Circuit {
         let mut circuit = Circuit::new();
         let mut idx = 0;
@@ -269,6 +282,7 @@ pub struct QnnBuilder {
 }
 
 impl QnnBuilder {
+    /// Create a QNN builder with the given number of qubits and layers.
     pub fn new(num_qubits: usize, layers: usize) -> Self {
         Self { num_qubits, layers }
     }
@@ -308,6 +322,8 @@ pub struct QAOAAnsatzBuilder {
 }
 
 impl QAOAAnsatzBuilder {
+    /// Create a QAOA-style ansatz builder for the given qubit count and edge
+    /// list, with one layer by default.
     pub fn new(num_qubits: usize, edges: Vec<(usize, usize)>) -> Self {
         Self {
             num_qubits,
@@ -316,11 +332,15 @@ impl QAOAAnsatzBuilder {
         }
     }
 
+    /// Set the number of cost/mixer layers.
     pub fn layers(mut self, p: usize) -> Self {
         self.layers = p;
         self
     }
 
+    /// Build the circuit: a Hadamard layer, then per layer a cost term
+    /// (CNOT-Rz(2*gamma)-CNOT on each edge) and a mixer term (Rx(2*beta) on
+    /// every qubit). `params` supplies gamma then beta for each layer.
     pub fn build(&self, params: &[f64]) -> Circuit {
         let mut circuit = Circuit::new();
         let mut idx = 0;
@@ -355,6 +375,7 @@ impl QAOAAnsatzBuilder {
         circuit
     }
 
+    /// Number of parameters consumed: two (gamma and beta) per layer.
     pub fn num_params(&self) -> usize {
         self.layers * 2
     }

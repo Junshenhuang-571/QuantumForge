@@ -30,6 +30,8 @@ use crate::{Circuit, Gate};
 use std::collections::HashMap;
 use std::fmt;
 
+/// A stabilizer code: stabilizer generators, logical operators, and the
+/// syndrome-extraction/recovery data built for it.
 pub struct QecCode {
     /// Number of physical qubits
     pub n_physical: usize,
@@ -55,20 +57,25 @@ pub struct PauliString {
 }
 
 impl PauliString {
+    /// Create an all-identity Pauli string of length `n`.
     pub fn new(n: usize) -> Self {
         Self { paulis: vec![0; n] }
     }
 
+    /// Set the Pauli on `qubit`; out-of-range indices are ignored.
     pub fn set(&mut self, qubit: usize, pauli: u8) {
         if qubit < self.paulis.len() {
             self.paulis[qubit] = pauli;
         }
     }
 
+    /// Number of non-identity entries.
     pub fn weight(&self) -> usize {
         self.paulis.iter().filter(|&&p| p != 0).count()
     }
 
+    /// True when the two strings commute, i.e. they anticommute on an even
+    /// number of qubits.
     pub fn commutes(&self, other: &PauliString) -> bool {
         let mut anticommute_count = 0usize;
         for i in 0..self.paulis.len() {
@@ -107,8 +114,8 @@ impl fmt::Display for PauliString {
     }
 }
 
-/// Build a bit-flip repetition code (n qubits, corrects 1 bit-flip).
-/// Logical |0⟩ = |0...0⟩, Logical |1⟩ = |1...1⟩
+/// Check that every pair of stabilizer generators commutes (even number of
+/// anticommuting single-qubit positions).
 pub fn stabilizers_commute(code: &QecCode) -> bool {
     for i in 0..code.stabilizers.len() {
         for j in i + 1..code.stabilizers.len() {

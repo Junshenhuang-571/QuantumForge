@@ -2,6 +2,12 @@
 
 use super::PauliString;
 
+/// Minimum-weight decoding of a stabilizer `syndrome`, where bit `i` set
+/// means stabilizer `i` is violated. Returns the single-qubit Pauli errors as
+/// `(qubit, pauli)` pairs with pauli 1 = X, 2 = Y, 3 = Z, whose combined
+/// syndrome equals `syndrome`. Uses an exact branch-and-bound search when at
+/// most 12 stabilizers are violated and a greedy cover otherwise; returns an
+/// empty list when the syndrome is zero or cannot be explained.
 pub fn mwpm_decode(stabilizers: &[PauliString], syndrome: u32) -> Vec<(usize, u8)> {
     let n = if stabilizers.is_empty() {
         0

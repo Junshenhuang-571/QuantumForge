@@ -510,6 +510,8 @@ struct CudaBackendInner {
 unsafe impl Send for CudaBackendInner {}
 unsafe impl Sync for CudaBackendInner {}
 
+/// A CUDA device together with its compiled kernel module, shared by the
+/// reference-counted device states created from it.
 pub struct CudaBackend {
     inner: Arc<CudaBackendInner>,
 }
@@ -549,6 +551,8 @@ pub struct CudaDeviceDensityMatrix {
 }
 
 impl CudaBackend {
+    /// Initialise the CUDA driver, select the device at `ordinal`, and compile
+    /// and load the kernel module for that device's compute capability.
     pub fn new(ordinal: i32) -> Result<Self, CudaError> {
         check_driver(unsafe { cuInit(0) })?;
         let mut device = 0;
@@ -785,6 +789,8 @@ impl CudaBackend {
         }
     }
 
+    /// Apply one Ry gate to a host state vector by uploading it, running the
+    /// rotation kernel, and downloading the result.
     pub fn apply_ry(
         &self,
         state: &mut StateVector,
@@ -794,6 +800,8 @@ impl CudaBackend {
         self.apply_rotation(state, RotationAxis::Y, qubit, theta)
     }
 
+    /// Apply one rotation about `axis` to a host state vector, transferring
+    /// the state to the device and back around the kernel launch.
     pub fn apply_rotation(
         &self,
         state: &mut StateVector,
@@ -818,6 +826,8 @@ impl CudaBackend {
         self.apply_rotation_chain(state, &gates)
     }
 
+    /// Upload a host state once, apply every rotation in `gates` on the
+    /// device, then download the final state.
     pub fn apply_rotation_chain(
         &self,
         state: &mut StateVector,
@@ -1258,16 +1268,20 @@ impl CudaBackend {
         Ok(ShotResult { shots, counts })
     }
 
+    /// Return the CUDA device handle this backend was created with.
     pub fn device_ordinal(&self) -> i32 {
         self.inner.device
     }
 }
 
 impl CudaDeviceState {
+    /// Return the number of qubits represented by the device state.
     pub fn qubits(&self) -> usize {
         self.qubits
     }
 
+    /// Apply one rotation about `axis` to the device-resident state and
+    /// synchronize the context before returning.
     pub fn apply_rotation(
         &mut self,
         axis: RotationAxis,
@@ -1277,6 +1291,8 @@ impl CudaDeviceState {
         self.apply_rotation_chain(&[(axis, qubit, theta)])
     }
 
+    /// Apply a single-qubit gate matrix to one qubit of the device state and
+    /// synchronize the context.
     pub fn apply_gate(&mut self, gate: Gate, qubit: usize) -> Result<(), CudaError> {
         validate_gates(
             self.qubits,
@@ -1306,6 +1322,8 @@ impl CudaDeviceState {
         check_driver(unsafe { cuCtxSynchronize() })
     }
 
+    /// Apply a sequence of rotations to the device-resident state and
+    /// synchronize the context once at the end.
     pub fn apply_rotation_chain(
         &mut self,
         gates: &[(RotationAxis, usize, f64)],
@@ -1331,14 +1349,19 @@ impl CudaDeviceState {
         check_driver(unsafe { cuCtxSynchronize() })
     }
 
+    /// Apply a controlled-NOT between `control` and `target` on the device and
+    /// synchronize the context.
     pub fn apply_cnot(&mut self, control: usize, target: usize) -> Result<(), CudaError> {
         self.apply_two_qubit(0, control, target)
     }
 
+    /// Apply a controlled-Z between `first` and `second` on the device and
+    /// synchronize the context.
     pub fn apply_cz(&mut self, first: usize, second: usize) -> Result<(), CudaError> {
         self.apply_two_qubit(1, first, second)
     }
 
+    /// Swap `first` and `second` on the device and synchronize the context.
     pub fn apply_swap(&mut self, first: usize, second: usize) -> Result<(), CudaError> {
         self.apply_two_qubit(2, first, second)
     }
@@ -1431,6 +1454,8 @@ impl CudaDeviceState {
         check_driver(unsafe { cuCtxSynchronize() })
     }
 
+    /// Copy the device amplitudes to the host and reconstruct a
+    /// `StateVector`; the copy is synchronous with respect to the host.
     pub fn download(&self) -> Result<StateVector, CudaError> {
         check_driver(unsafe { cuCtxSetCurrent(self.backend.context) })?;
         let mut amplitudes = vec![Complex64::ZERO; self.amplitudes];
@@ -1459,10 +1484,12 @@ impl Drop for CudaDeviceState {
 }
 
 impl CudaDeviceStateBatch {
+    /// Return the number of qubits in each state of the batch.
     pub fn qubits(&self) -> usize {
         self.qubits
     }
 
+    /// Return the number of state vectors held in the batch.
     pub fn batch_size(&self) -> usize {
         self.batch_size
     }
@@ -1756,11 +1783,15 @@ impl CudaDeviceStateBatch {
         Ok(())
     }
 
+    /// Block until all kernels queued on the backend context have finished.
     pub fn synchronize(&self) -> Result<(), CudaError> {
         check_driver(unsafe { cuCtxSetCurrent(self.backend.context) })?;
         check_driver(unsafe { cuCtxSynchronize() })
     }
 
+    /// Copy another batch's amplitudes into this one with a device-to-device
+    /// copy. Both batches must share a backend and have equal dimensions, and
+    /// the copy is synchronized before returning.
     pub fn copy_from_device(&mut self, source: &Self) -> Result<(), CudaError> {
         if self.amplitudes_per_state != source.amplitudes_per_state
             || self.batch_size != source.batch_size
@@ -1867,10 +1898,13 @@ impl CudaDeviceStateBatch {
         self.apply_two_qubit(0, control, target)
     }
 
+    /// Apply a controlled-Z between `first` and `second` to every state in the
+    /// batch.
     pub fn apply_cz(&mut self, first: usize, second: usize) -> Result<(), CudaError> {
         self.apply_two_qubit(1, first, second)
     }
 
+    /// Swap `first` and `second` in every state of the batch.
     pub fn apply_swap(&mut self, first: usize, second: usize) -> Result<(), CudaError> {
         self.apply_two_qubit(2, first, second)
     }
@@ -1904,6 +1938,9 @@ impl CudaDeviceStateBatch {
         )
     }
 
+    /// Apply a circuit's single- and two-qubit gates to every state in the
+    /// batch. Measurement, classically conditioned operations, and noise
+    /// channels are rejected.
     pub fn run_circuit(&mut self, circuit: &Circuit) -> Result<(), CudaError> {
         for operation in circuit.operations() {
             match *operation {
@@ -1926,6 +1963,8 @@ impl CudaDeviceStateBatch {
         Ok(())
     }
 
+    /// Synchronize the context, copy every state's amplitudes to the host, and
+    /// return them as separate `StateVector` values.
     pub fn download(&self) -> Result<Vec<StateVector>, CudaError> {
         check_driver(unsafe { cuCtxSetCurrent(self.backend.context) })?;
         let total = self
@@ -1961,10 +2000,13 @@ impl Drop for CudaDeviceStateBatch {
 }
 
 impl CudaDeviceDensityMatrix {
+    /// Return the number of qubits represented by the density matrix.
     pub fn qubits(&self) -> usize {
         self.qubits
     }
 
+    /// Apply a single-qubit gate to one qubit of the device-resident density
+    /// matrix and synchronize the context.
     pub fn apply_gate(&mut self, gate: Gate, qubit: usize) -> Result<(), CudaError> {
         if qubit >= self.qubits {
             return Err(CudaError::Quantum(QuantumError::QubitOutOfRange {
@@ -2017,11 +2059,15 @@ impl CudaDeviceDensityMatrix {
         check_driver(unsafe { cuCtxSynchronize() })
     }
 
+    /// Apply a controlled-NOT between `control` and `target` to the device
+    /// density matrix and synchronize the context.
     pub fn apply_cnot(&mut self, control: usize, target: usize) -> Result<(), CudaError> {
         validate_pair(self.qubits, control, target)?;
         self.apply_permutation(control, target, 0)
     }
 
+    /// Apply a controlled-Z between `first` and `second` to the device density
+    /// matrix and synchronize the context.
     pub fn apply_cz(&mut self, first: usize, second: usize) -> Result<(), CudaError> {
         validate_pair(self.qubits, first, second)?;
         check_driver(unsafe { cuCtxSetCurrent(self.backend.context) })?;
@@ -2036,6 +2082,8 @@ impl CudaDeviceDensityMatrix {
         check_driver(unsafe { cuCtxSynchronize() })
     }
 
+    /// Swap `first` and `second` in the device density matrix and synchronize
+    /// the context.
     pub fn apply_swap(&mut self, first: usize, second: usize) -> Result<(), CudaError> {
         validate_pair(self.qubits, first, second)?;
         self.apply_permutation(first, second, 1)
@@ -2065,6 +2113,8 @@ impl CudaDeviceDensityMatrix {
         Ok(())
     }
 
+    /// Apply a noise channel to one qubit of the device density matrix after
+    /// validating its probability parameter, and synchronize the context.
     pub fn apply_channel(&mut self, channel: NoiseChannel, qubit: usize) -> Result<(), CudaError> {
         if qubit >= self.qubits {
             return Err(CudaError::Quantum(QuantumError::QubitOutOfRange {
@@ -2150,6 +2200,8 @@ impl CudaDeviceDensityMatrix {
         Ok(outcome)
     }
 
+    /// Copy the density-matrix entries to the host and rebuild a
+    /// `DensityMatrix`.
     pub fn download(&self) -> Result<DensityMatrix, CudaError> {
         check_driver(unsafe { cuCtxSetCurrent(self.backend.context) })?;
         let mut entries = vec![Complex64::ZERO; self.elements];
@@ -2984,16 +3036,36 @@ impl Drop for CudaBackendInner {
     }
 }
 
+/// Error type returned by the CUDA backend.
 #[derive(Debug)]
 pub enum CudaError {
-    Driver { code: i32, message: String },
-    Nvrtc { code: i32, message: String },
+    /// A CUDA driver call failed; carries the status code and message.
+    Driver {
+        /// The CUDA driver status code.
+        code: i32,
+        /// The driver-supplied error message.
+        message: String,
+    },
+    /// An NVRTC compilation call failed; carries the status code and message.
+    Nvrtc {
+        /// The NVRTC status code.
+        code: i32,
+        /// The compiler-supplied error message.
+        message: String,
+    },
+    /// The operation violated a simulator invariant; wraps the core error.
     Quantum(QuantumError),
+    /// A rotation angle was not finite.
     NonFiniteAngle,
+    /// The state exceeds the size the CUDA kernels support.
     StateTooLarge,
+    /// A batch operation was given an empty batch.
     EmptyBatch,
+    /// The states in a batch had different dimensions.
     IncompatibleBatch,
+    /// A batch measurement did not receive one uniform sample per state.
     InvalidBatchSamples,
+    /// A device-state copy was attempted between incompatible states.
     IncompatibleDeviceState,
 }
 impl std::fmt::Display for CudaError {

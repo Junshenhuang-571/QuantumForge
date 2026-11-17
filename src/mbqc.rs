@@ -130,14 +130,17 @@ pub struct MbqcRun {
 /// A measurement pattern over a [`ClusterState`].
 #[derive(Clone, Debug, Default)]
 pub struct MeasurementPattern {
+    /// Measurement steps in execution order.
     pub steps: Vec<MeasurementStep>,
 }
 
 impl MeasurementPattern {
+    /// Create an empty pattern.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Append a measurement step.
     pub fn push(&mut self, step: MeasurementStep) {
         self.steps.push(step);
     }
@@ -520,6 +523,12 @@ pub fn teleport_through_path(alpha: f64, seed: u64) -> Result<u8, String> {
     Ok(run.outputs[0])
 }
 
+/// Compile a sequence of single-qubit gates (H, S, T, X, Z) into a measurement
+/// pattern on a path cluster state with one cluster qubit per gate plus an
+/// output qubit. Each gate becomes an equatorial measurement at its canonical
+/// angle (H and S: π/2, T: π/4, X: π, Z: 0) with the previous step as its
+/// X-by-product dependency; unsupported names return an error. `_seed` is
+/// accepted for symmetry with the other compilers and currently unused.
 pub fn compile_single_qubit(
     gates: &[&str],
     _seed: u64,
@@ -838,12 +847,19 @@ impl ClusterState {
 /// Resource-state cost summary for an MBQC pattern.
 #[derive(Clone, Debug)]
 pub struct ResourceCost {
+    /// Number of physical qubits (cluster vertices).
     pub qubits: usize,
+    /// Number of entangling edges (CZ pairs).
     pub edges: usize,
+    /// Number of measurement steps in the pattern.
     pub measurements: usize,
+    /// Number of steps flagged as outputs.
     pub output_qubits: usize,
+    /// Number of parallel measurement layers.
     pub space_time_depth: usize,
+    /// Total X/Z by-product dependency edges across all steps.
     pub byproduct_edges: usize,
+    /// Aggregate cost: qubits + edges + depth × measurements.
     pub total_cost: usize,
 }
 

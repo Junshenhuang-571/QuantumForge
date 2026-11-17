@@ -104,6 +104,10 @@ pub fn mc_ry(circuit: &mut Circuit, controls: &[usize], target: usize, theta: f6
     mc_x(circuit, controls, target);
 }
 
+/// Build a QAOA MaxCut circuit for the given weighted edges: a Hadamard
+/// layer followed by `p` layers, each applying a cost term
+/// (CNOT-Rz(2*gamma*w)-CNOT per edge) and a mixer term (Rx(2*beta) on every
+/// qubit), reading `gammas[layer]` and `betas[layer]`.
 pub fn qaoa_maxcut(
     num_qubits: usize,
     edges: &[(usize, usize, f64)],
@@ -863,6 +867,8 @@ pub fn shor_factor_quantum(n: u64) -> Option<(u64, u64)> {
     }
 }
 
+/// Greatest common divisor of `a` and `b`, computed by Euclid's recursive
+/// algorithm; returns `a` when `b` is zero.
 pub fn gcd(a: u64, b: u64) -> u64 {
     if b == 0 { a } else { gcd(b, a % b) }
 }

@@ -24,9 +24,12 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::fmt;
 
+/// Error returned when a QASM 2.0 program fails to parse.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct QasmError {
+    /// Line number at which the error was detected.
     pub line: usize,
+    /// Human-readable description of the error.
     pub message: String,
 }
 

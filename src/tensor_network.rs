@@ -205,6 +205,12 @@ impl Tensor {
     }
 }
 
+/// Largest qubit count the GPU sparse-Lanczos path can handle.
+///
+/// Reads free VRAM through the CUDA driver, reserves 85% of it, and assumes
+/// two state vectors of `8 * 2^n` bytes (16 bytes per dimension). Returns
+/// `floor(log2(max_dim))` clamped to at least 12; below 12 qubits callers fall
+/// back to exact diagonalization.
 #[cfg(feature = "gpu")]
 pub fn gpu_max_qubits() -> usize {
     use cudarc::driver::{CudaDevice, result};
@@ -324,6 +330,11 @@ pub fn available_vram_bytes() -> usize {
         0
     }
 }
+/// Largest qubit count the CPU sparse-Lanczos path can handle.
+///
+/// Estimates free RAM with [`available_ram_bytes`], reserves room for a Krylov
+/// basis of 100 real state vectors (8 bytes per amplitude), and returns
+/// `floor(log2(max_dim))` clamped to the range 12..=30.
 #[cfg(not(feature = "gpu"))]
 pub fn cpu_max_qubits_sparse() -> usize {
     // Estimate available RAM and compute max qubits for sparse Lanczos
@@ -343,16 +354,26 @@ pub fn cpu_max_qubits_sparse() -> usize {
     q.clamp(12, 30)
 }
 
+/// Fallback used when the `gpu` feature is off: delegates to
+/// [`cpu_max_qubits_sparse`].
 #[cfg(not(feature = "gpu"))]
 pub fn gpu_max_qubits() -> usize {
     cpu_max_qubits_sparse()
 }
 
+/// A matrix product state: an open-boundary chain of rank-3 site tensors.
+///
+/// Each tensor has shape `[left bond, physical, right bond]`; neighbouring
+/// tensors share a bond index that is summed over on contraction.
 #[derive(Clone, Debug)]
 pub struct MPS {
+    /// Site tensors in left-to-right order.
     pub tensors: Vec<Tensor>,
+    /// Number of sites in the chain.
     pub n_sites: usize,
+    /// Physical dimension of each site (2 for qubits).
     pub phys_dim: usize,
+    /// Maximum bond dimension retained during truncation.
     pub max_bond: usize,
 }
 
@@ -1105,9 +1126,13 @@ impl MPS {
 
 /// TEBD (Time-Evolving Block Decimation) for imaginary time evolution.
 pub struct TEBD {
+    /// State being evolved.
     pub mps: MPS,
+    /// Imaginary-time step size.
     pub dt: f64,
+    /// Bond-dimension cap applied when two-site gates are applied.
     pub max_bond: usize,
+    /// Singular-value truncation threshold.
     pub truncation_tol: f64,
     /// Two-site gates for even bonds (0-1, 2-3, ...)
     pub even_gates: Vec<[[Complex64; 4]; 4]>,
@@ -1122,6 +1147,9 @@ pub struct TEBD {
 }
 
 impl TEBD {
+    /// Create an evolution runner; the Hamiltonian gate lists start empty and
+    /// must be filled with [`TEBD::set_hamiltonian_gates`] before
+    /// [`TEBD::step`].
     pub fn new(mps: MPS, dt: f64, max_bond: usize, truncation_tol: f64) -> Self {
         Self {
             mps,
@@ -1371,10 +1399,15 @@ fn scale_gate_2x2(gate: &[[Complex64; 2]; 2], factor: f64) -> [[Complex64; 2]; 2
 
 /// DMRG (Density Matrix Renormalization Group) for ground state search.
 pub struct DMRG {
+    /// Variational state being optimized.
     pub mps: MPS,
+    /// Bond-dimension cap used by the two-site updates.
     pub max_bond: usize,
+    /// Singular-value truncation threshold.
     pub truncation_tol: f64,
+    /// Energy change below which sweeps are considered converged.
     pub energy_tol: f64,
+    /// Maximum number of forward/backward sweeps.
     pub max_sweeps: usize,
     /// Exact ground-state vector (populated by run_exact for small systems).
     pub ground_state: Option<Vec<Complex64>>,
@@ -1410,6 +1443,8 @@ impl DMRG {
         }
         Ok(prev_energy)
     }
+    /// Create a DMRG runner with `energy_tol` defaulting to `1e-8`; the
+    /// single-site gate lists start empty until [`DMRG::set_single_site_gates`].
     pub fn new(mps: MPS, max_bond: usize, truncation_tol: f64, max_sweeps: usize) -> Self {
         Self {
             mps,

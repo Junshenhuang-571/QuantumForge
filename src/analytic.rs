@@ -11,13 +11,24 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::fmt;
 
+/// Errors raised by exact rational, symbolic, and Pauli-algebra operations.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AnalyticError {
+    /// A rational denominator or divisor was zero.
     ZeroDenominator,
+    /// Exact i128 arithmetic overflowed.
     Overflow,
+    /// An absolute-value derivative was requested where the value may be zero.
     NondifferentiableAbsoluteValue,
+    /// An operation required a pure polynomial expression.
     NonPolynomialExpression,
-    QubitCountMismatch { left: usize, right: usize },
+    /// Two Pauli expressions had different qubit counts.
+    QubitCountMismatch {
+        /// Qubit count of the left-hand expression.
+        left: usize,
+        /// Qubit count of the right-hand expression.
+        right: usize,
+    },
 }
 impl fmt::Display for AnalyticError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -42,24 +53,30 @@ impl fmt::Display for AnalyticError {
 impl Error for AnalyticError {}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// An exact rational number in lowest terms with a positive denominator.
 pub struct Rational {
     numerator: i128,
     denominator: i128,
 }
 impl Rational {
+    /// The exact rational number 0.
     pub const ZERO: Self = Self {
         numerator: 0,
         denominator: 1,
     };
+    /// The exact rational number 1.
     pub const ONE: Self = Self {
         numerator: 1,
         denominator: 1,
     };
+    /// The exact rational number -1.
     pub const MINUS_ONE: Self = Self {
         numerator: -1,
         denominator: 1,
     };
 
+    /// Builds a rational from a numerator and denominator, reducing to lowest
+    /// terms and moving a negative sign onto the numerator.
     pub fn new(numerator: i128, denominator: i128) -> Result<Self, AnalyticError> {
         if denominator == 0 {
             return Err(AnalyticError::ZeroDenominator);
@@ -79,12 +96,15 @@ impl Rational {
             denominator: d / divisor,
         })
     }
+    /// Returns the numerator of the reduced fraction.
     pub fn numerator(self) -> i128 {
         self.numerator
     }
+    /// Returns the positive denominator of the reduced fraction.
     pub fn denominator(self) -> i128 {
         self.denominator
     }
+    /// Returns true when the value is exactly zero.
     pub fn is_zero(self) -> bool {
         self.numerator == 0
     }
@@ -93,6 +113,7 @@ impl Rational {
     pub fn as_f64(self) -> f64 {
         self.numerator as f64 / self.denominator as f64
     }
+    /// Exact addition, failing with [`AnalyticError::Overflow`] on i128 overflow.
     pub fn checked_add(self, rhs: Self) -> Result<Self, AnalyticError> {
         let g = gcd(self.denominator as u128, rhs.denominator as u128) as i128;
         let lmul = rhs.denominator / g;
@@ -112,9 +133,11 @@ impl Rational {
             .ok_or(AnalyticError::Overflow)?;
         Self::new(n, d)
     }
+    /// Exact subtraction, failing with [`AnalyticError::Overflow`] on i128 overflow.
     pub fn checked_sub(self, rhs: Self) -> Result<Self, AnalyticError> {
         self.checked_add(rhs.checked_neg()?)
     }
+    /// Exact multiplication, failing with [`AnalyticError::Overflow`] on i128 overflow.
     pub fn checked_mul(self, rhs: Self) -> Result<Self, AnalyticError> {
         let g1 = gcd(self.numerator.unsigned_abs(), rhs.denominator as u128) as i128;
         let g2 = gcd(rhs.numerator.unsigned_abs(), self.denominator as u128) as i128;
@@ -126,6 +149,7 @@ impl Rational {
             .ok_or(AnalyticError::Overflow)?;
         Self::new(n, d)
     }
+    /// Exact division, failing on a zero divisor or i128 overflow.
     pub fn checked_div(self, rhs: Self) -> Result<Self, AnalyticError> {
         if rhs.numerator == 0 {
             return Err(AnalyticError::ZeroDenominator);
@@ -140,6 +164,7 @@ impl Rational {
             .ok_or(AnalyticError::Overflow)?;
         Self::new(numerator, denominator)
     }
+    /// Exact negation, failing with [`AnalyticError::Overflow`] on i128 overflow.
     pub fn checked_neg(self) -> Result<Self, AnalyticError> {
         Ok(Self {
             numerator: self
@@ -169,38 +194,48 @@ impl fmt::Display for Rational {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// A complex number whose real and imaginary parts are exact rationals.
 pub struct ExactComplex {
+    /// Real part.
     pub re: Rational,
+    /// Imaginary part.
     pub im: Rational,
 }
 impl ExactComplex {
+    /// The exact complex number 0.
     pub const ZERO: Self = Self {
         re: Rational::ZERO,
         im: Rational::ZERO,
     };
+    /// The exact complex number 1.
     pub const ONE: Self = Self {
         re: Rational::ONE,
         im: Rational::ZERO,
     };
+    /// The exact imaginary unit i.
     pub const I: Self = Self {
         re: Rational::ZERO,
         im: Rational::ONE,
     };
+    /// Builds a complex number from a real rational, with zero imaginary part.
     pub fn real(value: Rational) -> Self {
         Self {
             re: value,
             im: Rational::ZERO,
         }
     }
+    /// Multiplies by the imaginary unit i.
     pub fn mul_i(self) -> Self {
         ExactComplex {
             re: self.im.checked_neg().unwrap_or(Rational::ZERO),
             im: self.re,
         }
     }
+    /// Returns true when both parts are exactly zero.
     pub fn is_zero(self) -> bool {
         self.re.is_zero() && self.im.is_zero()
     }
+    /// Converts to a floating-point complex number by dividing each part by its denominator.
     pub fn to_complex64(self) -> Complex64 {
         Complex64::new(
             self.re.numerator() as f64 / self.re.denominator() as f64,
@@ -212,18 +247,21 @@ impl ExactComplex {
     pub fn as_complex64(self) -> Complex64 {
         self.to_complex64()
     }
+    /// Exact component-wise addition, failing on i128 overflow.
     pub fn checked_add(self, rhs: Self) -> Result<Self, AnalyticError> {
         Ok(Self {
             re: self.re.checked_add(rhs.re)?,
             im: self.im.checked_add(rhs.im)?,
         })
     }
+    /// Exact component-wise subtraction, failing on i128 overflow.
     pub fn checked_sub(self, rhs: Self) -> Result<Self, AnalyticError> {
         Ok(Self {
             re: self.re.checked_sub(rhs.re)?,
             im: self.im.checked_sub(rhs.im)?,
         })
     }
+    /// Exact complex multiplication, failing on i128 overflow.
     pub fn checked_mul(self, rhs: Self) -> Result<Self, AnalyticError> {
         let re = self
             .re
@@ -235,12 +273,14 @@ impl ExactComplex {
             .checked_add(self.im.checked_mul(rhs.re)?)?;
         Ok(Self { re, im })
     }
+    /// Exact negation, failing on i128 overflow.
     pub fn checked_neg(self) -> Result<Self, AnalyticError> {
         Ok(Self {
             re: self.re.checked_neg()?,
             im: self.im.checked_neg()?,
         })
     }
+    /// Exact complex division via the conjugate, failing on a zero divisor or overflow.
     pub fn checked_div(self, rhs: Self) -> Result<Self, AnalyticError> {
         let denominator = rhs
             .re
@@ -262,6 +302,7 @@ impl ExactComplex {
                 .checked_div(denominator)?,
         })
     }
+    /// Exact integer power by repeated squaring; negative exponents use the exact inverse.
     pub fn checked_pow(self, exponent: i32) -> Result<Self, AnalyticError> {
         let mut power = exponent.unsigned_abs();
         let mut factor = if exponent < 0 {
@@ -293,15 +334,18 @@ pub struct QuadComplex {
 }
 
 impl QuadComplex {
+    /// The zero element of Q(sqrt(2)).
     pub const ZERO: Self = Self {
         a: ExactComplex::ZERO,
         b: ExactComplex::ZERO,
     };
+    /// The multiplicative identity of Q(sqrt(2)).
     pub const ONE: Self = Self {
         a: ExactComplex::ONE,
         b: ExactComplex::ZERO,
     };
 
+    /// Converts to a floating-point complex number using the f64 approximation of sqrt(2).
     pub fn to_complex64(self) -> Complex64 {
         let sqrt2 = std::f64::consts::SQRT_2;
         let a = self.a.to_complex64();
@@ -374,7 +418,9 @@ impl fmt::Display for ExactComplex {
 /// Canonical named transcendental constants supported by the scalar language.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum NamedConstant {
+    /// The constant pi.
     Pi,
+    /// The constant e.
     E,
 }
 
@@ -390,21 +436,34 @@ impl fmt::Display for NamedConstant {
 /// Canonical symbolic scalar expressions with exact complex constants.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ScalarExpr {
+    /// An exact complex constant.
     Exact(ExactComplex),
+    /// A named symbolic variable.
     Symbol(String),
+    /// A named transcendental constant.
     Constant(NamedConstant),
+    /// A sum of subexpressions.
     Add(Vec<ScalarExpr>),
+    /// A product of subexpressions.
     Mul(Vec<ScalarExpr>),
+    /// A base raised to an integer exponent.
     Pow(Box<ScalarExpr>, i32),
+    /// Absolute value.
     Abs(Box<ScalarExpr>),
+    /// Square root.
     Sqrt(Box<ScalarExpr>),
+    /// Sine.
     Sin(Box<ScalarExpr>),
+    /// Cosine.
     Cos(Box<ScalarExpr>),
+    /// Exponential.
     Exp(Box<ScalarExpr>),
+    /// Natural logarithm.
     Log(Box<ScalarExpr>),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+/// Error raised when a symbolic expression is evaluated without a value for one of its symbols.
 pub struct UnboundSymbol(pub String);
 impl fmt::Display for UnboundSymbol {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -413,10 +472,14 @@ impl fmt::Display for UnboundSymbol {
 }
 impl Error for UnboundSymbol {}
 
+/// Error type combining analytic, linear-algebra, and unbound-symbol failures.
 #[derive(Clone, Debug, PartialEq)]
 pub enum NumericPauliError {
+    /// An exact analytic operation failed.
     Analytic(AnalyticError),
+    /// A linear-algebra operation failed.
     LinearAlgebra(LinearError),
+    /// A symbol had no assigned value.
     UnboundSymbol(UnboundSymbol),
 }
 impl fmt::Display for NumericPauliError {
@@ -450,33 +513,43 @@ fn split_coeff(expr: &ScalarExpr) -> (Vec<ScalarExpr>, Option<ExactComplex>) {
 }
 
 impl ScalarExpr {
+    /// Wraps an exact complex constant as an expression.
     pub fn exact(value: ExactComplex) -> Self {
         Self::Exact(value)
     }
+    /// Creates a symbolic variable with the given name.
     pub fn symbol(name: impl Into<String>) -> Self {
         Self::Symbol(name.into())
     }
+    /// The expression pi.
     pub fn pi() -> Self {
         Self::Constant(NamedConstant::Pi)
     }
+    /// The expression e.
     pub fn e() -> Self {
         Self::Constant(NamedConstant::E)
     }
+    /// The constant expression 0.
     pub fn zero() -> Self {
         Self::Exact(ExactComplex::ZERO)
     }
+    /// The constant expression 1.
     pub fn one() -> Self {
         Self::Exact(ExactComplex::ONE)
     }
+    /// Builds an absolute-value expression.
     pub fn abs(value: Self) -> Self {
         Self::Abs(Box::new(value))
     }
+    /// Builds a square-root expression.
     pub fn sqrt(value: Self) -> Self {
         Self::Sqrt(Box::new(value))
     }
+    /// Builds a sine expression.
     pub fn sin(value: Self) -> Self {
         Self::Sin(Box::new(value))
     }
+    /// Builds a cosine expression.
     pub fn cos(value: Self) -> Self {
         Self::Cos(Box::new(value))
     }
@@ -521,9 +594,11 @@ impl ScalarExpr {
         ])
         .unwrap_or(Self::zero())
     }
+    /// Builds an exponential expression.
     pub fn exp(value: Self) -> Self {
         Self::Exp(Box::new(value))
     }
+    /// Builds a natural-logarithm expression.
     pub fn log(value: Self) -> Self {
         Self::Log(Box::new(value))
     }
@@ -818,6 +893,7 @@ impl ScalarExpr {
         }
         Ok(lhs.expand().canonicalize() == rhs.expand().canonicalize())
     }
+    /// Symbolically differentiates with respect to a named variable, using exact coefficients.
     pub fn differentiate(&self, variable: &str) -> Result<Self, AnalyticError> {
         match self {
             Self::Exact(_) | Self::Constant(_) => Ok(Self::zero()),
@@ -1479,6 +1555,7 @@ impl ScalarExpr {
             .map_err(|_| AnalyticError::NonPolynomialExpression)
     }
 
+    /// Builds a sum, flattening nested sums and combining exact coefficients exactly.
     pub fn add(terms: impl IntoIterator<Item = Self>) -> Result<Self, AnalyticError> {
         let mut flattened = Vec::new();
         for term in terms {
@@ -1529,6 +1606,7 @@ impl ScalarExpr {
         }
     }
 
+    /// Builds a product, flattening nested products and merging equal bases by adding exponents.
     pub fn mul(factors: impl IntoIterator<Item = Self>) -> Result<Self, AnalyticError> {
         let mut flattened = Vec::new();
         for factor in factors {
@@ -1578,6 +1656,7 @@ impl ScalarExpr {
         }
     }
 
+    /// Builds an integer power, collapsing nested powers by multiplying exponents.
     pub fn pow(base: Self, exponent: i32) -> Result<Self, AnalyticError> {
         if exponent == 0 {
             return Ok(Self::one());
@@ -1597,6 +1676,7 @@ impl ScalarExpr {
         }
     }
 
+    /// Builds the difference of two expressions as a sum with a negated term.
     pub fn subtract(left: Self, right: Self) -> Result<Self, AnalyticError> {
         Self::add([
             left,
@@ -1604,6 +1684,7 @@ impl ScalarExpr {
         ])
     }
 
+    /// Replaces symbols according to a map, leaving unlisted symbols unchanged.
     pub fn substitute(&self, values: &HashMap<String, Self>) -> Result<Self, AnalyticError> {
         match self {
             Self::Exact(_) | Self::Constant(_) => Ok(self.clone()),
@@ -1630,6 +1711,7 @@ impl ScalarExpr {
         }
     }
 
+    /// Evaluates the expression to a floating-point complex number, requiring every symbol to have a value.
     pub fn evaluate(
         &self,
         values: &HashMap<String, crate::Complex64>,
@@ -1817,56 +1899,75 @@ impl fmt::Display for ScalarExpr {
     }
 }
 
+/// A sign classification for a real symbol.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Sign {
+    /// The sign is not known.
     #[default]
     Unknown,
+    /// The symbol is known to be greater than or equal to zero.
     NonNegative,
+    /// The symbol is known to be strictly greater than zero.
     Positive,
+    /// The symbol is known to be less than or equal to zero.
     NonPositive,
+    /// The symbol is known to be strictly less than zero.
     Negative,
+    /// The symbol is known to be exactly zero.
     Zero,
 }
+/// Assumptions attached to a single symbol.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct SymbolAssumptions {
+    /// Whether the symbol is real-valued.
     pub real: bool,
+    /// Whether the symbol is an integer (implies real).
     pub integer: bool,
+    /// The known sign of the symbol.
     pub sign: Sign,
 }
 
+/// A collection of per-symbol assumptions used by the simplifier.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Assumptions {
     symbols: BTreeMap<String, SymbolAssumptions>,
 }
 impl Assumptions {
+    /// Marks a symbol as real.
     pub fn set_real(&mut self, symbol: impl Into<String>) {
         self.symbols.entry(symbol.into()).or_default().real = true;
     }
+    /// Marks a symbol as an integer, which also marks it real.
     pub fn set_integer(&mut self, symbol: impl Into<String>) {
         let entry = self.symbols.entry(symbol.into()).or_default();
         entry.real = true;
         entry.integer = true;
     }
+    /// Marks a symbol as real and strictly positive.
     pub fn set_positive(&mut self, symbol: impl Into<String>) {
         let entry = self.symbols.entry(symbol.into()).or_default();
         entry.real = true;
         entry.sign = Sign::Positive;
     }
+    /// Marks a symbol as real and non-negative.
     pub fn set_nonnegative(&mut self, symbol: impl Into<String>) {
         let entry = self.symbols.entry(symbol.into()).or_default();
         entry.real = true;
         entry.sign = Sign::NonNegative;
     }
+    /// Marks a symbol as real and strictly negative.
     pub fn set_negative(&mut self, symbol: impl Into<String>) {
         let entry = self.symbols.entry(symbol.into()).or_default();
         entry.real = true;
         entry.sign = Sign::Negative;
     }
+    /// Marks a symbol as real and non-positive.
     pub fn set_nonpositive(&mut self, symbol: impl Into<String>) {
         let entry = self.symbols.entry(symbol.into()).or_default();
         entry.real = true;
         entry.sign = Sign::NonPositive;
     }
+    /// Returns the assumptions recorded for a symbol, or defaults when none were set.
     pub fn symbol(&self, name: &str) -> SymbolAssumptions {
         self.symbols.get(name).copied().unwrap_or_default()
     }
@@ -1900,25 +2001,41 @@ impl Assumptions {
 /// binds it into the replacement expression under the same symbol name.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ExprPattern {
+    /// Matches any subexpression and binds it to the given name.
     Any(String),
+    /// Matches an exact scalar expression.
     Exact(ScalarExpr),
+    /// Matches a named constant.
     Constant(NamedConstant),
+    /// Matches a sum with the given subpatterns.
     Add(Vec<Self>),
+    /// Matches a product with the given subpatterns.
     Mul(Vec<Self>),
+    /// Matches a power with a matching base and exponent.
     Pow(Box<Self>, i32),
+    /// Matches an absolute value.
     Abs(Box<Self>),
+    /// Matches a square root.
     Sqrt(Box<Self>),
+    /// Matches a sine.
     Sin(Box<Self>),
+    /// Matches a cosine.
     Cos(Box<Self>),
+    /// Matches an exponential.
     Exp(Box<Self>),
+    /// Matches a logarithm.
     Log(Box<Self>),
 }
+/// A pattern plus the expression that replaces a match.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RewriteRule {
+    /// The pattern matched against expressions.
     pub pattern: ExprPattern,
+    /// The expression substituted for a match; captured names are replaced by their bindings.
     pub replacement: ScalarExpr,
 }
 impl RewriteRule {
+    /// Creates a rewrite rule from a pattern and a replacement.
     pub fn new(pattern: ExprPattern, replacement: ScalarExpr) -> Self {
         Self {
             pattern,
@@ -1927,9 +2044,12 @@ impl RewriteRule {
     }
 }
 
+/// Errors produced while rewriting symbolic expressions.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RewriteError {
+    /// An exact arithmetic operation failed during rewriting.
     Arithmetic(AnalyticError),
+    /// Rewriting did not reach a fixed point within the allowed number of passes.
     PassLimit(usize),
 }
 impl fmt::Display for RewriteError {
@@ -1947,8 +2067,10 @@ impl From<AnalyticError> for RewriteError {
     }
 }
 
+/// Rewrites scalar expressions using builtin identities, user rules, and symbol assumptions.
 #[derive(Clone, Debug)]
 pub struct Simplifier {
+    /// The symbol assumptions used during simplification.
     pub assumptions: Assumptions,
     rules: Vec<RewriteRule>,
     max_passes: usize,
@@ -1959,6 +2081,7 @@ impl Default for Simplifier {
     }
 }
 impl Simplifier {
+    /// Creates a simplifier with the given assumptions, no user rules, and a default pass limit.
     pub fn new(assumptions: Assumptions) -> Self {
         Self {
             assumptions,
@@ -1966,13 +2089,17 @@ impl Simplifier {
             max_passes: 64,
         }
     }
+    /// Appends a user rewrite rule applied after the builtin simplifications.
     pub fn add_rule(&mut self, rule: RewriteRule) {
         self.rules.push(rule);
     }
+    /// Sets the maximum number of rewrite passes before giving up.
     pub fn set_max_passes(&mut self, max_passes: usize) {
         self.max_passes = max_passes;
     }
 
+    /// Expands the expression and repeatedly applies builtin simplifications and user rules
+    /// until it stops changing.
     pub fn simplify(&self, expression: &ScalarExpr) -> Result<ScalarExpr, RewriteError> {
         let mut current = expression.expand();
         for _ in 0..self.max_passes {
@@ -2417,11 +2544,16 @@ fn integer_sqrt(n: u128) -> u128 {
     low
 }
 
+/// A single-qubit Pauli operator.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Pauli {
+    /// The identity operator.
     I,
+    /// The Pauli-X (bit-flip) operator.
     X,
+    /// The Pauli-Y operator.
     Y,
+    /// The Pauli-Z (phase-flip) operator.
     Z,
 }
 impl fmt::Display for Pauli {
@@ -2439,18 +2571,23 @@ impl fmt::Display for Pauli {
     }
 }
 
+/// A tensor product of single-qubit Pauli operators, one factor per qubit.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PauliWord(Vec<Pauli>);
 impl PauliWord {
+    /// Wraps a vector of Pauli factors as a word.
     pub fn new(factors: Vec<Pauli>) -> Self {
         Self(factors)
     }
+    /// Returns the Pauli factor on each qubit, ordered by qubit index.
     pub fn factors(&self) -> &[Pauli] {
         &self.0
     }
+    /// Returns the number of qubits the word acts on.
     pub fn qubits(&self) -> usize {
         self.0.len()
     }
+    /// Multiplies two words of equal length, returning the exact phase and the product word.
     pub fn multiply(&self, rhs: &Self) -> Result<(ExactComplex, Self), AnalyticError> {
         if self.qubits() != rhs.qubits() {
             return Err(AnalyticError::QubitCountMismatch {
@@ -2468,6 +2605,7 @@ impl PauliWord {
         Ok((phase, Self(product)))
     }
 
+    /// Applies the word to a dense ket, returning a new ket.
     pub fn apply_ket(&self, ket: &Ket) -> Result<Ket, LinearError> {
         validate_pauli_space(ket.space(), self.qubits())?;
         let mut output = vec![Complex64::ZERO; ket.space().dimension()];
@@ -2478,6 +2616,7 @@ impl PauliWord {
         Ket::new(ket.space().clone(), output)
     }
 
+    /// Applies the word to a sparse ket, returning a new sparse ket.
     pub fn apply_sparse_ket(&self, ket: &SparseKet) -> Result<SparseKet, LinearError> {
         validate_pauli_space(ket.space(), self.qubits())?;
         let entries = ket.amplitudes().iter().map(|(&index, &amplitude)| {
@@ -2573,35 +2712,42 @@ fn pauli_product(a: Pauli, b: Pauli) -> (Pauli, ExactComplex) {
     }
 }
 
+/// An exact linear combination of Pauli words with exact complex coefficients.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PauliSum {
     qubits: usize,
     terms: BTreeMap<PauliWord, ExactComplex>,
 }
 impl PauliSum {
+    /// Returns the empty sum acting on the given number of qubits.
     pub fn zero(qubits: usize) -> Self {
         Self {
             qubits,
             terms: BTreeMap::new(),
         }
     }
+    /// Returns the identity word with coefficient 1 on the given number of qubits.
     pub fn identity(qubits: usize) -> Self {
         let mut sum = Self::zero(qubits);
         let _ = sum.add_term(ExactComplex::ONE, PauliWord::new(vec![Pauli::I; qubits]));
         sum
     }
+    /// Builds a single-term sum from a coefficient and a word.
     pub fn term(coefficient: ExactComplex, word: PauliWord) -> Result<Self, AnalyticError> {
         let qubits = word.qubits();
         let mut sum = Self::zero(qubits);
         sum.add_term(coefficient, word)?;
         Ok(sum)
     }
+    /// Returns the number of qubits the sum acts on.
     pub fn qubits(&self) -> usize {
         self.qubits
     }
+    /// Returns the map from Pauli words to their exact coefficients.
     pub fn terms(&self) -> &BTreeMap<PauliWord, ExactComplex> {
         &self.terms
     }
+    /// Converts the sum into a sparse matrix operator on a qubit Hilbert space.
     pub fn to_sparse_operator(&self) -> Result<SparseOperator, LinearError> {
         let space = HilbertSpace::qubits(self.qubits)?;
         let dimension = space.dimension();
@@ -2615,6 +2761,7 @@ impl PauliSum {
         }
         SparseOperator::new(space.clone(), space, entries)
     }
+    /// Converts the sum into a sparse observable, using the given tolerance when constructing it.
     pub fn to_sparse_observable(
         &self,
         tolerance: f64,
@@ -2624,10 +2771,12 @@ impl PauliSum {
             .map_err(NumericPauliError::LinearAlgebra)?;
         SparseObservable::new(operator, tolerance).map_err(NumericPauliError::LinearAlgebra)
     }
+    /// Returns the expectation value of the sum in a dense ket.
     pub fn expectation_ket(&self, ket: &Ket) -> Result<Complex64, LinearError> {
         let operator = self.to_sparse_operator()?;
         ket.expectation_map(&operator)
     }
+    /// Returns the expectation value of the sum in a sparse ket.
     pub fn expectation_sparse_ket(&self, ket: &SparseKet) -> Result<Complex64, LinearError> {
         validate_pauli_space(ket.space(), self.qubits)?;
         let mut value = Complex64::ZERO;
@@ -2637,6 +2786,7 @@ impl PauliSum {
         }
         Ok(value)
     }
+    /// Adds a coefficient for a word, combining with any existing coefficient and dropping exact zeros.
     pub fn add_term(
         &mut self,
         coefficient: ExactComplex,
@@ -2661,6 +2811,7 @@ impl PauliSum {
         }
         Ok(())
     }
+    /// Exact sum of two Pauli sums with matching qubit counts.
     pub fn checked_add(&self, rhs: &Self) -> Result<Self, AnalyticError> {
         self.check_qubits(rhs)?;
         let mut out = self.clone();
@@ -2669,6 +2820,7 @@ impl PauliSum {
         }
         Ok(out)
     }
+    /// Exact difference of two Pauli sums with matching qubit counts.
     pub fn checked_sub(&self, rhs: &Self) -> Result<Self, AnalyticError> {
         self.check_qubits(rhs)?;
         let mut out = self.clone();
@@ -2677,6 +2829,7 @@ impl PauliSum {
         }
         Ok(out)
     }
+    /// Exact product of two Pauli sums with matching qubit counts.
     pub fn checked_mul(&self, rhs: &Self) -> Result<Self, AnalyticError> {
         self.check_qubits(rhs)?;
         let mut out = Self::zero(self.qubits);
@@ -2691,6 +2844,7 @@ impl PauliSum {
         }
         Ok(out)
     }
+    /// Returns the commutator self*rhs - rhs*self.
     pub fn commutator(&self, rhs: &Self) -> Result<Self, AnalyticError> {
         self.checked_mul(rhs)?.checked_sub(&rhs.checked_mul(self)?)
     }
@@ -2727,24 +2881,29 @@ pub struct SymbolicPauliSum {
     terms: BTreeMap<PauliWord, ScalarExpr>,
 }
 impl SymbolicPauliSum {
+    /// Returns the empty symbolic sum acting on the given number of qubits.
     pub fn zero(qubits: usize) -> Self {
         Self {
             qubits,
             terms: BTreeMap::new(),
         }
     }
+    /// Builds a single-term symbolic sum from a coefficient expression and a word.
     pub fn term(coefficient: ScalarExpr, word: PauliWord) -> Result<Self, AnalyticError> {
         let qubits = word.qubits();
         let mut sum = Self::zero(qubits);
         sum.add_term(coefficient, word)?;
         Ok(sum)
     }
+    /// Returns the number of qubits the sum acts on.
     pub fn qubits(&self) -> usize {
         self.qubits
     }
+    /// Returns the map from Pauli words to their scalar coefficient expressions.
     pub fn terms(&self) -> &BTreeMap<PauliWord, ScalarExpr> {
         &self.terms
     }
+    /// Evaluates every coefficient and builds a sparse matrix operator.
     pub fn evaluate_sparse_operator(
         &self,
         values: &HashMap<String, Complex64>,
@@ -2763,6 +2922,7 @@ impl SymbolicPauliSum {
         }
         SparseOperator::new(space.clone(), space, entries).map_err(NumericPauliError::LinearAlgebra)
     }
+    /// Evaluates every coefficient and builds a sparse observable with the given tolerance.
     pub fn evaluate_sparse_observable(
         &self,
         values: &HashMap<String, Complex64>,
@@ -2771,6 +2931,7 @@ impl SymbolicPauliSum {
         let operator = self.evaluate_sparse_operator(values)?;
         SparseObservable::new(operator, tolerance).map_err(NumericPauliError::LinearAlgebra)
     }
+    /// Substitutes symbols inside every coefficient expression.
     pub fn substitute(&self, values: &HashMap<String, ScalarExpr>) -> Result<Self, AnalyticError> {
         let mut out = Self::zero(self.qubits);
         for (word, coefficient) in &self.terms {
@@ -2790,6 +2951,8 @@ impl SymbolicPauliSum {
         }
         Ok(out)
     }
+    /// Adds a coefficient expression for a word, combining with any existing coefficient and
+    /// dropping exact zeros.
     pub fn add_term(
         &mut self,
         coefficient: ScalarExpr,
@@ -2815,6 +2978,7 @@ impl SymbolicPauliSum {
         }
         Ok(())
     }
+    /// Exact sum of two symbolic Pauli sums with matching qubit counts.
     pub fn checked_add(&self, rhs: &Self) -> Result<Self, AnalyticError> {
         self.check_qubits(rhs)?;
         let mut out = self.clone();
@@ -2823,6 +2987,7 @@ impl SymbolicPauliSum {
         }
         Ok(out)
     }
+    /// Exact difference of two symbolic Pauli sums with matching qubit counts.
     pub fn checked_sub(&self, rhs: &Self) -> Result<Self, AnalyticError> {
         self.check_qubits(rhs)?;
         let mut out = self.clone();
@@ -2835,6 +3000,7 @@ impl SymbolicPauliSum {
         }
         Ok(out)
     }
+    /// Exact product of two symbolic Pauli sums with matching qubit counts.
     pub fn checked_mul(&self, rhs: &Self) -> Result<Self, AnalyticError> {
         self.check_qubits(rhs)?;
         let mut out = Self::zero(self.qubits);
@@ -2851,6 +3017,7 @@ impl SymbolicPauliSum {
         }
         Ok(out)
     }
+    /// Returns the commutator self*rhs - rhs*self.
     pub fn commutator(&self, rhs: &Self) -> Result<Self, AnalyticError> {
         self.checked_mul(rhs)?.checked_sub(&rhs.checked_mul(self)?)
     }

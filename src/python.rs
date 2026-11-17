@@ -5,6 +5,12 @@
 
 #[cfg(feature = "pyo3")]
 pub mod python_bindings {
+    //! PyO3 classes exposed as the `quantumforge` Python module.
+    //!
+    //! Each class wraps the corresponding crate type (`Circuit`, `StateVector`,
+    //! `DensityMatrix`, `ShotResult`, ...) and mirrors its Rust API, so the
+    //! Python surface tracks the documented Rust one.
+
     use crate::{
         Circuit, DensityMatrix, Gate, ParameterizedCircuit, RotationAxis, ShotResult,
         SingleQubitObservable, StateVector,

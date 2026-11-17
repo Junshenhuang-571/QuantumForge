@@ -6,55 +6,92 @@ use std::error::Error;
 use std::fmt;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
+/// Finite-dimensional Hilbert space described as a tensor product of subsystems.
 pub struct HilbertSpace {
     dimensions: Vec<usize>,
     dimension: usize,
 }
 
 #[derive(Clone, Debug, PartialEq)]
+/// Errors reported by the linear-algebra, sparse-operator, and time-evolution routines.
 pub enum LinearError {
+    /// No subsystems were supplied.
     EmptySpace,
+    /// A subsystem dimension was zero.
     ZeroSubsystemDimension,
+    /// The total dimension overflowed the integer range.
     DimensionOverflow,
+    /// The supplied data length did not match the expected dimension.
     DimensionMismatch {
+        /// The dimension that was required.
         expected: usize,
+        /// The dimension that was supplied.
         actual: usize,
     },
+    /// A sparse entry fell outside the declared matrix dimensions.
     SparseEntryOutOfRange {
+        /// The row index of the offending entry.
         row: usize,
+        /// The column index of the offending entry.
         col: usize,
+        /// The number of rows in the matrix.
         rows: usize,
+        /// The number of columns in the matrix.
         cols: usize,
     },
+    /// The objects belong to different Hilbert spaces.
     IncompatibleSpaces,
+    /// A basis index exceeded the space dimension.
     BasisIndexOutOfRange {
+        /// The basis index that was requested.
         index: usize,
+        /// The dimension of the space.
         dimension: usize,
     },
+    /// A qubit index exceeded the number of qubits.
     QubitOutOfRange {
+        /// The qubit index that was requested.
         qubit: usize,
+        /// The number of qubits in the space.
         qubits: usize,
     },
+    /// A two-qubit operation received the same qubit twice.
     InvalidQubitPair {
+        /// The first qubit index supplied.
         first: usize,
+        /// The second qubit index supplied.
         second: usize,
     },
+    /// A measurement probability was non-positive or otherwise unusable.
     InvalidProbability(f64),
+    /// A vector had zero or non-finite norm and could not be normalized.
     ZeroNorm,
+    /// The operator maps between different Hilbert spaces.
     NotEndomorphism,
+    /// The operator failed the Hermiticity check within the requested tolerance.
     NotHermitian,
+    /// The operator failed the unitarity check within the requested tolerance.
     NotUnitary,
+    /// The space is not composed entirely of qubits.
     NotQubitSpace,
+    /// The tolerance was non-finite or negative.
     InvalidTolerance,
+    /// The eigensolver did not converge within the iteration limit.
     EigenDecompositionNoConvergence,
+    /// The requested eigenpair count was zero or exceeded the operator dimension.
     InvalidEigenpairCount {
+        /// The number of eigenpairs requested.
         requested: usize,
+        /// The dimension of the operator.
         dimension: usize,
     },
+    /// A time argument was not finite.
     NonFiniteTime,
+    /// A Hamiltonian phase overflowed the floating-point range during evolution.
     EvolutionOverflow,
 }
 impl fmt::Display for LinearError {
+    /// Render the error as a display string.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::EmptySpace => write!(f, "a Hilbert space must contain at least one subsystem"),
@@ -126,6 +163,7 @@ impl fmt::Display for LinearError {
 impl Error for LinearError {}
 
 impl HilbertSpace {
+    /// Construct a space from subsystem dimensions, rejecting an empty list, a zero dimension, or a total dimension that overflows.
     pub fn new(dimensions: Vec<usize>) -> Result<Self, LinearError> {
         if dimensions.is_empty() {
             return Err(LinearError::EmptySpace);
@@ -142,15 +180,19 @@ impl HilbertSpace {
             dimension,
         })
     }
+    /// Construct a space of `count` qubits.
     pub fn qubits(count: usize) -> Result<Self, LinearError> {
         Self::new(vec![2; count])
     }
+    /// Return the total dimension.
     pub fn dimension(&self) -> usize {
         self.dimension
     }
+    /// Return the subsystem dimensions in tensor-product order.
     pub fn subsystem_dimensions(&self) -> &[usize] {
         &self.dimensions
     }
+    /// Return the tensor product of this space and `rhs`.
     pub fn tensor(&self, rhs: &Self) -> Result<Self, LinearError> {
         let mut dimensions = self.dimensions.clone();
         dimensions.extend_from_slice(&rhs.dimensions);
@@ -159,11 +201,13 @@ impl HilbertSpace {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+/// A dense column vector in a `HilbertSpace`.
 pub struct Ket {
     space: HilbertSpace,
     amplitudes: Vec<Complex64>,
 }
 impl Ket {
+    /// Create a ket from a space and dense amplitudes, checking the amplitude count against the space dimension.
     pub fn new(space: HilbertSpace, amplitudes: Vec<Complex64>) -> Result<Self, LinearError> {
         if amplitudes.len() != space.dimension {
             return Err(LinearError::DimensionMismatch {
@@ -173,6 +217,7 @@ impl Ket {
         }
         Ok(Self { space, amplitudes })
     }
+    /// Create the computational-basis ket at `index`.
     pub fn basis(space: HilbertSpace, index: usize) -> Result<Self, LinearError> {
         if index >= space.dimension {
             return Err(LinearError::BasisIndexOutOfRange {
@@ -184,15 +229,19 @@ impl Ket {
         amplitudes[index] = Complex64::ONE;
         Ok(Self { space, amplitudes })
     }
+    /// Return the Hilbert space of the ket.
     pub fn space(&self) -> &HilbertSpace {
         &self.space
     }
+    /// Return the dense complex amplitudes.
     pub fn amplitudes(&self) -> &[Complex64] {
         &self.amplitudes
     }
+    /// Return the squared norm of the amplitudes.
     pub fn norm_sqr(&self) -> f64 {
         self.amplitudes.iter().map(|a| a.norm_sqr()).sum()
     }
+    /// Divide the amplitudes by their norm in place.
     pub fn normalize(&mut self) -> Result<(), LinearError> {
         let norm = self.norm_sqr().sqrt();
         if norm == 0.0 || !norm.is_finite() {
@@ -203,15 +252,18 @@ impl Ket {
         }
         Ok(())
     }
+    /// Return the conjugate-transpose bra.
     pub fn bra(&self) -> Bra {
         Bra {
             space: self.space.clone(),
             amplitudes: self.amplitudes.iter().map(|x| x.conj()).collect(),
         }
     }
+    /// Return the inner product with `rhs`.
     pub fn inner(&self, rhs: &Self) -> Result<Complex64, LinearError> {
         self.bra().inner(rhs)
     }
+    /// Return the outer product with a bra as a dense operator.
     pub fn outer(&self, bra: &Bra) -> Result<Operator, LinearError> {
         if self.space != bra.space {
             return Err(LinearError::IncompatibleSpaces);
@@ -224,18 +276,22 @@ impl Ket {
         }
         Operator::new(self.space.clone(), self.space.clone(), entries)
     }
+    /// Apply a dense operator to the ket.
     pub fn apply(&self, operator: &Operator) -> Result<Self, LinearError> {
         operator.apply(self)
     }
+    /// Apply any `LinearMap` to the ket.
     pub fn apply_map<M: LinearMap>(&self, operator: &M) -> Result<Self, LinearError> {
         operator.apply_ket(self)
     }
+    /// Return the expectation value of a `LinearMap` in this ket.
     pub fn expectation_map<M: LinearMap>(&self, operator: &M) -> Result<Complex64, LinearError> {
         if self.space != *operator.output_space() {
             return Err(LinearError::IncompatibleSpaces);
         }
         self.inner(&operator.apply_ket(self)?)
     }
+    /// Return the tensor product with `rhs`.
     pub fn tensor(&self, rhs: &Self) -> Result<Self, LinearError> {
         let space = self.space.tensor(&rhs.space)?;
         let mut amplitudes = Vec::with_capacity(space.dimension);
@@ -246,23 +302,28 @@ impl Ket {
         }
         Self::new(space, amplitudes)
     }
+    /// Return the expectation value of an observable in this ket.
     pub fn expectation(&self, observable: &Observable) -> Result<Complex64, LinearError> {
         observable.expectation_ket(self)
     }
 }
 
 #[derive(Clone, Debug, PartialEq)]
+/// A dense row vector in a `HilbertSpace`.
 pub struct Bra {
     space: HilbertSpace,
     amplitudes: Vec<Complex64>,
 }
 impl Bra {
+    /// Return the Hilbert space of the bra.
     pub fn space(&self) -> &HilbertSpace {
         &self.space
     }
+    /// Return the dense complex amplitudes.
     pub fn amplitudes(&self) -> &[Complex64] {
         &self.amplitudes
     }
+    /// Return the inner product with a ket.
     pub fn inner(&self, ket: &Ket) -> Result<Complex64, LinearError> {
         if self.space != ket.space {
             return Err(LinearError::IncompatibleSpaces);
@@ -274,6 +335,7 @@ impl Bra {
             .map(|(a, b)| *a * *b)
             .fold(Complex64::ZERO, |x, y| x + y))
     }
+    /// Apply a dense operator on the right, yielding a bra on the operator input space.
     pub fn apply(&self, operator: &Operator) -> Result<Self, LinearError> {
         if self.space != operator.output {
             return Err(LinearError::IncompatibleSpaces);
@@ -292,12 +354,14 @@ impl Bra {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+/// A dense linear operator between two Hilbert spaces, stored in row-major order.
 pub struct Operator {
     output: HilbertSpace,
     input: HilbertSpace,
     entries: Vec<Complex64>,
 }
 impl Operator {
+    /// Create an operator from output and input spaces and a row-major entry vector.
     pub fn new(
         output: HilbertSpace,
         input: HilbertSpace,
@@ -319,6 +383,7 @@ impl Operator {
             entries,
         })
     }
+    /// Return the identity operator on a space.
     pub fn identity(space: HilbertSpace) -> Self {
         let n = space.dimension;
         let mut entries = vec![Complex64::ZERO; n * n];
@@ -331,6 +396,7 @@ impl Operator {
             entries,
         }
     }
+    /// Return the single-qubit Pauli-X operator.
     pub fn pauli_x() -> Self {
         Self::new(
             HilbertSpace::qubits(1).unwrap(),
@@ -344,6 +410,7 @@ impl Operator {
         )
         .unwrap()
     }
+    /// Return the single-qubit Pauli-Y operator.
     pub fn pauli_y() -> Self {
         Self::new(
             HilbertSpace::qubits(1).unwrap(),
@@ -357,6 +424,7 @@ impl Operator {
         )
         .unwrap()
     }
+    /// Return the single-qubit Pauli-Z operator.
     pub fn pauli_z() -> Self {
         Self::new(
             HilbertSpace::qubits(1).unwrap(),
@@ -370,6 +438,7 @@ impl Operator {
         )
         .unwrap()
     }
+    /// Return the single-qubit Hadamard operator.
     pub fn hadamard() -> Self {
         let s = std::f64::consts::FRAC_1_SQRT_2;
         Self::new(
@@ -384,18 +453,23 @@ impl Operator {
         )
         .unwrap()
     }
+    /// Return the output Hilbert space.
     pub fn output_space(&self) -> &HilbertSpace {
         &self.output
     }
+    /// Return the input Hilbert space.
     pub fn input_space(&self) -> &HilbertSpace {
         &self.input
     }
+    /// Return the row-major entries.
     pub fn entries(&self) -> &[Complex64] {
         &self.entries
     }
+    /// Apply the operator to a ket.
     pub fn apply(&self, ket: &Ket) -> Result<Ket, LinearError> {
         self.apply_ket(ket)
     }
+    /// Return the conjugate transpose, swapping input and output spaces.
     pub fn adjoint(&self) -> Self {
         let mut entries = vec![Complex64::ZERO; self.entries.len()];
         for row in 0..self.output.dimension {
@@ -431,6 +505,7 @@ impl Operator {
         }
         Self::new(self.output.clone(), rhs.input.clone(), entries)
     }
+    /// Return the trace, requiring equal input and output spaces.
     pub fn trace(&self) -> Result<Complex64, LinearError> {
         if self.output != self.input {
             return Err(LinearError::IncompatibleSpaces);
@@ -440,12 +515,14 @@ impl Operator {
             .map(|i| self.entries[i * n + i])
             .fold(Complex64::ZERO, |x, y| x + y))
     }
+    /// Return the expectation value in a ket.
     pub fn expectation(&self, ket: &Ket) -> Result<Complex64, LinearError> {
         if self.input != ket.space || self.output != ket.space {
             return Err(LinearError::IncompatibleSpaces);
         }
         ket.bra().inner(&self.apply(ket)?)
     }
+    /// Return the tensor product with `rhs`.
     pub fn tensor(&self, rhs: &Self) -> Result<Self, LinearError> {
         let output = self.output.tensor(&rhs.output)?;
         let input = self.input.tensor(&rhs.input)?;
@@ -470,6 +547,7 @@ impl Operator {
         }
         Self::new(output, input, entries)
     }
+    /// Return whether the operator is Hermitian within `tolerance`.
     pub fn is_hermitian(&self, tolerance: f64) -> bool {
         if self.output != self.input || !tolerance.is_finite() || tolerance < 0.0 {
             return false;
@@ -482,6 +560,7 @@ impl Operator {
         })
     }
 
+    /// Return whether the operator is unitary within `tolerance`.
     pub fn is_unitary(&self, tolerance: f64) -> bool {
         if self.output != self.input || !tolerance.is_finite() || tolerance < 0.0 {
             return false;
@@ -656,10 +735,14 @@ impl Operator {
 
 /// A dimension-aware linear map with a shared ket application interface.
 pub trait LinearMap {
+    /// Return the Hilbert space the map produces.
     fn output_space(&self) -> &HilbertSpace;
+    /// Return the Hilbert space the map consumes.
     fn input_space(&self) -> &HilbertSpace;
+    /// Apply the map to a raw amplitude slice.
     fn apply_amplitudes(&self, input: &[Complex64]) -> Result<Vec<Complex64>, LinearError>;
 
+    /// Apply the map to a ket, checking the input space first.
     fn apply_ket(&self, ket: &Ket) -> Result<Ket, LinearError> {
         if ket.space != *self.input_space() {
             return Err(LinearError::IncompatibleSpaces);
@@ -672,12 +755,15 @@ pub trait LinearMap {
 }
 
 impl LinearMap for Operator {
+    /// Return the operator output space.
     fn output_space(&self) -> &HilbertSpace {
         &self.output
     }
+    /// Return the operator input space.
     fn input_space(&self) -> &HilbertSpace {
         &self.input
     }
+    /// Multiply the operator by a raw amplitude slice.
     fn apply_amplitudes(&self, input: &[Complex64]) -> Result<Vec<Complex64>, LinearError> {
         if input.len() != self.input.dimension {
             return Err(LinearError::DimensionMismatch {
@@ -707,6 +793,7 @@ pub struct SparseOperator {
 }
 
 impl SparseOperator {
+    /// Build a CSR operator from triplets, summing duplicates and dropping explicit zeros.
     pub fn new(
         output: HilbertSpace,
         input: HilbertSpace,
@@ -749,6 +836,7 @@ impl SparseOperator {
         })
     }
 
+    /// Convert a dense operator to CSR, discarding entries with magnitude at most `tolerance`.
     pub fn from_dense(operator: &Operator, tolerance: f64) -> Result<Self, LinearError> {
         if !tolerance.is_finite() || tolerance < 0.0 {
             return Err(LinearError::InvalidTolerance);
@@ -764,29 +852,37 @@ impl SparseOperator {
         Self::new(operator.output.clone(), operator.input.clone(), entries)
     }
 
+    /// Return the output Hilbert space.
     pub fn output_space(&self) -> &HilbertSpace {
         &self.output
     }
+    /// Return the input Hilbert space.
     pub fn input_space(&self) -> &HilbertSpace {
         &self.input
     }
+    /// Return the CSR row offsets; the final entry is the total value count.
     pub fn row_offsets(&self) -> &[usize] {
         &self.row_offsets
     }
+    /// Return the column index of each stored value.
     pub fn column_indices(&self) -> &[usize] {
         &self.column_indices
     }
+    /// Return the stored nonzero values.
     pub fn values(&self) -> &[Complex64] {
         &self.values
     }
+    /// Return the number of stored nonzero values.
     pub fn nonzero_count(&self) -> usize {
         self.values.len()
     }
 
+    /// Apply the sparse operator to a ket.
     pub fn apply(&self, ket: &Ket) -> Result<Ket, LinearError> {
         self.apply_ket(ket)
     }
 
+    /// Expand into a dense operator.
     pub fn to_dense(&self) -> Result<Operator, LinearError> {
         let mut entries = vec![Complex64::ZERO; self.output.dimension * self.input.dimension];
         for row in 0..self.output.dimension {
@@ -798,6 +894,7 @@ impl SparseOperator {
         Operator::new(self.output.clone(), self.input.clone(), entries)
     }
 
+    /// Return the expectation value in a ket, requiring an endomorphism.
     pub fn expectation(&self, ket: &Ket) -> Result<Complex64, LinearError> {
         if self.output != self.input || ket.space != self.input {
             return Err(LinearError::IncompatibleSpaces);
@@ -805,6 +902,7 @@ impl SparseOperator {
         ket.expectation_map(self)
     }
 
+    /// Return whether the operator is Hermitian within `tolerance`.
     pub fn is_hermitian(&self, tolerance: f64) -> bool {
         if self.output != self.input || !tolerance.is_finite() || tolerance < 0.0 {
             return false;
@@ -1054,6 +1152,7 @@ impl SparseOperator {
         }
     }
 
+    /// Return the conjugate transpose as a sparse operator.
     pub fn adjoint(&self) -> Self {
         let mut entries = Vec::with_capacity(self.values.len());
         for row in 0..self.output.dimension {
@@ -1229,12 +1328,15 @@ fn ket_distance(left: &Ket, right: &Ket) -> Result<f64, LinearError> {
 }
 
 impl LinearMap for SparseOperator {
+    /// Return the operator output space.
     fn output_space(&self) -> &HilbertSpace {
         &self.output
     }
+    /// Return the operator input space.
     fn input_space(&self) -> &HilbertSpace {
         &self.input
     }
+    /// Multiply the sparse operator by a raw amplitude slice.
     fn apply_amplitudes(&self, input: &[Complex64]) -> Result<Vec<Complex64>, LinearError> {
         if input.len() != self.input.dimension {
             return Err(LinearError::DimensionMismatch {
@@ -1253,10 +1355,12 @@ impl LinearMap for SparseOperator {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+/// A sparse Hermitian operator that acts as a real-valued observable.
 pub struct SparseObservable {
     operator: SparseOperator,
 }
 impl SparseObservable {
+    /// Wrap a sparse operator as an observable, requiring an endomorphism that is Hermitian within `tolerance`.
     pub fn new(operator: SparseOperator, tolerance: f64) -> Result<Self, LinearError> {
         if operator.output != operator.input {
             return Err(LinearError::NotEndomorphism);
@@ -1266,9 +1370,11 @@ impl SparseObservable {
         }
         Ok(Self { operator })
     }
+    /// Return the underlying sparse operator.
     pub fn operator(&self) -> &SparseOperator {
         &self.operator
     }
+    /// Return the expectation value in a ket.
     pub fn expectation_ket(&self, ket: &Ket) -> Result<Complex64, LinearError> {
         self.operator.expectation(ket)
     }
@@ -1284,6 +1390,7 @@ pub struct SparseKet {
 }
 
 impl SparseKet {
+    /// Create a sparse ket from index-amplitude pairs, summing duplicates and dropping zeros.
     pub fn new(
         space: HilbertSpace,
         entries: impl IntoIterator<Item = (usize, Complex64)>,
@@ -1303,10 +1410,12 @@ impl SparseKet {
         Ok(Self { space, amplitudes })
     }
 
+    /// Create the sparse computational-basis ket at `index`.
     pub fn basis(space: HilbertSpace, index: usize) -> Result<Self, LinearError> {
         Self::new(space, [(index, Complex64::ONE)])
     }
 
+    /// Convert a dense ket to sparse form, keeping only nonzero amplitudes.
     pub fn from_ket(ket: &Ket) -> Self {
         let amplitudes = ket
             .amplitudes
@@ -1321,6 +1430,7 @@ impl SparseKet {
         }
     }
 
+    /// Expand into a dense ket.
     pub fn to_ket(&self) -> Result<Ket, LinearError> {
         let mut amplitudes = vec![Complex64::ZERO; self.space.dimension];
         for (&index, &amplitude) in &self.amplitudes {
@@ -1329,15 +1439,19 @@ impl SparseKet {
         Ket::new(self.space.clone(), amplitudes)
     }
 
+    /// Return the Hilbert space of the ket.
     pub fn space(&self) -> &HilbertSpace {
         &self.space
     }
+    /// Return the number of stored nonzero amplitudes.
     pub fn nonzero_count(&self) -> usize {
         self.amplitudes.len()
     }
+    /// Return the map from basis index to nonzero amplitude.
     pub fn amplitudes(&self) -> &BTreeMap<usize, Complex64> {
         &self.amplitudes
     }
+    /// Return the amplitude at a basis index, or zero when it is absent.
     pub fn amplitude(&self, basis_index: usize) -> Result<Complex64, LinearError> {
         if basis_index >= self.space.dimension {
             return Err(LinearError::BasisIndexOutOfRange {
@@ -1351,12 +1465,14 @@ impl SparseKet {
             .copied()
             .unwrap_or(Complex64::ZERO))
     }
+    /// Return the squared norm of the amplitudes.
     pub fn norm_sqr(&self) -> f64 {
         self.amplitudes
             .values()
             .map(|amplitude| amplitude.norm_sqr())
             .sum()
     }
+    /// Divide the amplitudes by their norm in place.
     pub fn normalize(&mut self) -> Result<(), LinearError> {
         let norm = self.norm_sqr().sqrt();
         if norm == 0.0 || !norm.is_finite() {
@@ -1367,6 +1483,7 @@ impl SparseKet {
         }
         Ok(())
     }
+    /// Return the inner product with `rhs`.
     pub fn inner(&self, rhs: &Self) -> Result<Complex64, LinearError> {
         if self.space != rhs.space {
             return Err(LinearError::IncompatibleSpaces);
@@ -1384,6 +1501,7 @@ impl SparseKet {
             })
             .fold(Complex64::ZERO, |sum, value| sum + value))
     }
+    /// Apply a sparse operator, staying in sparse form.
     pub fn apply_sparse(&self, operator: &SparseOperator) -> Result<Self, LinearError> {
         if self.space != operator.input {
             return Err(LinearError::IncompatibleSpaces);
@@ -1405,12 +1523,14 @@ impl SparseKet {
             amplitudes: output,
         })
     }
+    /// Return the expectation value of a sparse observable.
     pub fn expectation(&self, observable: &SparseObservable) -> Result<Complex64, LinearError> {
         if observable.operator.input != self.space {
             return Err(LinearError::IncompatibleSpaces);
         }
         self.inner(&self.apply_sparse(&observable.operator)?)
     }
+    /// Return the tensor product with `rhs`.
     pub fn tensor(&self, rhs: &Self) -> Result<Self, LinearError> {
         let space = self.space.tensor(&rhs.space)?;
         let mut amplitudes = BTreeMap::new();
@@ -1425,6 +1545,7 @@ impl SparseKet {
         Ok(Self { space, amplitudes })
     }
 
+    /// Apply a single-qubit gate to `qubit` in place.
     pub fn apply_gate(&mut self, gate: Gate, qubit: usize) -> Result<(), LinearError> {
         let qubits = self.qubit_count()?;
         if qubit >= qubits {
@@ -1454,6 +1575,7 @@ impl SparseKet {
         Ok(())
     }
 
+    /// Apply a CNOT permutation with the given control and target.
     pub fn apply_cnot(&mut self, control: usize, target: usize) -> Result<(), LinearError> {
         self.validate_pair(control, target)?;
         let control_mask = 1usize << control;
@@ -1467,6 +1589,7 @@ impl SparseKet {
         });
         Ok(())
     }
+    /// Apply a controlled-Z sign flip to the given qubit pair.
     pub fn apply_cz(&mut self, first: usize, second: usize) -> Result<(), LinearError> {
         self.validate_pair(first, second)?;
         let first_mask = 1usize << first;
@@ -1478,6 +1601,7 @@ impl SparseKet {
         }
         Ok(())
     }
+    /// Swap the amplitudes of the given qubit pair.
     pub fn apply_swap(&mut self, first: usize, second: usize) -> Result<(), LinearError> {
         self.validate_pair(first, second)?;
         let first_mask = 1usize << first;
@@ -1492,6 +1616,7 @@ impl SparseKet {
         Ok(())
     }
 
+    /// Return the probability of measuring one on `qubit`.
     pub fn probability_one(&self, qubit: usize) -> Result<f64, LinearError> {
         let qubits = self.qubit_count()?;
         if qubit >= qubits {
@@ -1506,6 +1631,7 @@ impl SparseKet {
             .sum::<f64>()
             .clamp(0.0, 1.0))
     }
+    /// Return the expectation value of Pauli Z on `qubit`.
     pub fn expectation_z(&self, qubit: usize) -> Result<f64, LinearError> {
         let qubits = self.qubit_count()?;
         if qubit >= qubits {
@@ -1524,6 +1650,7 @@ impl SparseKet {
             })
             .sum())
     }
+    /// Measure `qubit` in the Z basis with `rng`, collapsing and renormalizing in place.
     pub fn measure(&mut self, qubit: usize, rng: &mut SmallRng) -> Result<u8, LinearError> {
         let qubits = self.qubit_count()?;
         if qubit >= qubits {
@@ -1607,14 +1734,17 @@ fn max_off_diagonal_norm(matrix: &[Complex64], dimension: usize) -> f64 {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+/// Eigenvalues and eigenvectors returned by the dense Hermitian eigensolver.
 pub struct HermitianEigensystem {
     eigenvalues: Vec<f64>,
     eigenvectors: Operator,
 }
 impl HermitianEigensystem {
+    /// Return the eigenvalues in ascending order.
     pub fn eigenvalues(&self) -> &[f64] {
         &self.eigenvalues
     }
+    /// Return the eigenvectors as the columns of a unitary operator.
     pub fn eigenvectors(&self) -> &Operator {
         &self.eigenvectors
     }
@@ -1627,9 +1757,11 @@ pub struct SparseEigensystem {
     eigenvectors: Vec<Ket>,
 }
 impl SparseEigensystem {
+    /// Return the Ritz eigenvalues in ascending order.
     pub fn eigenvalues(&self) -> &[f64] {
         &self.eigenvalues
     }
+    /// Return the Ritz eigenvectors as kets.
     pub fn eigenvectors(&self) -> &[Ket] {
         &self.eigenvectors
     }
@@ -1677,6 +1809,7 @@ pub struct Observable {
     operator: Operator,
 }
 impl Observable {
+    /// Wrap a dense operator as an observable, requiring an endomorphism that is Hermitian within `tolerance`.
     pub fn new(operator: Operator, tolerance: f64) -> Result<Self, LinearError> {
         if operator.output != operator.input {
             return Err(LinearError::NotEndomorphism);
@@ -1686,12 +1819,15 @@ impl Observable {
         }
         Ok(Self { operator })
     }
+    /// Return the underlying dense operator.
     pub fn operator(&self) -> &Operator {
         &self.operator
     }
+    /// Return the expectation value in a ket.
     pub fn expectation_ket(&self, ket: &Ket) -> Result<Complex64, LinearError> {
         self.operator.expectation(ket)
     }
+    /// Return the expectation value in a density matrix, matching it to a qubit space.
     pub fn expectation_density(
         &self,
         density: &crate::DensityMatrix,
@@ -1713,6 +1849,7 @@ impl Observable {
 }
 
 #[cfg(feature = "gpu")]
+/// Estimate the lowest eigenvalue of a sparse Hermitian operator on the GPU using Lanczos with a compiled sparse matvec kernel, then solving the tridiagonal projection with faer and returning its first eigenvalue.
 pub fn sparse_lanczos_gpu(
     op: &SparseOperator,
     max_iterations: usize,

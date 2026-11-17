@@ -14,22 +14,37 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 
+/// Errors raised while lowering to LLVM IR or driving the LLVM toolchain.
 #[derive(Debug)]
 pub enum LlvmError {
+    /// The requested optimization level is above the supported maximum of 3.
     InvalidOptimizationLevel(u8),
+    /// `opt` or `llc` could not be found or spawned; carries the executable
+    /// name.
     ToolUnavailable(String),
+    /// A toolchain executable ran and reported failure.
     ToolFailed {
+        /// The executable that failed.
         tool: String,
+        /// Its captured diagnostics.
         diagnostics: String,
     },
+    /// `rustc` could not be found or spawned.
     RustcUnavailable(String),
+    /// `rustc` ran and rejected the generated source.
     RustcFailed {
+        /// The compiler invocation that failed.
         compiler: String,
+        /// Its captured diagnostics.
         diagnostics: String,
     },
+    /// The compiled shared library could not be loaded.
     DynamicLibraryUnavailable(String),
+    /// The shared library loaded but did not export the expected entry symbol.
     DynamicLibrarySymbolMissing,
+    /// Dynamic library loading is unsupported on this platform.
     UnsupportedDynamicLibraryPlatform,
+    /// An I/O error while writing or reading an intermediate file.
     Io(std::io::Error),
 }
 
@@ -304,6 +319,8 @@ pub struct CompiledNumericProgram {
 }
 
 impl CompiledNumericProgram {
+    /// Number of scalar inputs the compiled entry point expects; `evaluate`
+    /// rejects a slice of any other length.
     pub fn input_count(&self) -> usize {
         self.input_count
     }

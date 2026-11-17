@@ -18,6 +18,7 @@ pub struct StabilizerTableau {
 }
 
 impl StabilizerTableau {
+    /// Create a tableau for `n` qubits with stabilizer `i` equal to `Z_i` and destabilizer `i` equal to `X_i`.
     pub fn new(n: usize) -> Self {
         let mut x = vec![vec![false; n]; 2 * n];
         let mut z = vec![vec![false; n]; 2 * n];

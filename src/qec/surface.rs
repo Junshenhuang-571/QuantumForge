@@ -7,6 +7,12 @@ use super::verify_code;
 use super::{Circuit, Gate, PauliString, QecCode};
 use std::collections::HashMap;
 
+/// Build the planar (unrotated) surface code of distance `d` on a `d`x`d` grid.
+///
+/// Uses the `(d-1)^2` alternating X/Z face stabilizers only, with no boundary
+/// stabilizers, so the code encodes `2*d - 1` logical qubits rather than one;
+/// the logical basis is recovered at runtime by GF(2) extraction. Panics unless
+/// `d` is odd and at least 3.
 pub fn surface_code_planar(d: usize) -> QecCode {
     assert!(d >= 3 && d % 2 == 1, "distance must be odd and >= 3");
 
@@ -101,8 +107,9 @@ pub fn surface_code_planar(d: usize) -> QecCode {
     }
 }
 
-/// Check that every single-qubit Pauli error on `code` produces a distinct
-/// syndrome (distance >= 3 necessary condition). Returns true if all 3*n
+/// Check that every single-qubit Pauli error on `code` produces a distinct,
+/// non-zero syndrome (a distance >= 3 necessary condition). Returns true when
+/// all `3 * n_physical` errors are distinguishable.
 pub fn verify_single_error_syndromes(code: &QecCode) -> bool {
     use std::collections::HashSet;
     let n = code.n_physical;
@@ -325,6 +332,12 @@ fn verify_with_stabilizers(n: usize, stabs: &[PauliString]) -> bool {
     verify_code(&code)
 }
 
+/// Build the rotated surface code, which encodes one logical qubit.
+///
+/// Only `d = 3` is supported: the four weight-2 boundary stabilizers are
+/// hard-coded and were verified so that all 27 single-qubit errors have
+/// distinct syndromes, and the logical X/Z operators were found by exhaustive
+/// search. Panics for any other distance.
 pub fn surface_code_rotated(d: usize) -> QecCode {
     assert!(
         d == 3,

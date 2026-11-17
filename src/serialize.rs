@@ -8,8 +8,11 @@ use serde::{Deserialize, Serialize};
 /// Serialized circuit format (JSON-compatible).
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct SerializedCircuit {
+    /// Number of qubits in the circuit.
     pub num_qubits: usize,
+    /// Number of classical bits in the circuit.
     pub num_classical_bits: usize,
+    /// Circuit operations in execution order.
     pub operations: Vec<SerializedOp>,
 }
 
@@ -17,32 +20,70 @@ pub struct SerializedCircuit {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "type")]
 pub enum SerializedOp {
+    /// A single-qubit gate applied to one target.
     #[serde(rename = "single")]
     SingleQubit {
+        /// Gate name (for example `H`, `X`, or `Rx`).
         gate: String,
+        /// Target qubit index.
         target: usize,
+        /// Gate parameters such as rotation angles.
         params: Vec<f64>,
     },
+    /// A controlled-X gate.
     #[serde(rename = "cx")]
-    Cnot { control: usize, target: usize },
+    Cnot {
+        /// Control qubit index.
+        control: usize,
+        /// Target qubit index.
+        target: usize,
+    },
+    /// A controlled-Z gate.
     #[serde(rename = "cz")]
-    Cz { first: usize, second: usize },
+    Cz {
+        /// First qubit index.
+        first: usize,
+        /// Second qubit index.
+        second: usize,
+    },
+    /// A SWAP gate.
     #[serde(rename = "swap")]
-    Swap { first: usize, second: usize },
+    Swap {
+        /// First qubit index.
+        first: usize,
+        /// Second qubit index.
+        second: usize,
+    },
+    /// A measurement of a qubit into a classical bit.
     #[serde(rename = "measure")]
-    Measure { target: usize, classical_bit: usize },
+    Measure {
+        /// Measured qubit index.
+        target: usize,
+        /// Destination classical bit index.
+        classical_bit: usize,
+    },
+    /// A single-qubit gate applied when a classical bit equals `value`.
     #[serde(rename = "conditional")]
     ConditionalSingleQubit {
+        /// Classical bit to test.
         classical_bit: usize,
+        /// Value the classical bit must equal.
         value: u8,
+        /// Gate name (for example `H`, `X`, or `Rx`).
         gate: String,
+        /// Target qubit index.
         target: usize,
+        /// Gate parameters such as rotation angles.
         params: Vec<f64>,
     },
+    /// A noise channel applied to one qubit.
     #[serde(rename = "channel")]
     Channel {
+        /// Noise channel name (for example `Depolarizing`).
         channel: String,
+        /// Target qubit index.
         target: usize,
+        /// Channel parameters such as probabilities.
         params: Vec<f64>,
     },
 }

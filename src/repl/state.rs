@@ -12,14 +12,23 @@ use crate::{
 };
 use std::collections::HashMap;
 
+/// Mutable REPL session: the live qubit register, accumulated circuit source,
+/// pure/mixed state, and per-command settings (shots, seed, assumptions, and
+/// tensor-network / QEC state).
 pub struct Session {
+    /// Number of qubits in the live register.
     pub qubits: usize,
+    /// Accumulated circuit source text (the part inside `Circuit[...]`).
     pub circuit: String,
+    /// Live pure state vector used when no density matrix is set.
     pub state: StateVector,
     /// When Some, `state`/`probs`/`expect` read from this mixed state instead.
     pub density: Option<DensityMatrix>,
+    /// Symbolic assumptions applied by `simplify` and `eval`.
     pub assume: Assumptions,
+    /// Default shot count for `shots` and `shots-noise`.
     pub shots: usize,
+    /// Default RNG seed for shot-based commands.
     pub seed: u64,
     /// TEBD imaginary time evolution state
     pub tebd: Option<TEBD>,
@@ -30,6 +39,9 @@ pub struct Session {
 }
 
 impl Session {
+    /// Create a session on `qubits` qubits in the |0…0> state, with an empty
+    /// circuit, 256 shots, seed 42, and no density matrix or tensor-network/QEC
+    /// state loaded.
     pub fn new(qubits: usize) -> Self {
         Self {
             qubits,

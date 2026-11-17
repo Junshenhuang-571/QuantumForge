@@ -46,8 +46,11 @@ pub type Symbol = u8;
 /// Head movement direction.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Direction {
+    /// Move the head one cell toward lower indices, wrapping to the last cell.
     Left,
+    /// Move the head one cell toward higher indices, wrapping to cell 0.
     Right,
+    /// Leave the head on the current cell.
     Stay,
 }
 
@@ -55,8 +58,11 @@ pub enum Direction {
 /// write `write`, move `dir`, and go to internal state `next`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Transition {
+    /// Internal state entered after this transition.
     pub next_state: usize,
+    /// Symbol written to the current tape cell.
     pub write: Symbol,
+    /// Head movement applied after the write.
     pub direction: Direction,
 }
 
@@ -85,20 +91,30 @@ pub struct QuantumTuringMachine {
 /// Errors specific to building/running a QTM.
 #[derive(Clone, Debug, PartialEq)]
 pub enum QtmError {
+    /// A size that must be a power of two (states, tape cells, or head cells) is not.
     NotPowerOfTwo(usize),
+    /// No transition is defined for the given internal state and read symbol.
     EmptyTransition(usize, Symbol),
+    /// The transition table is not a bijection, so no unitary step exists.
     NotReversible,
+    /// An internal state index is outside the machine's state count.
     StateOutOfRange(usize),
+    /// A tape symbol is outside the alphabet `0..alphabet`.
     SymbolOutOfRange(Symbol, usize),
+    /// The ancilla-augmented register would exceed the 24-qubit budget.
     TapeTooLarge(usize),
     /// The internal-state register is too small to encode `states` injectively.
     StateRegisterTooSmall {
+        /// Number of internal states the machine declares.
         states: usize,
+        /// Width of the state register available.
         bits: usize,
     },
     /// Ancilla tape too small for the uncompute register (need ≥ tape_cells).
     AncillaTooSmall {
+        /// Ancilla cells required (one per tape cell).
         need: usize,
+        /// Ancilla cells actually supplied.
         got: usize,
     },
 }
@@ -135,8 +151,11 @@ impl std::error::Error for QtmError {}
 /// Configuration of a QTM at one instant: full tape, head index, internal state.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Configuration {
+    /// Tape contents, one symbol per cell.
     pub tape: Vec<Symbol>,
+    /// Index of the cell currently under the head.
     pub head: usize,
+    /// Current internal state.
     pub state: usize,
 }
 

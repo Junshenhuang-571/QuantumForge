@@ -47,18 +47,29 @@ impl OptimizeConfig {
 /// Optimization result with statistics.
 #[derive(Clone, Debug, Default)]
 pub struct OptimizeResult {
+    /// Operation count before optimization.
     pub original_ops: usize,
+    /// Operation count after optimization.
     pub optimized_ops: usize,
+    /// Two-qubit gate count before optimization.
     pub original_two_qubit: usize,
+    /// Two-qubit gate count after optimization.
     pub optimized_two_qubit: usize,
+    /// Circuit depth before optimization.
     pub original_depth: usize,
+    /// Circuit depth after optimization.
     pub optimized_depth: usize,
+    /// Number of rotation-fusion rewrites applied.
     pub fusions: usize,
+    /// Number of inverse-gate pairs cancelled.
     pub cancellations: usize,
+    /// Number of identity gates removed.
     pub identities_removed: usize,
 }
 
 impl OptimizeResult {
+    /// Fraction of operations removed, in `[0, 1)`; zero when there were no
+    /// original operations.
     pub fn reduction_ratio(&self) -> f64 {
         if self.original_ops == 0 {
             0.0
@@ -155,16 +166,27 @@ pub fn circuit_depth(circuit: &Circuit) -> usize {
 /// account for routing, native gate decomposition, or calibration data.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct CircuitCostProfile {
+    /// Count of single-qubit gates excluding T and Tdg.
     pub single_qubit_gates: usize,
+    /// Count of CNOT gates.
     pub cnot_gates: usize,
+    /// Count of CZ gates.
     pub cz_gates: usize,
+    /// Count of SWAP gates.
     pub swap_gates: usize,
+    /// Count of T gates.
     pub t_gates: usize,
+    /// Count of Tdg gates.
     pub tdg_gates: usize,
+    /// Count of measurement operations.
     pub measurements: usize,
+    /// Count of classically conditioned gates.
     pub conditional_gates: usize,
+    /// Count of noise-channel operations.
     pub channels: usize,
+    /// Logical circuit depth from qubit/classical dependencies.
     pub depth: usize,
+    /// Number of qubits in the circuit.
     pub qubits: usize,
 }
 
@@ -172,8 +194,11 @@ pub struct CircuitCostProfile {
 /// adjustments.
 #[derive(Clone, Debug, PartialEq)]
 pub struct BackendCostProfile {
+    /// Logical resource counts for the circuit.
     pub profile: CircuitCostProfile,
+    /// Number of SWAPs inserted by hardware routing.
     pub routing_swaps: usize,
+    /// Extra cost added for native-gate basis differences.
     pub native_gate_adjustment: f64,
 }
 
@@ -216,6 +241,8 @@ impl BackendCostProfile {
         })
     }
 
+    /// Estimate cost with routing SWAPs added to the profile's SWAP count and
+    /// the native-gate adjustment added to the modeled total.
     pub fn estimate_with_model(
         &self,
         model: &CircuitCostModel,
@@ -254,6 +281,7 @@ impl CircuitCostProfile {
         profile
     }
 
+    /// Total number of counted operations, excluding depth and qubit footprint.
     pub fn total_gates(&self) -> usize {
         self.single_qubit_gates
             + self.cnot_gates
@@ -274,16 +302,27 @@ impl CircuitCostProfile {
 /// gate equally and ignores depth and qubit footprint.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CircuitCostModel {
+    /// Weight per non-T single-qubit gate.
     pub single_qubit_gate: f64,
+    /// Weight per CNOT gate.
     pub cnot_gate: f64,
+    /// Weight per CZ gate.
     pub cz_gate: f64,
+    /// Weight per SWAP gate.
     pub swap_gate: f64,
+    /// Weight per T gate.
     pub t_gate: f64,
+    /// Weight per Tdg gate.
     pub tdg_gate: f64,
+    /// Weight per measurement.
     pub measurement: f64,
+    /// Weight per classically conditioned gate.
     pub conditional_gate: f64,
+    /// Weight per noise-channel operation.
     pub channel: f64,
+    /// Weight per unit of circuit depth.
     pub depth: f64,
+    /// Weight per qubit.
     pub qubit: f64,
 }
 
@@ -350,9 +389,17 @@ impl CircuitCostModel {
     }
 }
 
+/// Errors produced by cost-model estimation.
 #[derive(Clone, Debug, PartialEq)]
 pub enum CircuitCostModelError {
-    InvalidWeight { resource: &'static str, weight: f64 },
+    /// A model weight was negative or non-finite.
+    InvalidWeight {
+        /// Name of the offending resource weight.
+        resource: &'static str,
+        /// The rejected weight value.
+        weight: f64,
+    },
+    /// The weighted estimate overflowed to a non-finite value.
     NonFiniteEstimate,
 }
 
@@ -375,11 +422,17 @@ impl std::error::Error for CircuitCostModelError {}
 /// Outcome of comparing an optimized candidate against the original circuit.
 #[derive(Clone, Debug)]
 pub struct CostAwareOptimizeResult {
+    /// Resource profile of the original circuit.
     pub original_profile: CircuitCostProfile,
+    /// Resource profile of the optimized candidate.
     pub candidate_profile: CircuitCostProfile,
+    /// Modeled cost of the original circuit.
     pub original_cost: f64,
+    /// Modeled cost of the optimized candidate.
     pub candidate_cost: f64,
+    /// Whether the candidate was strictly cheaper and therefore selected.
     pub applied: bool,
+    /// Statistics from the optimization pass that produced the candidate.
     pub optimization: OptimizeResult,
 }
 
@@ -1145,8 +1198,11 @@ mod tests {
 /// T-gate statistics for a circuit.
 #[derive(Clone, Debug, Default)]
 pub struct TGateStats {
+    /// Number of T gates.
     pub t_count: usize,
+    /// Number of Tdg gates.
     pub tdg_count: usize,
+    /// Number of Clifford gates, including two-qubit gates.
     pub total_clifford: usize,
 }
 
@@ -1188,7 +1244,9 @@ pub fn minimize_t_gates(circuit: &mut Circuit) -> usize {
 /// Hardware coupling map: list of (physical_qubit_a, physical_qubit_b) edges.
 #[derive(Clone, Debug)]
 pub struct CouplingMap {
+    /// Number of physical qubits in the topology.
     pub num_qubits: usize,
+    /// Undirected edges as `(qubit_a, qubit_b)` pairs.
     pub edges: Vec<(usize, usize)>,
 }
 
@@ -1221,6 +1279,7 @@ impl CouplingMap {
             edges,
         }
     }
+    /// Return whether an undirected edge connects `a` and `b`.
     pub fn are_connected(&self, a: usize, b: usize) -> bool {
         self.edges
             .iter()
@@ -1228,9 +1287,8 @@ impl CouplingMap {
     }
 }
 
-/// Route a circuit to a hardware topology by inserting SWAP gates.
-/// Returns the number of SWAPs inserted.
-/// BFS shortest path between two qubits on the coupling map.
+/// BFS shortest path between two qubits on the coupling map; empty when the
+/// qubits are disconnected.
 fn bfs_path(coupling: &CouplingMap, start: usize, end: usize) -> Vec<usize> {
     if start == end {
         return vec![start];
@@ -1277,6 +1335,11 @@ fn bfs_path(coupling: &CouplingMap, start: usize, end: usize) -> Vec<usize> {
     path
 }
 
+/// Route a circuit to a hardware topology by inserting SWAP gates along BFS
+/// paths for non-adjacent two-qubit gates.
+///
+/// Returns the number of SWAPs inserted. Routing is a local path insertion and
+/// does not attempt global qubit-placement optimization.
 pub fn route_to_hardware(circuit: &mut Circuit, coupling: &CouplingMap) -> usize {
     let mut swaps = 0;
     let ops = circuit.operations().to_vec();

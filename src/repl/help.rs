@@ -1,6 +1,8 @@
 //! Help text for the QuantumForge REPL.
 
 #[allow(clippy::all)]
+/// Help text printed by the REPL's `help` command, listing every command
+/// with its syntax and options.
 pub const HELP: &str = "\
 QuantumForge REPL — one session, live state. Type 'help' for this, 'quit' to exit.
 

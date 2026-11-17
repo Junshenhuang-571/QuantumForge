@@ -40,12 +40,15 @@ const H: [[Complex64; 2]; 2] = [
 /// A weighted MaxCut instance.
 #[derive(Clone, Debug)]
 pub struct MaxCutProblem {
+    /// Number of vertices, which is also the number of qubits.
     pub num_qubits: usize,
     /// Edges `(u, v, weight)` with `u < v`.
     pub edges: Vec<(usize, usize, f64)>,
 }
 
 impl MaxCutProblem {
+    /// Build a problem from a vertex count and an explicit edge list; the edges
+    /// need not be sorted.
     pub fn new(num_qubits: usize, edges: Vec<(usize, usize, f64)>) -> Self {
         Self { num_qubits, edges }
     }
