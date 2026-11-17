@@ -3,6 +3,13 @@
 ## [Unreleased]
 
 ### Added
+- Dependency hygiene: Dependabot configuration (weekly cargo updates) and a
+  `cargo audit` CI job against the RustSec advisory database.
+- Property-based tests for the simulation core (`tests/proptest_quantum_core.rs`):
+  unitary circuits preserve the norm, shot counts are normalized and
+  reproducible under a fixed seed, basis-state measurement is deterministic,
+  Bell correlations hold, and the rotated surface code satisfies its
+  structural invariants.
 - **MPS-based QAOA** (`mps_qaoa` module): MaxCut on matrix product states with a
   bounded bond dimension. Long-range diagonal gates applied as exact bond-2
   MPOs, two-sweep SVD compression, transfer-contraction cost expectations
@@ -21,6 +28,14 @@
 - Add behavior or API changes here, including migration notes.
 
 ### Fixed
+- Dependencies: `tokio` 1.54.0 → 1.54.1, `rustix` 1.1.5 → 1.1.6 and
+  `rustls-webpki` 0.103.15 → 0.103.17, clearing the advisories found by
+  `cargo audit` (RUSTSEC-2026-0384, RUSTSEC-2026-0486, RUSTSEC-2026-0382).
+  The two remaining pyo3 advisories are ignored in CI with a documented
+  reason: their patched releases need pyo3 ≥ 0.29, which requires the unstable
+  `cfg_select` feature and so a newer compiler than the declared MSRV 1.88.
+- `docs/index.html` listed the wrong license (GPL-3.0 instead of Apache-2.0)
+  and a stale test count; corrected and linked from the README.
 - `MPS::to_state_vector` and the MPS expectations used site 0 as the most
   significant bit while `StateVector` uses qubit 0 as the least significant;
   both now follow the crate convention.

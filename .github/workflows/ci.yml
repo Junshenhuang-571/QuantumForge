@@ -126,3 +126,36 @@ jobs:
 
       - name: Clippy with features
         run: cargo clippy --no-default-features --features "${{ matrix.features }}" --lib -- -D warnings
+
+  # Supply-chain check: cargo-audit scans Cargo.lock against the RustSec
+  # advisory database. Kept as its own job so a new advisory does not fail the
+  # formatting/clippy jobs.
+  audit:
+    name: cargo audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo-audit
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin
+          key: ${{ runner.os }}-cargo-audit-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-audit-
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+
+      - name: Audit dependencies
+        # Two pyo3 advisories (RUSTSEC-2025-0020, RUSTSEC-2026-0177) are ignored
+        # deliberately: the patched releases require pyo3 >= 0.29, which needs
+        # the unstable `cfg_select` feature and therefore a newer compiler than
+        # this crate's declared MSRV (1.88). Revisit when the MSRV moves.
+        run: >-
+          cargo audit
+          --ignore RUSTSEC-2025-0020
+          --ignore RUSTSEC-2026-0177

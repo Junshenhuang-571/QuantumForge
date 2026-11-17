@@ -512,6 +512,7 @@ cargo test
 
 Guides and reference material beyond this README:
 
+- [Landing page](docs/index.html) — styled overview with install and REPL demo
 - [Getting started](docs/getting-started.md) — install, first circuit, REPL tour
 - [Algorithms](docs/wiki/Algorithms.md) — algorithm modules and how they fit together
 - [Architecture](docs/wiki/Architecture.md) — module layout and data flow
