@@ -237,6 +237,7 @@ pub mod hardware;
 pub mod optimizer;
 #[cfg(feature = "pyo3")]
 pub mod python;
+pub mod qaoa_transfer;
 pub mod qasm;
 pub mod qasm_export;
 pub mod qec;

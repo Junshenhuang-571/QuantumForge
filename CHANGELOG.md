@@ -24,6 +24,14 @@
   (no state-vector expansion), seeded 3-regular graph generator, and
   parameter-shift angle finding with restarts. Example
   `examples/mps_qaoa.rs` and guide `docs/wiki/MPS-QAOA.md`.
+- **QAOA parameter transfer + targeted-single-layer optimization**
+  (`qaoa_transfer` module, arXiv:2601.15760): TQA angle initialization,
+  finite-difference Adagrad on a small donor graph, transfer of the optimized
+  angles to a larger acceptor, layer selection (single pass or majority vote
+  over an ensemble), and a ridge-regularized two-angle targeted step.
+  `TransferOutcome` reports `r_n`, `r_s` and optionally `r_f`. Example
+  `examples/qaoa_transfer.rs` and guide
+  `docs/wiki/QAOA-Parameter-Transfer.md`.
 - MPS: `apply_diagonal_two_site`, `compress_range`,
   `expectation_two_site_product`, `norm_sqr_mps`.
 - Examples: `qec_roundtrip` (surface-code verification + repetition-code
