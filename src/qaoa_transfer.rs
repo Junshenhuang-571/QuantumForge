@@ -81,7 +81,7 @@ impl QaoaParameters {
     /// length.
     pub fn from_flat(flat: &[f64]) -> Self {
         assert!(
-            flat.len() % 2 == 0,
+            flat.len().is_multiple_of(2),
             "flat QAOA parameters must have an even length, got {}",
             flat.len()
         );
