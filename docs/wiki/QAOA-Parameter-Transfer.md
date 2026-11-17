@@ -78,13 +78,28 @@ in the same direction; the example keeps them low so it finishes in seconds.
 
 ## Two things worth knowing
 
+**The donor learning rate.** The paper uses `lr = 0.1` with exact autograd
+gradients. This module uses finite differences, and at `0.1` Adagrad overshoots
+and stalls in a poor local optimum: on a seeded 8-vertex 3-regular donor at
+`p = 6`, the donor reaches r = 0.825 at `lr = 0.1` but 0.980 at `lr = 0.05`, and
+the transferred acceptor ratio goes from 0.630 to 0.878. The default is
+therefore `0.05`. With that setting the pipeline reproduces the paper's headline
+closely — 8 → 10 vertices at `p = 6`:
+
+```
+iters=100:  r_n = 0.9065   r_s = 0.9068   r_f = 0.9459   r_s/r_f = 95.9%
+iters=300:  r_n = 0.9239   r_s = 0.9255   r_f = 0.9459   r_s/r_f = 97.8%
+```
+
 **Sign convention.** The paper defines the approximation ratio as
 `r = <H_C> / C_max` with `<H_C>` the cut weight to be *maximized*, but writes
 the TSL objective as `<H_C> + lambda (gamma^2 + beta^2)` and says it is
 minimized. Those cannot both hold. This crate maximizes the cut weight, so the
 minimized objective is `-<H_cut> + lambda (gamma^2 + beta^2)` — see
 [`targeted_layer_objective`](https://docs.rs/quantumforge/latest/quantumforge/qaoa_transfer/fn.targeted_layer_objective.html).
-The physics is unchanged; only the sign is made consistent.
+The physics is unchanged; only the sign is made consistent. (The `(gamma, beta)
+-> (-gamma, -beta)` symmetry of the landscape means the *circuit's* sign
+convention is not the issue.)
 
 **Where this stops paying off.** Every objective evaluation rebuilds and runs
 the full state-vector circuit, costing `O(2^n (n + E) p)`. The paper itself
@@ -93,6 +108,23 @@ the transferred angles are no longer near-optimal. For acceptors beyond roughly
 14 qubits, transfer the same idea to
 [`mps_qaoa`](https://docs.rs/quantumforge/latest/quantumforge/mps_qaoa/)
 instead of the state-vector path.
+
+## In the REPL
+
+```
+qf> qaoa-transfer                 # 8 -> 10 vertices, p=6, 100 Adagrad steps
+qf> qaoa-layers                   # cut expectation for every targeted layer
+qf> qaoa-angles donor             # donor | transferred | optimized
+qf> qaoa-layer 3                  # what if only layer 3 were optimized?
+```
+
+`qaoa-transfer` takes `donor=`, `acceptor=`, `p=`, `dt=`, `lr=`, `iters=`,
+`lambda=`, `full=` and `seed=`. The run is stored on the session, so the other
+three commands work on it afterwards. `full=1` adds the `r_f` comparison, which
+roughly triples the runtime.
+
+Expect ~7 s per run in a release build and tens of seconds in a debug build —
+the command says so before it starts.
 
 ## Related
 

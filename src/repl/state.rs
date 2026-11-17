@@ -1,7 +1,11 @@
 //! Session state and command dispatch for the QuantumForge REPL.
 
 use crate::analytic::{Assumptions, ExactComplex, Rational, ScalarExpr, Simplifier};
+use crate::mps_qaoa::MaxCutProblem;
 use crate::parser::{parse_circuit, parse_scalar_expr};
+use crate::qaoa_transfer::{
+    QaoaParameters, TargetedLayerOptions, TransferOptions, TransferOutcome,
+};
 use crate::qec::{
     QecCode, encode_repetition_bitflip, repetition_code_bitflip, repetition_code_phaseflip,
 };
@@ -11,6 +15,17 @@ use crate::{
     RotationAxis, SingleQubitObservable, StateVector, VariationalQnn,
 };
 use std::collections::HashMap;
+
+/// Result of the last `qaoa-transfer` run, kept live so `qaoa-angles`,
+/// `qaoa-layers` and `qaoa-layer` can inspect it.
+pub struct QaoaTransferSession {
+    /// Donor graph whose angles were optimized.
+    pub donor: MaxCutProblem,
+    /// Acceptor graph the angles were transferred to.
+    pub acceptor: MaxCutProblem,
+    /// Outcome of the run.
+    pub outcome: TransferOutcome,
+}
 
 /// Mutable REPL session: the live qubit register, accumulated circuit source,
 /// pure/mixed state, and per-command settings (shots, seed, assumptions, and
@@ -36,6 +51,8 @@ pub struct Session {
     pub dmrg: Option<DMRG>,
     /// QEC code currently loaded
     pub qec_code: Option<QecCode>,
+    /// Last `qaoa-transfer` run, if any
+    pub qaoa_transfer: Option<QaoaTransferSession>,
 }
 
 impl Session {
@@ -54,6 +71,7 @@ impl Session {
             tebd: None,
             dmrg: None,
             qec_code: None,
+            qaoa_transfer: None,
         }
     }
 
@@ -110,6 +128,10 @@ impl Session {
             "qtm" => self.cmd_qtm(rest),
             "mbqc" => self.cmd_mbqc(rest),
             "anneal" => self.cmd_anneal(rest),
+            "qaoa-transfer" => self.cmd_qaoa_transfer(rest),
+            "qaoa-angles" => self.cmd_qaoa_angles(rest),
+            "qaoa-layers" => self.cmd_qaoa_layers(),
+            "qaoa-layer" => self.cmd_qaoa_layer(rest),
             "gas" => self.cmd_gas(rest),
             "cuda" => self.cmd_cuda(rest),
             "gpu" => self.cmd_gpu(rest),
@@ -1490,6 +1512,245 @@ impl Session {
                 println!("  |final - exact| = {gap:.2e}  {verdict}");
             }
             Err(e) => eprintln!("  anneal error: {e}"),
+        }
+    }
+
+    /// Parse `key=value` words, ignoring anything unrecognised, and return the
+    /// value of the first `key` found.
+    fn qaoa_kw<'a>(rest: &'a str, key: &str) -> Option<&'a str> {
+        rest.split_whitespace().find_map(|word| {
+            word.strip_prefix(key)
+                .and_then(|value| value.strip_prefix('='))
+        })
+    }
+
+    fn cmd_qaoa_transfer(&mut self, rest: &str) {
+        use crate::qaoa_transfer::run_parameter_transfer;
+
+        let mut donor_nodes = 8usize;
+        // Default the acceptor just above the donor: the transfer stays real
+        // while the state vector stays small. A session sized with `qubits N`
+        // wins when it is larger.
+        let mut acceptor_nodes = self.qubits.max(donor_nodes + 2);
+        let mut depth = 6usize;
+        let mut dt = 0.75f64;
+        let mut iterations = 100usize;
+        let mut learning_rate = 0.05f64;
+        let mut lambda = 1e-4f64;
+        let mut compare_full = false;
+        let mut seed = 42u64;
+
+        if let Some(value) = Self::qaoa_kw(rest, "donor") {
+            match value.parse::<usize>() {
+                Ok(v) => donor_nodes = v,
+                Err(_) => return eprintln!("qaoa-transfer error: donor must be an integer"),
+            }
+        }
+        if let Some(value) = Self::qaoa_kw(rest, "acceptor") {
+            match value.parse::<usize>() {
+                Ok(v) => acceptor_nodes = v,
+                Err(_) => return eprintln!("qaoa-transfer error: acceptor must be an integer"),
+            }
+        }
+        if let Some(value) = Self::qaoa_kw(rest, "p") {
+            match value.parse::<usize>() {
+                Ok(v) => depth = v,
+                Err(_) => return eprintln!("qaoa-transfer error: p must be an integer"),
+            }
+        }
+        if let Some(value) = Self::qaoa_kw(rest, "dt") {
+            match value.parse::<f64>() {
+                Ok(v) => dt = v,
+                Err(_) => return eprintln!("qaoa-transfer error: dt must be a number"),
+            }
+        }
+        if let Some(value) = Self::qaoa_kw(rest, "iters") {
+            match value.parse::<usize>() {
+                Ok(v) => iterations = v,
+                Err(_) => return eprintln!("qaoa-transfer error: iters must be an integer"),
+            }
+        }
+        if let Some(value) = Self::qaoa_kw(rest, "lr") {
+            match value.parse::<f64>() {
+                Ok(v) => learning_rate = v,
+                Err(_) => return eprintln!("qaoa-transfer error: lr must be a number"),
+            }
+        }
+        if let Some(value) = Self::qaoa_kw(rest, "lambda") {
+            match value.parse::<f64>() {
+                Ok(v) => lambda = v,
+                Err(_) => return eprintln!("qaoa-transfer error: lambda must be a number"),
+            }
+        }
+        if let Some(value) = Self::qaoa_kw(rest, "full") {
+            match value.parse::<u8>() {
+                Ok(v) => compare_full = v != 0,
+                Err(_) => return eprintln!("qaoa-transfer error: full must be 0 or 1"),
+            }
+        }
+        if let Some(value) = Self::qaoa_kw(rest, "seed") {
+            match value.parse::<u64>() {
+                Ok(v) => seed = v,
+                Err(_) => return eprintln!("qaoa-transfer error: seed must be an integer"),
+            }
+        }
+
+        if !donor_nodes.is_multiple_of(2) || donor_nodes < 4 {
+            return eprintln!("qaoa-transfer error: donor must be even and >= 4");
+        }
+        if !acceptor_nodes.is_multiple_of(2) || acceptor_nodes < 4 {
+            return eprintln!("qaoa-transfer error: acceptor must be even and >= 4");
+        }
+        if donor_nodes > acceptor_nodes {
+            return eprintln!(
+                "qaoa-transfer error: donor ({donor_nodes}) must not exceed acceptor ({acceptor_nodes})"
+            );
+        }
+        if depth == 0 {
+            return eprintln!("qaoa-transfer error: p must be >= 1");
+        }
+
+        let donor = MaxCutProblem::random_3_regular(donor_nodes, seed);
+        let acceptor = MaxCutProblem::random_3_regular(acceptor_nodes, seed.wrapping_add(1));
+
+        let options = TransferOptions {
+            depth,
+            tqa_dt: dt,
+            donor_learning_rate: learning_rate,
+            donor_iterations: iterations,
+            targeted: TargetedLayerOptions {
+                lambda,
+                ..TargetedLayerOptions::default()
+            },
+            compare_full_optimization: compare_full,
+            ..TransferOptions::default()
+        };
+
+        println!(
+            "qaoa-transfer: {donor_nodes} -> {acceptor_nodes} vertices, p={depth}, \
+             TQA dt={dt}, Adagrad lr={learning_rate} iters={iterations}, lambda={lambda}"
+        );
+        if cfg!(debug_assertions) {
+            println!(
+                "  (debug build: expect tens of seconds — a release build is much \
+                 faster, or lower p/iters)"
+            );
+        }
+        let started = std::time::Instant::now();
+        let outcome = match run_parameter_transfer(&donor, &acceptor, &options) {
+            Ok(outcome) => outcome,
+            Err(e) => return eprintln!("qaoa-transfer error: {e}"),
+        };
+        println!(
+            "  elapsed           : {:.1}s",
+            started.elapsed().as_secs_f64()
+        );
+
+        println!("  target layer      : {}", outcome.target_layer);
+        println!("  r_n (transferred) : {:.5}", outcome.transferred_ratio);
+        println!("  r_s (targeted)    : {:.5}", outcome.approximation_ratio);
+        if let Some(full) = outcome.full_optimization_ratio {
+            println!("  r_f (full)        : {full:.5}");
+            println!(
+                "  r_s / r_f         : {:.2}%",
+                100.0 * outcome.approximation_ratio / full
+            );
+        }
+        println!(
+            "  energy / reference: {:.5} / {:.5}",
+            outcome.energy, outcome.reference
+        );
+
+        self.qaoa_transfer = Some(QaoaTransferSession {
+            donor,
+            acceptor,
+            outcome,
+        });
+    }
+
+    fn cmd_qaoa_angles(&self, rest: &str) {
+        let which = rest.trim();
+        let session = match &self.qaoa_transfer {
+            Some(session) => session,
+            None => {
+                return eprintln!("qaoa-angles: no run yet — try `qaoa-transfer` first");
+            }
+        };
+        let params: &QaoaParameters = match which {
+            "" | "optimized" | "best" => &session.outcome.optimized,
+            "transferred" | "transfer" => &session.outcome.transferred,
+            "donor" => &session.outcome.donor_parameters,
+            other => {
+                return eprintln!(
+                    "qaoa-angles: unknown set '{other}' (donor|transferred|optimized)"
+                );
+            }
+        };
+        println!("qaoa-angles ({which}): {} layers", params.depth());
+        for layer in 0..params.depth() {
+            println!(
+                "  layer {layer:2}: gamma = {:+.5}, beta = {:+.5}",
+                params.gammas[layer], params.betas[layer]
+            );
+        }
+    }
+
+    fn cmd_qaoa_layers(&self) {
+        let session = match &self.qaoa_transfer {
+            Some(session) => session,
+            None => {
+                return eprintln!("qaoa-layers: no run yet — try `qaoa-transfer` first");
+            }
+        };
+        println!("qaoa-layers: cut expectation per targeted layer");
+        for (layer, energy) in session.outcome.layer_energies.iter().enumerate() {
+            let marker = if layer == session.outcome.target_layer {
+                " <- best"
+            } else {
+                ""
+            };
+            println!("  layer {layer:2}: {energy:.5}{marker}");
+        }
+    }
+
+    fn cmd_qaoa_layer(&self, rest: &str) {
+        use crate::qaoa_transfer::optimize_targeted_layer;
+
+        let session = match &self.qaoa_transfer {
+            Some(session) => session,
+            None => {
+                return eprintln!("qaoa-layer: no run yet — try `qaoa-transfer` first");
+            }
+        };
+        let layer = match rest.trim().parse::<usize>() {
+            Ok(layer) => layer,
+            Err(_) => {
+                return eprintln!(
+                    "usage: qaoa-layer K   (0..{})",
+                    session.outcome.transferred.depth()
+                );
+            }
+        };
+        let options = TargetedLayerOptions::default();
+        match optimize_targeted_layer(
+            &session.acceptor,
+            &session.outcome.transferred,
+            layer,
+            &options,
+        ) {
+            Ok((_, energy)) => {
+                let ratio = if session.outcome.reference > 0.0 {
+                    energy / session.outcome.reference
+                } else {
+                    0.0
+                };
+                println!(
+                    "qaoa-layer {layer}: energy = {energy:.5}, ratio = {ratio:.5} \
+                     (best layer {} gives {:.5})",
+                    session.outcome.target_layer, session.outcome.approximation_ratio
+                );
+            }
+            Err(e) => eprintln!("qaoa-layer error: {e}"),
         }
     }
 

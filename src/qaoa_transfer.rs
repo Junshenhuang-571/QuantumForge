@@ -17,13 +17,22 @@
 //! speedup comes from; on unweighted graphs the approximation ratio stays
 //! within a couple of percent of a full re-optimization.
 //!
-//! # Sign convention
+//! # Deviations from the paper
 //!
-//! The paper writes the TSL objective as `⟨H_C⟩ + λ(γ² + β²)` and says it is
-//! minimized, but defines the approximation ratio as `⟨H_C⟩ / C_max` with
-//! `⟨H_C⟩` the cut weight to be *maximized* — the two cannot both hold. This
-//! module maximizes the cut weight and penalizes angle magnitude, i.e. it
-//! minimizes `-⟨H_cut⟩ + λ(γ² + β²)`. See [`targeted_layer_objective`].
+//! **Sign of the objective.** The paper writes the TSL objective as
+//! `⟨H_C⟩ + λ(γ² + β²)` and says it is minimized, but defines the approximation
+//! ratio as `⟨H_C⟩ / C_max` with `⟨H_C⟩` the cut weight to be *maximized* — the
+//! two cannot both hold. This module maximizes the cut weight and penalizes
+//! angle magnitude, i.e. it minimizes `-⟨H_cut⟩ + λ(γ² + β²)`. See
+//! [`targeted_layer_objective`].
+//!
+//! **Donor learning rate.** The paper uses `lr = 0.1` with exact autograd
+//! gradients. With the finite-difference gradients used here that value
+//! overshoots and stalls in a poor local optimum, so the default is `0.05`; see
+//! [`TransferOptions::donor_learning_rate`].
+//!
+//! **Optimizer for the targeted step.** COBYLA is replaced by Nelder-Mead. Both
+//! are derivative-free, and the step has only two parameters.
 //!
 //! # Cost of the state-vector path
 //!
@@ -523,6 +532,12 @@ pub struct TransferOptions {
     /// TQA annealing time `dt`; the paper uses 0.75.
     pub tqa_dt: f64,
     /// Adagrad learning rate on the donor.
+    ///
+    /// The paper uses `0.1`, but that value is tuned for exact autograd
+    /// gradients. With the finite-difference gradients this module uses,
+    /// `0.1` overshoots and stalls in a poor local optimum (on a seeded
+    /// 8-vertex 3-regular donor at `p = 6`: r = 0.825 at `0.1` versus 0.980 at
+    /// `0.05`), so the default is `0.05`.
     pub donor_learning_rate: f64,
     /// Adagrad numerical stabilizer.
     pub donor_epsilon: f64,
@@ -541,7 +556,7 @@ impl Default for TransferOptions {
         Self {
             depth: 15,
             tqa_dt: 0.75,
-            donor_learning_rate: 0.1,
+            donor_learning_rate: 0.05,
             donor_epsilon: 1e-8,
             donor_iterations: 100,
             targeted: TargetedLayerOptions::default(),

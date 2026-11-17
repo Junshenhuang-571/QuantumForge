@@ -32,6 +32,10 @@
   `TransferOutcome` reports `r_n`, `r_s` and optionally `r_f`. Example
   `examples/qaoa_transfer.rs` and guide
   `docs/wiki/QAOA-Parameter-Transfer.md`.
+- REPL: `qaoa-transfer` runs the pipeline and stores it on the session;
+  `qaoa-angles`, `qaoa-layers` and `qaoa-layer` inspect the stored run.
+  The default donor learning rate is 0.05 rather than the paper's 0.1, which
+  stalls under finite-difference gradients (donor r = 0.825 vs 0.980).
 - MPS: `apply_diagonal_two_site`, `compress_range`,
   `expectation_two_site_product`, `norm_sqr_mps`.
 - Examples: `qec_roundtrip` (surface-code verification + repetition-code
