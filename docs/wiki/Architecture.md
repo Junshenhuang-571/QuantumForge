@@ -6,7 +6,7 @@ QuantumForge is a Rust quantum simulation library with multiple backends:
 
 ```
 ┌─────────────────────────────────────────────┐
-│              User API (lib.rs)               │
+│              User API (lib.rs)              │
 ├──────────┬──────────┬───────────┬───────────┤
 │ StateVec │ Circuit  │  MPS/DMRG │  QEC      │
 ├──────────┴──────────┴───────────┴───────────┤
