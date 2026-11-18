@@ -126,13 +126,16 @@ fn exact_maxcut_and_cut_value_agree() {
 #[test]
 fn angle_finding_improves_the_cut() {
     let problem = MaxCutProblem::random_3_regular(8, 5);
+    // Use the crate's default restart count. A single restart is not a
+    // reliable optimizer on a multimodal QAOA landscape, and with independent
+    // restart seeds (see `SmallRng::seeded`) three starts are genuinely
+    // different rather than three copies of one.
     let config = MpsQaoaConfig {
         layers: 2,
         max_bond: 32,
         truncation_tol: 1e-12,
-        optimizer_steps: 20,
-        restarts: 1,
         seed: 1,
+        ..MpsQaoaConfig::default()
     };
     let outcome = find_angles_mps(&problem, &config).unwrap();
 

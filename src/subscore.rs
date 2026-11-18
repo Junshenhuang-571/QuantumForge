@@ -43,19 +43,69 @@
 //! The paper's pseudocode scans the candidate observation variance upwards from
 //! `eta` while its stated objective (Eq. 15) is to *maximize* the total
 //! variance, i.e. spend the fewest shots, subject to the confident-region
-//! constraint. This module implements Eq. 15: it searches variance downwards
-//! from `kappa^2` and keeps the largest feasible value.
+//! constraint. This module implements Eq. 15: it scans variance upwards from
+//! `kappa^2` and keeps the largest feasible value.
 //!
 //! The paper also uses `kappa` ambiguously (a variance threshold in Eqs. 12
 //! and 15, a shot count in its Table 1). Here `kappa_sq` is always a variance.
+//!
+//! # The shot noise is a temperature
+//!
+//! An observation averaged over `N` shots has variance `eta^2 / N`. Write
+//! `T = eta^2 / N` (with `k_B = 1`): the shot budget *is* a thermostat, and
+//! [`SubsCoReOptions::eta_sq`] must be the objective's effective single-shot
+//! variance for that reading to hold. Two consequences are built in.
+//!
+//! **Fluctuation-dissipation.** The noise strength of the estimator is fixed
+//! by the shot count, so a step that trusts a noisy surrogate is a hot step and
+//! a step that trusts an accurate one is cold. The confident region is exactly
+//! the statement "the surrogate is cold enough here to act on".
+//!
+//! **Finite-temperature updates.** [`GaussianProcess::sample`] draws a whole
+//! function from the posterior, and [`UpdateRule::Thompson`] moves to that
+//! sample's minimizer instead of the posterior mean's. This is Boltzmann
+//! exploration: it crosses barriers that the zero-temperature (mean-argmin)
+//! rule cannot, and the temperature falls automatically as shots accumulate.
+//! Hajek's condition for guaranteed convergence to the global minimum is
+//! `T(t) >= c / ln(t)`; the practical schedule here is whatever the shot
+//! budget imposes, so a run that ends with many shots per point is a run that
+//! cooled to a quench.
+//!
+//! `ShotHamiltonian` reports the *actual* estimator variance with every
+//! observation, so the GP is never told the noise is smaller than it is.
 
-use crate::analytic::{ExactComplex, Pauli, PauliSum};
-use crate::{Circuit, Gate, ParameterizedCircuit, RotationAxis, StateVector};
+use crate::analytic::{ExactComplex, Pauli, PauliSum, PauliWord};
+use crate::{Circuit, Gate, ParameterizedCircuit, RotationAxis, SmallRng, StateVector};
 
 const TWO_PI: f64 = std::f64::consts::TAU;
 
 /// Largest eigenvalue guard for the Cholesky factorization.
 const MIN_CHOL_DIAGONAL: f64 = 1e-12;
+
+/// Floor for a reported observation variance: the GP requires it to be
+/// positive even when the estimator happens to be exact.
+const MIN_OBSERVATION_VARIANCE: f64 = 1e-12;
+
+/// Split `total` shots across `buckets` words by largest remainder, so the
+/// spend is exactly `total` whenever `total >= buckets`.
+fn split_shots(total: usize, buckets: usize) -> Vec<usize> {
+    assert!(buckets > 0, "at least one bucket");
+    let mut allocation = vec![total / buckets; buckets];
+    for (slot, entry) in allocation.iter_mut().enumerate() {
+        if slot < total % buckets {
+            *entry += 1;
+        }
+    }
+    // A word that would get no shots still needs one to be estimated at all.
+    if allocation.contains(&0) {
+        for entry in &mut allocation {
+            if *entry == 0 {
+                *entry = 1;
+            }
+        }
+    }
+    allocation
+}
 
 // ---------------------------------------------------------------------------
 // Kernel
@@ -111,6 +161,50 @@ fn forward_substitution(l: &[Vec<f64>], b: &[f64]) -> Vec<f64> {
         u[i] = sum / row[i];
     }
     u
+}
+
+/// Standard normal via Box-Muller from the crate's seeded generator.
+fn gaussian(rng: &mut SmallRng) -> f64 {
+    let u1 = rng.next_f64().max(1e-12);
+    let u2 = rng.next_f64();
+    (-2.0 * u1.ln()).sqrt() * (TWO_PI * u2).cos()
+}
+
+/// Lower Cholesky factor of a small symmetric positive-semidefinite matrix.
+///
+/// The posterior covariance of a VQE kernel is *exactly* rank deficient: with
+/// `V_d = 1` the kernel spans only three Fourier basis functions, so a 48-point
+/// grid has rank 2. A plain Cholesky divides by near-zero diagonals there and
+/// returns inf/NaN, so directions whose pivot falls below `1e-12` of the
+/// largest diagonal are truncated to zero. The result is the Cholesky factor
+/// of the PSD projection, which is the correct limit.
+fn cholesky_lower(matrix: &[Vec<f64>]) -> Vec<Vec<f64>> {
+    let n = matrix.len();
+    let mut factor = vec![vec![0.0f64; n]; n];
+    let scale = matrix
+        .iter()
+        .enumerate()
+        .map(|(i, row)| row[i].abs())
+        .fold(0.0f64, f64::max)
+        .max(1e-300);
+    let tolerance = 1e-12 * scale;
+    for i in 0..n {
+        for j in 0..=i {
+            let mut sum = matrix[i][j];
+            for k in 0..j {
+                sum -= factor[i][k] * factor[j][k];
+            }
+            if i == j {
+                factor[i][j] = if sum > tolerance { sum.sqrt() } else { 0.0 };
+            } else if factor[j][j] > 0.0 {
+                factor[i][j] = sum / factor[j][j];
+            } else {
+                // Truncated direction: the factor stays zero.
+                factor[i][j] = 0.0;
+            }
+        }
+    }
+    factor
 }
 
 /// Solve `L^T x = u` for a lower-triangular `L`.
@@ -229,6 +323,74 @@ impl GaussianProcess {
         self.values.push(value);
         self.variances.push(variance);
         self.refresh_alpha();
+    }
+
+    /// Draw one function from the posterior, evaluated at `points`.
+    ///
+    /// The sample is `m + L z` where `m` is the posterior mean, `z` is standard
+    /// normal, and `L` is the Cholesky factor of the posterior covariance over
+    /// `points`. Drawing a whole function rather than independent pointwise
+    /// values is what makes this Boltzmann exploration: the sampled curve keeps
+    /// the posterior's correlations, so it can dip into a region the mean
+    /// never reaches.
+    ///
+    /// # Panics
+    ///
+    /// Panics when `points` is empty or a point has the wrong dimension.
+    pub fn sample(&self, rng: &mut SmallRng, points: &[Vec<f64>]) -> Vec<f64> {
+        assert!(!points.is_empty(), "need at least one sample point");
+        let n = points.len();
+        let m = self.points.len();
+        for point in points {
+            assert_eq!(point.len(), self.counts.len(), "wrong parameter dimension");
+        }
+
+        let mean: Vec<f64> = points
+            .iter()
+            .map(|point| self.posterior_mean(point))
+            .collect();
+
+        // W = L^{-1} K_Xg, column j being the weight vector of grid point j.
+        let mut weights = vec![vec![0.0f64; n]; m];
+        for (j, point) in points.iter().enumerate() {
+            let cross: Vec<f64> = self
+                .points
+                .iter()
+                .map(|observed| self.kernel(point, observed))
+                .collect();
+            let solved = forward_substitution(&self.factor, &cross);
+            for (row, entry) in weights.iter_mut().zip(solved) {
+                row[j] = entry;
+            }
+        }
+
+        // Posterior covariance C = K_gg - W^T W.
+        let mut covariance = vec![vec![0.0f64; n]; n];
+        for i in 0..n {
+            for j in 0..=i {
+                let mut entry = self.kernel(&points[i], &points[j]);
+                for row in &weights {
+                    entry -= row[i] * row[j];
+                }
+                covariance[i][j] = entry.max(0.0);
+                covariance[j][i] = covariance[i][j];
+            }
+        }
+        let factor = cholesky_lower(&covariance);
+
+        // One standard-normal vector for the whole draw: `L z` is what makes
+        // the samples a correlated function rather than independent noise.
+        let z: Vec<f64> = (0..n).map(|_| gaussian(rng)).collect();
+        let mut sample = mean;
+        for (i, entry) in sample.iter_mut().enumerate() {
+            let noise: f64 = (0..=i).map(|j| factor[i][j] * z[j]).sum();
+            *entry += noise;
+        }
+        sample
+    }
+
+    fn kernel(&self, x: &[f64], y: &[f64]) -> f64 {
+        vqe_kernel(x, y, self.gamma_sq, self.sigma0_sq, &self.counts)
     }
 
     fn refresh_alpha(&mut self) {
@@ -445,6 +607,37 @@ pub enum ReadoutStrategy {
     Center,
 }
 
+/// How the next iterate is chosen along the freshly observed axis.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum UpdateRule {
+    /// Move to the minimizer of the GP posterior mean — the zero-temperature
+    /// limit. Best when the surrogate is already accurate.
+    Mean,
+    /// Thompson sampling: draw one function from the GP posterior and move to
+    /// *its* minimizer. The posterior variance acts as a temperature, so the
+    /// step can cross barriers the mean-argmin rule cannot.
+    Thompson,
+    /// Thompson sampling that rejects a step when the posterior mean says it is
+    /// worse than staying put. The thermal kick can cross a barrier; it cannot
+    /// throw away a solution the surrogate already trusts.
+    GuardedThompson,
+}
+
+/// One noisy observation of the objective.
+///
+/// `variance` is the estimator's own noise variance and `shots` is what it
+/// actually consumed, which can differ from the budget handed in (a
+/// Hamiltonian splits its shots across Pauli words).
+#[derive(Clone, Copy, Debug)]
+pub struct Observation {
+    /// Estimated objective value.
+    pub value: f64,
+    /// Noise variance of `value`.
+    pub variance: f64,
+    /// Shots actually consumed.
+    pub shots: usize,
+}
+
 /// Tuning knobs for [`run_subscore`].
 #[derive(Clone, Debug)]
 pub struct SubsCoReOptions {
@@ -452,8 +645,9 @@ pub struct SubsCoReOptions {
     pub gamma_sq: f64,
     /// Prior variance `sigma0^2`; the kernel gives every point `k(x, x)`.
     pub sigma0_sq: f64,
-    /// Single-shot observation variance `eta^2`. The paper's theory assumes
-    /// `sigma^2(N) = eta^2 / N`.
+    /// Effective single-shot variance of the objective, `eta^2`. The paper's
+    /// theory assumes `sigma^2(N) = eta^2 / N`; this is the `N = 1` end of
+    /// that. For a `ShotHamiltonian` use [`ShotHamiltonian::single_shot_variance`].
     pub eta_sq: f64,
     /// Shots used for the initial observation.
     pub initial_shots: usize,
@@ -472,7 +666,14 @@ pub struct SubsCoReOptions {
     pub search: SearchOptions,
     /// Shot-allocation rule.
     pub strategy: ReadoutStrategy,
-    /// Seed for the observation noise.
+    /// How the next iterate is chosen (see [`UpdateRule`]).
+    pub update_rule: UpdateRule,
+    /// Thermal factor applied to a Thompson step's deviation from the mean:
+    /// `1.0` is the posterior's own temperature, `> 1` explores harder (the
+    /// temperature is scaled by its square), `< 1` approaches the quench.
+    /// Ignored by [`UpdateRule::Mean`].
+    pub exploration: f64,
+    /// Seed for the observation noise and for Thompson sampling.
     pub seed: u64,
 }
 
@@ -490,6 +691,8 @@ impl Default for SubsCoReOptions {
             slope_window: 8,
             search: SearchOptions::default(),
             strategy: ReadoutStrategy::Center,
+            update_rule: UpdateRule::Mean,
+            exploration: 1.0,
             seed: 42,
         }
     }
@@ -536,17 +739,21 @@ fn slope(values: &[f64]) -> f64 {
 
 /// Run SubsCoRe on an arbitrary shot-based objective.
 ///
-/// `observe(params, shots, seed)` returns the estimated objective value at
-/// `params` using `shots` measurement shots. Its noise variance is assumed to
-/// be `eta_sq / shots`, as in the paper.
+/// `observe(params, shots, seed)` estimates the objective at `params` with a
+/// budget of `shots` and reports the value, its noise variance, and the shots
+/// actually consumed — see [`Observation`]. Reporting the true variance matters:
+/// the GP's confident region is only meaningful if it is told how noisy each
+/// observation really was.
 ///
 /// `counts[d]` is `V_d`, the number of gates parameterized by variable `d`; it
 /// sets how many observations each subspace iteration needs.
 ///
 /// The loop follows Algorithm 1 of the paper: observe the equidistant axis
 /// points with an adaptively chosen shot budget, move to the minimizer of the
-/// GP posterior mean along that axis, and tighten the confident-region
-/// threshold as progress slows.
+/// surrogate along that axis, and tighten the confident-region threshold as
+/// progress slows. The move is either the posterior-mean minimizer
+/// ([`UpdateRule::Mean`]) or a Thompson sample's minimizer
+/// ([`UpdateRule::Thompson`]).
 pub fn run_subscore<F>(
     observe: F,
     initial: &[f64],
@@ -554,24 +761,23 @@ pub fn run_subscore<F>(
     options: &SubsCoReOptions,
 ) -> SubsCoReOutcome
 where
-    F: Fn(&[f64], usize, u64) -> f64,
+    F: Fn(&[f64], usize, u64) -> Observation,
 {
     let dimensions = initial.len();
     assert_eq!(dimensions, counts.len(), "one gate count per parameter");
     assert!(dimensions > 0, "need at least one parameter");
     assert!(options.eta_sq > 0.0, "eta_sq must be positive");
     assert!(options.initial_shots > 0, "initial_shots must be positive");
+    assert!(options.exploration > 0.0, "exploration must be positive");
 
+    let mut rng = SmallRng::seeded(options.seed ^ 0x5dee_ce66);
     let mut gp = GaussianProcess::new(options.gamma_sq, options.sigma0_sq, counts.to_vec());
     let mut best = initial.to_vec();
-    let mut best_value = observe(&best, options.initial_shots, options.seed);
-    gp.push(
-        best.clone(),
-        best_value,
-        options.eta_sq / options.initial_shots as f64,
-    );
+    let observation = observe(&best, options.initial_shots, options.seed);
+    let mut shots_used = observation.shots;
+    gp.push(best.clone(), observation.value, observation.variance);
+    let mut best_value = gp.posterior_mean(&best);
 
-    let mut shots_used = options.initial_shots;
     let mut core_variance = options.initial_core_variance;
     let mut history: Vec<f64> = vec![best_value];
     let mut shots_per_iteration = Vec::new();
@@ -616,16 +822,16 @@ where
             if room == 0 {
                 break;
             }
-            let allocated = (((point_shots as f64) * scale) as usize).clamp(1, room);
-            let value = observe(
+            let budget = (((point_shots as f64) * scale) as usize).clamp(1, room);
+            let observation = observe(
                 point,
-                allocated,
+                budget,
                 options
                     .seed
                     .wrapping_add(iterations as u64 * 7919 + offset as u64),
             );
-            gp.push(point.clone(), value, options.eta_sq / allocated as f64);
-            spent += allocated;
+            gp.push(point.clone(), observation.value, observation.variance);
+            spent += observation.shots;
         }
         if spent == 0 {
             break;
@@ -633,29 +839,56 @@ where
         shots_used += spent;
         shots_per_iteration.push(spent);
 
-        // Move to the minimizer of the GP posterior mean along this axis.
+        // Choose the next iterate along this axis: either the posterior mean's
+        // minimizer (a quench) or a Thompson sample's minimizer (a hot step
+        // whose temperature is the posterior variance).
+        let scan_start = best.clone();
         let scan = axis_scan(&best, axis, options.search.scan_grid.max(8));
-        let (next, next_value) = scan
+        let surrogate: Vec<f64> = match options.update_rule {
+            UpdateRule::Mean => scan.iter().map(|point| gp.posterior_mean(point)).collect(),
+            UpdateRule::Thompson | UpdateRule::GuardedThompson => {
+                let mean: Vec<f64> = scan.iter().map(|point| gp.posterior_mean(point)).collect();
+                let mut sample = gp.sample(&mut rng, &scan);
+                if options.exploration != 1.0 {
+                    for (entry, center) in sample.iter_mut().zip(&mean) {
+                        *entry = center + (*entry - center) * options.exploration;
+                    }
+                }
+                sample
+            }
+        };
+        let index = surrogate
             .iter()
-            .map(|point| {
-                let (mean, _) = gp.posterior_mean_and_variance(point);
-                (point.clone(), mean)
-            })
-            .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
+            .enumerate()
+            .min_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
+            .map(|(index, _)| index)
             .expect("scan is not empty");
-        best = next;
-        best_value = next_value;
+        best = scan[index].clone();
+        if options.update_rule == UpdateRule::GuardedThompson {
+            // Reject only a kick that is uphill by more than the surrogate's
+            // own uncertainty there. Comparing against the mean alone would
+            // refuse almost every kick and reduce this to `Mean`.
+            let (candidate_mean, candidate_variance) = gp.posterior_mean_and_variance(&best);
+            let stay_mean = gp.posterior_mean(&scan_start);
+            if candidate_mean > stay_mean + candidate_variance.sqrt() {
+                best = scan_start.clone();
+            }
+        }
+        best_value = gp.posterior_mean(&best);
         history.push(best_value);
 
         // Adapt the confident-region threshold to the progress of the
         // optimization: loose while the energy drops, tight near convergence.
+        // Annealing only cools, so the threshold never rises above its
+        // starting value — without that clamp a fast initial drop makes the
+        // run hotter than it began and it starves its own observations.
         if history.len() > options.slope_window.max(1) {
             let window = &history[history.len() - options.slope_window.max(1)..];
             let progress = slope(window);
             core_variance = options
                 .core_min
                 .max(-options.core_slope_scale * progress)
-                .clamp(options.eta_sq / 1.0e9, options.eta_sq);
+                .clamp(options.eta_sq / 1.0e9, options.initial_core_variance);
         }
         core_variances.push(core_variance);
 
@@ -756,21 +989,64 @@ impl ShotHamiltonian {
         circuit
     }
 
-    /// Estimate `<H>` at `params` with `shots_per_word` shots per Pauli word.
+    /// Effective single-shot variance of this objective.
     ///
-    /// Returns the energy estimate; its noise variance is approximately
-    /// `sum_w c_w^2 (1 - <W_w>^2) / shots_per_word`.
-    pub fn observe(&self, params: &[f64], shots_per_word: usize, seed: u64) -> f64 {
-        assert!(shots_per_word > 0, "shots_per_word must be positive");
+    /// A Pauli word `W` with coefficient `c` is estimated by averaging a
+    /// parity that takes `+-1`, so one shot contributes variance `c^2`; the
+    /// bound `(1 - <W>^2) <= 1` is used because `<W>` is not known a priori.
+    /// This is the `eta^2` to pass to [`SubsCoReOptions::eta_sq`]: it makes the
+    /// paper's `sigma^2(N) = eta^2 / N` hold for the whole Hamiltonian, not for
+    /// one word.
+    pub fn single_shot_variance(&self) -> f64 {
+        self.hamiltonian
+            .terms()
+            .values()
+            .map(|coefficient| complex_to_f64(coefficient).powi(2))
+            .sum()
+    }
+
+    /// Estimate `<H>` at `params`, spending at most `total_shots` shots.
+    ///
+    /// The budget is split across the Pauli words (largest-remainder, so the
+    /// spend is exact when the budget covers every word at least once) and the
+    /// returned [`Observation`] carries the estimator's *actual* variance
+    /// `sum_w c_w^2 (1 - <W_w>^2) / N_w` and the shots actually used.
+    pub fn observe(&self, params: &[f64], total_shots: usize, seed: u64) -> Observation {
+        assert!(total_shots > 0, "total_shots must be positive");
         let base = self.materialize(params);
+
+        // Non-identity words are the only ones that consume shots.
+        let words: Vec<(&PauliWord, f64)> = self
+            .hamiltonian
+            .terms()
+            .iter()
+            .filter(|(_, coefficient)| complex_to_f64(coefficient) != 0.0)
+            .filter(|(word, _)| word.factors().iter().any(|pauli| *pauli != Pauli::I))
+            .map(|(word, coefficient)| (word, complex_to_f64(coefficient)))
+            .collect();
+
         let mut energy = 0.0;
-        let mut word_index = 0usize;
-        for (word, coefficient) in self.hamiltonian.terms() {
-            let coefficient = complex_to_f64(coefficient);
-            if coefficient == 0.0 {
-                word_index += 1;
-                continue;
-            }
+        for (_, coefficient) in self
+            .hamiltonian
+            .terms()
+            .iter()
+            .filter(|(word, _)| word.factors().iter().all(|pauli| *pauli == Pauli::I))
+        {
+            energy += complex_to_f64(coefficient);
+        }
+
+        if words.is_empty() {
+            return Observation {
+                value: energy,
+                variance: 0.0,
+                shots: 0,
+            };
+        }
+
+        let allocation = split_shots(total_shots, words.len());
+        let mut variance = 0.0;
+        let mut spent = 0usize;
+        for (word_index, ((word, coefficient), shots)) in words.iter().zip(allocation).enumerate() {
             let mut circuit = base.clone();
             let mut watched: Vec<usize> = Vec::new();
             for (qubit, pauli) in word.factors().iter().enumerate() {
@@ -788,12 +1064,6 @@ impl ShotHamiltonian {
                     Pauli::I => {}
                 }
             }
-            if watched.is_empty() {
-                // Identity term: contributes its coefficient exactly.
-                energy += coefficient;
-                word_index += 1;
-                continue;
-            }
             // `enumerate` yields (classical index, qubit); the classical
             // register position is the position within `watched`.
             for (classical, qubit) in watched.iter().copied().enumerate() {
@@ -803,7 +1073,7 @@ impl ShotHamiltonian {
             let result = circuit
                 .run_shots(
                     &initial,
-                    shots_per_word,
+                    shots,
                     seed.wrapping_add(word_index as u64 * 1_000_003),
                 )
                 .expect("shot execution");
@@ -819,10 +1089,17 @@ impl ShotHamiltonian {
                     -(count as i64)
                 };
             }
-            energy += coefficient * parity_sum as f64 / shots_per_word as f64;
-            word_index += 1;
+            let expectation = parity_sum as f64 / shots as f64;
+            energy += coefficient * expectation;
+            variance += coefficient.powi(2) * (1.0 - expectation * expectation) / shots as f64;
+            spent += shots;
         }
-        energy
+
+        Observation {
+            value: energy,
+            variance: variance.max(MIN_OBSERVATION_VARIANCE),
+            shots: spent,
+        }
     }
 
     /// Exact energy at `params`, for reference.

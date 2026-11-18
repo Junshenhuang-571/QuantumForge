@@ -3,6 +3,34 @@
 ## [Unreleased]
 
 ### Added
+- **SubsCoRe: shot-aware VQE with the shot budget as a thermostat.**
+  `subscore` (arXiv:2502.01704) optimizes one parameter axis at a time and
+  chooses the shots at each observed point so the whole updated axis stays
+  inside the GP surrogate's confident region. New in this pass:
+  - `Observation` — every reading reports its value, its *actual* noise
+    variance, and the shots it spent. `ShotHamiltonian::observe` now takes a
+    total shot budget (it previously took shots *per Pauli word*, so the real
+    spend and the GP's noise model were both off by the word count) and
+    `ShotHamiltonian::single_shot_variance` reports the objective's `eta^2`.
+  - `UpdateRule` — `Mean` (zero-temperature quench), `Thompson` (draw a
+    function from the GP posterior and move to its minimizer) and
+    `GuardedThompson` (same, but refuse a kick the posterior mean calls
+    uphill), plus `exploration` as a thermal factor and
+    `GaussianProcess::sample` for a correlated joint draw.
+  - The confident-region threshold is now clamped monotone non-increasing: a
+    fast initial energy drop used to make the run hotter than it started and
+    starve its own observations.
+  - REPL: `vqe-subscore` gains `update=mean|thompson|guarded`, `explore=` and
+    the objective's own `eta^2`.
+  - Measured on a 4-qubit / 2-layer TFIM at 40k shots over 6 seeds: Bound+mean
+    -4.4908 vs fixed-shot NFT -3.9977. Center+mean -3.7495 and Thompson
+    -0.4071 both do worse; the guide reports this as a negative result.
+- **Fixed `SmallRng::seeded` not mixing the seed.** Raw xorshift64 maps nearby
+  seeds to nearby first outputs (`seeded(1..N)` gave first draws proportional to
+  the seed), so "independent" runs with consecutive seeds were silently
+  correlated and `restarts: 3` produced three near-identical starts. A
+  splitmix64 finalizer now decorrelates them; reproducibility per seed is
+  unchanged.
 - **SubsCoRe: adaptive observation cost control for VQE** (arXiv:2502.01704),
   new module `subscore`. One parameter axis is optimized per iteration from
   `1 + 2 V_d` observations; a heteroscedastic GP over the VQE kernel

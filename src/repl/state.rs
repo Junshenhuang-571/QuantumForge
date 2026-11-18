@@ -1863,12 +1863,16 @@ impl Session {
     }
 
     fn cmd_vqe_subscore(&self, rest: &str) {
-        use crate::subscore::{ReadoutStrategy, ShotHamiltonian, SubsCoReOptions, run_subscore};
+        use crate::subscore::{
+            ReadoutStrategy, ShotHamiltonian, SubsCoReOptions, UpdateRule, run_subscore,
+        };
 
         let mut name = "tfim".to_string();
         let mut budget = 20_000usize;
         let mut initial_shots = 64usize;
         let mut strategy = ReadoutStrategy::Center;
+        let mut update_rule = UpdateRule::Mean;
+        let mut exploration = 1.0f64;
         let mut seed = 42u64;
 
         for word in rest.split_whitespace() {
@@ -1894,6 +1898,22 @@ impl Session {
                         );
                     }
                 };
+            } else if let Some(value) = word.strip_prefix("update=") {
+                update_rule = match value {
+                    "mean" => UpdateRule::Mean,
+                    "thompson" => UpdateRule::Thompson,
+                    "guarded" => UpdateRule::GuardedThompson,
+                    other => {
+                        return eprintln!(
+                            "vqe-subscore error: unknown update rule '{other}' (mean|thompson|guarded)"
+                        );
+                    }
+                };
+            } else if let Some(value) = word.strip_prefix("explore=") {
+                match value.parse::<f64>() {
+                    Ok(v) if v > 0.0 => exploration = v,
+                    _ => return eprintln!("vqe-subscore error: explore must be a positive number"),
+                }
             } else if let Some(value) = word.strip_prefix("seed=") {
                 match value.parse::<u64>() {
                     Ok(v) => seed = v,
@@ -1927,6 +1947,9 @@ impl Session {
             total_shot_budget: budget,
             initial_shots,
             strategy,
+            update_rule,
+            exploration,
+            eta_sq: objective.single_shot_variance(),
             seed,
             ..SubsCoReOptions::default()
         };

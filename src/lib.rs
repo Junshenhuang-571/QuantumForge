@@ -195,6 +195,13 @@
 //! assert!((vqe_kernel(&best, &best, 2.0, 1.0, &[1]) - 1.0).abs() < 1e-12);
 //! ```
 //!
+//! The shot budget is a thermostat: an observation averaged over `N` shots has
+//! variance `eta^2 / N`, so spending fewer shots is literally running hotter.
+//! [`subscore::UpdateRule::Thompson`] turns that into Boltzmann exploration by
+//! moving to
+//! the minimizer of a function drawn from the GP posterior rather than of its
+//! mean.
+//!
 //! The same pipeline is available interactively as `vqe-subscore`.
 //!
 //! # Tensor networks and QAOA at scale
@@ -4446,13 +4453,20 @@ fn softplus(value: f64) -> f64 {
 #[derive(Clone, Debug)]
 pub struct SmallRng(u64);
 impl SmallRng {
-    /// Creates a generator from `seed`; a zero seed is replaced by a nonzero constant.
+    /// Creates a generator from `seed`.
+    ///
+    /// The seed is run through a splitmix64 finalizer first. Raw xorshift64
+    /// does not mix small seeds: `seeded(1)`, `seeded(2)`, ... produce first
+    /// draws that are nearly proportional to the seed, so "independent" runs
+    /// with consecutive seeds were silently correlated. The finalizer makes
+    /// nearby seeds decorrelate; it also maps a zero seed to a nonzero state
+    /// (zero is a fixed point of xorshift).
     pub fn seeded(seed: u64) -> Self {
-        Self(if seed == 0 {
-            0x9e37_79b9_7f4a_7c15
-        } else {
-            seed
-        })
+        let mut z = seed.wrapping_add(0x9E37_79B9_7F4A_7C15);
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        z ^= z >> 31;
+        Self(if z == 0 { 0x9E37_79B9_7F4A_7C15 } else { z })
     }
     /// Advances the generator and returns the next `u64`.
     pub fn next_u64(&mut self) -> u64 {

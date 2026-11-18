@@ -30,11 +30,14 @@ QuantumForge REPL — one session, live state. Type 'help' for this, 'quit' to e
                          circuit's rotation params; ham = h2 | heh+ | tfim |
                          heisenberg | ising | xxz | hubbard  (exact ground energy shown too)
   vqe-subscore [ham=tfim] [budget=20000] [shots=64] [strategy=center|bound]
-                [seed=42]
+                [update=mean|thompson|guarded] [explore=1.0] [seed=42]
                         SubsCoRe (arXiv:2502.01704): VQE with adaptive observation
                         cost control. Optimizes one parameter axis at a time and
                         spends shots where they matter — few early, many near
-                        convergence — under a total shot budget.
+                        convergence — under a total shot budget. `update` picks
+                        the zero-temperature step (mean) or a finite-temperature
+                        Thompson step; `guarded` refuses a kick the surrogate
+                        calls uphill.
   train <task>         QML training on a variational circuit (Adam):
                          regression  — fit cos(x+0.7) with an angle-encoded Ry
                          classify    — binary classifier on 2 Gaussian blobs

@@ -3,8 +3,9 @@
 
 use quantumforge::analytic::{ExactComplex, Pauli, PauliSum, PauliWord, Rational};
 use quantumforge::subscore::{
-    GaussianProcess, ReadoutStrategy, SearchOptions, ShotHamiltonian, SubsCoReOptions, axis_points,
-    choose_shots_bound, choose_shots_center, run_subscore, shots_for_variance, vqe_kernel,
+    GaussianProcess, ReadoutStrategy, SearchOptions, ShotHamiltonian, SubsCoReOptions, UpdateRule,
+    axis_points, choose_shots_bound, choose_shots_center, run_subscore, shots_for_variance,
+    vqe_kernel,
 };
 use quantumforge::{ParameterizedCircuit, RotationAxis};
 
@@ -250,10 +251,34 @@ fn shot_objective_tracks_the_exact_energy() {
 
     let exact = objective.exact_energy(&params).unwrap();
     // A large shot count should land close to the exact value.
-    let estimate = objective.observe(&params, 20_000, 7);
+    let observation = objective.observe(&params, 20_000, 7);
+    assert_eq!(observation.shots, 20_000, "the whole budget must be spent");
     assert!(
-        (estimate - exact).abs() < 0.1,
-        "shot estimate {estimate} should approach the exact energy {exact}"
+        (observation.value - exact).abs() < 0.1,
+        "shot estimate {} should approach the exact energy {exact}",
+        observation.value
+    );
+    // The reported variance must be the estimator's own. Verify it against a
+    // direct Monte-Carlo spread rather than against the `sum c_w^2 / N` bound,
+    // which is loose whenever the words have nonzero expectation.
+    let repeats = 120;
+    let mut values = Vec::with_capacity(repeats);
+    let mut reported = 0.0;
+    for seed in 1..=repeats as u64 {
+        let observation = objective.observe(&params, 2_000, seed);
+        values.push(observation.value);
+        reported += observation.variance;
+    }
+    reported /= repeats as f64;
+    let mean = values.iter().sum::<f64>() / repeats as f64;
+    let empirical = values.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (repeats - 1) as f64;
+    assert!(
+        (empirical - reported).abs() < 0.2 * reported,
+        "reported variance {reported} should match the empirical spread {empirical}"
+    );
+    assert!(
+        objective.single_shot_variance() >= objective.hamiltonian.terms().len() as f64,
+        "the effective single-shot variance must scale with the word count"
     );
 }
 
@@ -275,6 +300,7 @@ fn subscore_lowers_the_energy_within_budget() {
             scan_grid: 72,
         },
         strategy: ReadoutStrategy::Center,
+        eta_sq: objective.single_shot_variance(),
         seed: 3,
         ..SubsCoReOptions::default()
     };
@@ -314,6 +340,7 @@ fn bound_strategy_runs() {
             scan_grid: 24,
         },
         strategy: ReadoutStrategy::Bound,
+        eta_sq: objective.single_shot_variance(),
         ..SubsCoReOptions::default()
     };
     let outcome = run_subscore(
@@ -324,4 +351,198 @@ fn bound_strategy_runs() {
     );
     assert!(outcome.shots_used <= options.total_shot_budget);
     assert!(outcome.iterations > 0);
+}
+
+#[test]
+fn thompson_samples_match_the_posterior_statistics() {
+    use quantumforge::SmallRng;
+
+    let counts = vec![1, 1];
+    let mut gp = GaussianProcess::new(2.0, 1.0, counts);
+    let points = [vec![0.2, 0.7], vec![1.3, 2.1], vec![2.6, 0.4]];
+    let values = [0.4, -0.9, 1.2];
+    for (point, value) in points.iter().zip(values) {
+        gp.push(point.clone(), value, 0.01);
+    }
+
+    // Pointwise: the sample mean and variance must reproduce the posterior.
+    let query = vec![0.9, 1.7];
+    let (mean, variance) = gp.posterior_mean_and_variance(&query);
+    let repeats = 4_000;
+    let mut sum = 0.0;
+    let mut sumsq = 0.0;
+    for seed in 1..=repeats as u64 {
+        let mut rng = SmallRng::seeded(seed);
+        let sample = gp.sample(&mut rng, std::slice::from_ref(&query));
+        sum += sample[0];
+        sumsq += sample[0] * sample[0];
+    }
+    let sample_mean = sum / repeats as f64;
+    let sample_variance = sumsq / repeats as f64 - sample_mean * sample_mean;
+    assert!(
+        (sample_mean - mean).abs() < 0.05,
+        "sample mean {sample_mean} should match the posterior mean {mean}"
+    );
+    assert!(
+        (sample_variance - variance).abs() < 0.05 * variance.max(1.0),
+        "sample variance {sample_variance} should match the posterior variance {variance}"
+    );
+
+    // Jointly: nearby points must come out correlated, which is what makes a
+    // sampled *function* a function rather than independent noise.
+    let left = vec![0.5, 0.5];
+    let right = vec![0.6, 0.5];
+    let mut cross = 0.0;
+    let mut left_sq = 0.0;
+    let mut right_sq = 0.0;
+    let mut left_sum = 0.0;
+    let mut right_sum = 0.0;
+    for seed in 1..=repeats as u64 {
+        let mut rng = SmallRng::seeded(seed);
+        let sample = gp.sample(&mut rng, &[left.clone(), right.clone()]);
+        left_sum += sample[0];
+        right_sum += sample[1];
+        left_sq += sample[0] * sample[0];
+        right_sq += sample[1] * sample[1];
+        cross += sample[0] * sample[1];
+    }
+    let n = repeats as f64;
+    let covariance = cross / n - (left_sum / n) * (right_sum / n);
+    let left_var = left_sq / n - (left_sum / n).powi(2);
+    let right_var = right_sq / n - (right_sum / n).powi(2);
+    let correlation = covariance / (left_var * right_var).sqrt();
+    assert!(
+        correlation > 0.5,
+        "a sampled function must be smooth: correlation {correlation}"
+    );
+}
+
+#[test]
+fn thompson_update_explores_where_the_mean_update_quenches() {
+    use quantumforge::SmallRng;
+
+    // One accurate observation at 0. The posterior mean is lowest there, so
+    // the mean rule always returns to 0; the posterior variance is still large
+    // elsewhere, so a finite-temperature draw can move away.
+    let counts = vec![1];
+    let mut gp = GaussianProcess::new(2.0, 1.0, counts.clone());
+    gp.push(vec![0.0], -1.0, 1e-4);
+    let grid = 48;
+    let scan: Vec<Vec<f64>> = (0..grid)
+        .map(|k| vec![std::f64::consts::TAU * k as f64 / grid as f64])
+        .collect();
+
+    let mean_argmin = scan
+        .iter()
+        .enumerate()
+        .min_by(|a, b| {
+            gp.posterior_mean(a.1)
+                .partial_cmp(&gp.posterior_mean(b.1))
+                .unwrap()
+        })
+        .map(|(index, _)| index)
+        .unwrap();
+    assert_eq!(mean_argmin, 0, "the mean must be lowest at the observation");
+
+    let mut argmins = Vec::new();
+    for seed in 1..=300u64 {
+        let mut rng = SmallRng::seeded(seed);
+        let sample = gp.sample(&mut rng, &scan);
+        let index = sample
+            .iter()
+            .enumerate()
+            .min_by(|a, b| a.1.partial_cmp(b.1).unwrap())
+            .map(|(index, _)| index)
+            .unwrap();
+        argmins.push(index);
+    }
+    let distinct: std::collections::HashSet<usize> = argmins.iter().copied().collect();
+    assert!(
+        distinct.len() > 10,
+        "a finite-temperature step must roam: {} distinct argmins",
+        distinct.len()
+    );
+    // It still prefers the cold region more often than any single other point.
+    let at_home = argmins.iter().filter(|&&index| index == 0).count();
+    assert!(
+        at_home > 30,
+        "the sampled minimizer should usually stay near the cold point: {at_home}/300"
+    );
+}
+
+#[test]
+fn guarded_thompson_never_moves_against_the_surrogate() {
+    use quantumforge::SmallRng;
+
+    // A surrogate whose mean is lowest at the start but which is very
+    // uncertain elsewhere. Guarded Thompson may explore, but it must refuse a
+    // step the mean calls uphill.
+    let counts = vec![1];
+    let mut gp = GaussianProcess::new(2.0, 1.0, counts.clone());
+    gp.push(vec![0.0], -1.0, 1e-4);
+    let grid = 48;
+    let scan: Vec<Vec<f64>> = (0..grid)
+        .map(|k| vec![std::f64::consts::TAU * k as f64 / grid as f64])
+        .collect();
+
+    let mut accepted = 0;
+    for seed in 1..=200u64 {
+        let mut rng = SmallRng::seeded(seed);
+        let sample = gp.sample(&mut rng, &scan);
+        let index = sample
+            .iter()
+            .enumerate()
+            .min_by(|a, b| a.1.partial_cmp(b.1).unwrap())
+            .map(|(index, _)| index)
+            .unwrap();
+        let candidate = scan[index].clone();
+        if gp.posterior_mean(&candidate) <= gp.posterior_mean(&scan[0]) {
+            accepted += 1;
+        }
+    }
+    // Un guarded, every one of the 200 kicks is taken. The guard refuses
+    // roughly three quarters of them.
+    assert!(
+        accepted < 80,
+        "the guard should reject most uphill kicks: {accepted}/200 accepted"
+    );
+}
+
+#[test]
+fn guarded_thompson_runs_and_never_regresses_past_the_start() {
+    // Small budget on the 3-qubit instance: the guard must keep the final
+    // energy no worse than the starting point, which pure Thompson cannot
+    // promise.
+    let qubits = 3;
+    let (circuit, params) = ansatz(1, qubits);
+    let objective = ShotHamiltonian::new(circuit, tfim(qubits), qubits);
+    let counts = objective.parameter_counts();
+    let start = objective.exact_energy(&params).unwrap();
+    let options = SubsCoReOptions {
+        total_shot_budget: 8_000,
+        eta_sq: objective.single_shot_variance(),
+        initial_shots: 128,
+        update_rule: UpdateRule::GuardedThompson,
+        search: SearchOptions {
+            shot_grid: 12,
+            scan_grid: 48,
+        },
+        ..SubsCoReOptions::default()
+    };
+    for seed in 1..=4u64 {
+        let outcome = run_subscore(
+            |point, shots, run_seed| objective.observe(point, shots, run_seed),
+            &params,
+            &counts,
+            &SubsCoReOptions {
+                seed,
+                ..options.clone()
+            },
+        );
+        let energy = objective.exact_energy(&outcome.best).unwrap();
+        assert!(
+            energy <= start + 1e-9,
+            "guarded Thompson regressed: {energy} vs start {start}"
+        );
+    }
 }
