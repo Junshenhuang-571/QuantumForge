@@ -280,6 +280,7 @@ Core commands: `qubits`, `circuit`, `draw`, `add`, `clear`, `run`, `noisy`,
 |---|---|
 | `gradient X\|Y\|Z Q` | Adjoint vs parameter-shift gradient, cross-validated |
 | `vqe <ham>` | Variational Quantum Eigensolver — minimizes `<H>` over the circuit's rotations and compares to the exact ground state |
+| `vqe-subscore [ham=tfim] [budget=20000] [shots=64] [strategy=center\|bound] [seed=42]` | SubsCoRe — shot-aware VQE: optimizes one parameter axis at a time and spends shots where they matter, under a total shot budget |
 | `train {regression\|classify} [DATA]` | Supervised QML (Adam). `DATA` is a flat brace list `{feat...,target, ...}` |
 | `qnn [DATA]` | Minimal 1-parameter `VariationalQnn`, Adam or gradient descent |
 

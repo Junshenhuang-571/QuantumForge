@@ -121,6 +121,7 @@ impl Session {
             "bloch" => self.cmd_bloch(rest),
             "gradient" => self.cmd_gradient(rest),
             "vqe" => self.cmd_vqe(rest),
+            "vqe-subscore" => self.cmd_vqe_subscore(rest),
             "train" => self.cmd_train(rest),
             "shots" => self.cmd_shots(rest, false),
             "shots-noise" => self.cmd_shots(rest, true),
@@ -1859,6 +1860,105 @@ impl Session {
             }
             Err(e) => eprintln!("qaoa-layer error: {e}"),
         }
+    }
+
+    fn cmd_vqe_subscore(&self, rest: &str) {
+        use crate::subscore::{ReadoutStrategy, ShotHamiltonian, SubsCoReOptions, run_subscore};
+
+        let mut name = "tfim".to_string();
+        let mut budget = 20_000usize;
+        let mut initial_shots = 64usize;
+        let mut strategy = ReadoutStrategy::Center;
+        let mut seed = 42u64;
+
+        for word in rest.split_whitespace() {
+            if let Some(value) = word.strip_prefix("ham=") {
+                name = value.to_ascii_lowercase();
+            } else if let Some(value) = word.strip_prefix("budget=") {
+                match value.parse::<usize>() {
+                    Ok(v) => budget = v,
+                    Err(_) => return eprintln!("vqe-subscore error: budget must be an integer"),
+                }
+            } else if let Some(value) = word.strip_prefix("shots=") {
+                match value.parse::<usize>() {
+                    Ok(v) => initial_shots = v,
+                    Err(_) => return eprintln!("vqe-subscore error: shots must be an integer"),
+                }
+            } else if let Some(value) = word.strip_prefix("strategy=") {
+                strategy = match value {
+                    "center" => ReadoutStrategy::Center,
+                    "bound" => ReadoutStrategy::Bound,
+                    other => {
+                        return eprintln!(
+                            "vqe-subscore error: unknown strategy '{other}' (center|bound)"
+                        );
+                    }
+                };
+            } else if let Some(value) = word.strip_prefix("seed=") {
+                match value.parse::<u64>() {
+                    Ok(v) => seed = v,
+                    Err(_) => return eprintln!("vqe-subscore error: seed must be an integer"),
+                }
+            }
+        }
+
+        let hamiltonian = match named_hamiltonian(&name, self.qubits) {
+            Some(hamiltonian) => hamiltonian,
+            None => {
+                return eprintln!(
+                    "vqe-subscore: unknown or ill-sized hamiltonian '{name}' for {} qubits; \
+                     try tfim, ising, heisenberg, xxz, hubbard",
+                    self.qubits
+                );
+            }
+        };
+        let (ansatz, params) = match self.build_parameterized() {
+            Ok(built) => built,
+            Err(error) => return eprintln!("{error}"),
+        };
+        let objective = ShotHamiltonian::new(ansatz, hamiltonian, self.qubits);
+        let counts = objective.parameter_counts();
+        let start = match objective.exact_energy(&params) {
+            Ok(energy) => energy,
+            Err(error) => return eprintln!("vqe-subscore error: {error}"),
+        };
+
+        let options = SubsCoReOptions {
+            total_shot_budget: budget,
+            initial_shots,
+            strategy,
+            seed,
+            ..SubsCoReOptions::default()
+        };
+        println!(
+            "vqe-subscore: ham={name}, {} params, budget={budget} shots, \
+             strategy={:?}, V_d={counts:?}",
+            params.len(),
+            options.strategy
+        );
+        let started = std::time::Instant::now();
+        let outcome = run_subscore(
+            |point, shots, run_seed| objective.observe(point, shots, run_seed),
+            &params,
+            &counts,
+            &options,
+        );
+        let final_energy = objective.exact_energy(&outcome.best).unwrap_or(f64::NAN);
+        println!("  iterations         : {}", outcome.iterations);
+        println!("  shots used         : {}", outcome.shots_used);
+        println!("  initial energy     : {start:.6}");
+        println!("  final energy       : {final_energy:.6}");
+        println!("  change             : {:+.6}", final_energy - start);
+        if let (Some(first), Some(last)) = (
+            outcome.shots_per_iteration.first(),
+            outcome.shots_per_iteration.last(),
+        ) {
+            println!("  shots per iteration: {first} early -> {last} late");
+        }
+        println!(
+            "  elapsed            : {:.1}s",
+            started.elapsed().as_secs_f64()
+        );
     }
 
     fn cmd_gas(&self, rest: &str) {

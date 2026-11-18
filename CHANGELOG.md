@@ -3,7 +3,20 @@
 ## [Unreleased]
 
 ### Added
-- Add user-visible changes here as they are merged.
+- **SubsCoRe: adaptive observation cost control for VQE** (arXiv:2502.01704),
+  new module `subscore`. One parameter axis is optimized per iteration from
+  `1 + 2 V_d` observations; a heteroscedastic GP over the VQE kernel
+  (Eq. 10) tracks the surrogate, and the shots at each observed point are
+  chosen so the whole updated axis stays inside the confident region. The
+  threshold loosens while the energy drops fast and tightens to `core_min`
+  near convergence. Includes `vqe_kernel`, `GaussianProcess` (incremental
+  Cholesky), `axis_points`, `choose_shots_bound` / `choose_shots_center`,
+  `run_subscore`, `ShotHamiltonian`, `SubsCoReOptions`, `ReadoutStrategy`,
+  `SubsCoReOutcome`, `SearchOptions`, the REPL command `vqe-subscore`, the
+  example `examples/subscore.rs`, and the guide `docs/wiki/SubsCoRe.md`.
+  The guide also documents where the paper's pseudocode scans the shot
+  variance in the opposite direction to its own Eq. 15.
+
 
 ### Changed
 - Add behavior or API changes here, including migration notes.

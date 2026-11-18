@@ -168,6 +168,35 @@
 //! # Ok::<(), quantumforge::optimizer::CircuitCostModelError>(())
 //! ```
 //!
+//! # Shot-aware VQE: SubsCoRe
+//!
+//! [`subscore`] implements *subspace in confident region* (arXiv:2502.01704),
+//! which spends the measurement budget where it matters: VQE is optimized one
+//! parameter axis at a time, and the number of shots at each observed point is
+//! chosen so the whole updated axis stays inside the GP surrogate's confident
+//! region. The threshold loosens while the energy drops quickly and tightens
+//! near convergence.
+//!
+//! ```
+//! use quantumforge::subscore::{GaussianProcess, axis_points, vqe_kernel};
+//!
+//! let counts = vec![1]; // one gate per parameter
+//! let best = [0.0];
+//! // Three equidistant observations determine this 1D subspace exactly.
+//! let points = axis_points(&best, 0, &counts);
+//! assert_eq!(points.len(), 3);
+//!
+//! let mut gp = GaussianProcess::new(2.0, 1.0, counts);
+//! for (point, value) in points.iter().zip([1.0, -0.5, 1.0]) {
+//!     gp.push(point.clone(), value, 1e-4);
+//! }
+//! // The surrogate recovers the dip at the middle observation.
+//! assert!(gp.posterior_mean(&points[1]) < -0.2);
+//! assert!((vqe_kernel(&best, &best, 2.0, 1.0, &[1]) - 1.0).abs() < 1e-12);
+//! ```
+//!
+//! The same pipeline is available interactively as `vqe-subscore`.
+//!
 //! # Tensor networks and QAOA at scale
 //!
 //! Matrix product states with TEBD and DMRG live in [`tensor_network`], and
@@ -274,6 +303,7 @@ pub mod quantum;
 pub mod repl;
 pub mod serialize;
 pub mod stabilizer;
+pub mod subscore;
 pub mod tensor_network;
 
 use serde::{Deserialize, Serialize};
