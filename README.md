@@ -82,6 +82,14 @@ end-to-end behavior.
   example, and the `qf` command `qaoa-transfer`. Reproduces the paper's finding
   that unweighted families hold ~98% of a full re-optimization while weighted
   ER degrades.
+- **Shot-aware VQE: SubsCoRe** (arXiv:2502.01704) — adaptive observation cost
+  control. VQE is optimized one parameter axis at a time; a GP surrogate over
+  the VQE kernel tracks the confident region, and the shot count at each
+  observed point is chosen so the whole updated axis stays inside it. Shots
+  move from the rapidly-improving phase to the converging phase under a total
+  budget. Available as a library call, `cargo run --release --example subscore`,
+  and the `qf` command `vqe-subscore`. See the
+  [SubsCoRe guide](docs/wiki/SubsCoRe.md).
 - **Supply-chain hygiene** — Dependabot configuration and a `cargo audit` CI
   job against the RustSec advisory database.
 - **Python bindings** rebuilt and verified end-to-end against a real wheel.
@@ -220,8 +228,9 @@ Run any of them with `cargo run --example <name>`.
   (depolarizing / amplitude / phase damping), seeded reproducible shots, and a
   matrix-free sparse Lanczos eigensolver for ground-state energies.
 - **Variational / QML**: `ParameterizedCircuit` with data encoding, adjoint +
-  parameter-shift gradients (exact and finite-shot), and Adam trainers for
-  regression and classification.
+  parameter-shift gradients (exact and finite-shot), Adam trainers for
+  regression and classification, and shot-aware VQE (`subscore`: SubsCoRe
+  adaptive observation cost control with a GP surrogate).
 - **Algorithms**: Grover, QFT, QPE, Deutsch-Jozsa, Bernstein-Vazirani, HHL
   (linear systems), Shor (factoring). Quantum + classical hybrid solvers.
 - **Visualization**: ASCII circuit diagrams (`draw`) and SVG export (`to_svg`).
