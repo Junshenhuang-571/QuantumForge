@@ -2,8 +2,10 @@
 
 A pre-1.0 quantum-computing toolkit in Rust: an **exact-rational analytic
 core**, a **CPU simulator** (state vectors + density matrices + seeded shots),
-an **interactive REPL**, and optional **CUDA simulation / LLVM scalar JIT**
-features.
+**tensor networks** (MPS with TEBD and DMRG), **quantum error correction**
+(surface, repetition, Shor, Steane), **QAOA** at both state-vector and MPS
+scale, an **interactive REPL**, and optional **CUDA simulation / LLVM scalar
+JIT** features.
 
 [![CI](https://github.com/Junshenhuang-571/QuantumForge/actions/workflows/ci.yml/badge.svg)](https://github.com/Junshenhuang-571/QuantumForge/actions/workflows/ci.yml)
 
@@ -64,6 +66,25 @@ diagrams, run and measure them, and run variational algorithms (VQE, QML
 training) with results cross-checked against exact ground-state energies.
 The default test suite covers core semantics, robustness properties, and REPL
 end-to-end behavior.
+
+## Highlights in 0.2.8
+
+- **Every public item documented** — 775 doc comments added across 24 modules,
+  enforced by a `missing_docs` lint that is a hard error rather than a warning
+  (including feature-gated items such as the CUDA backend). See the
+  [documentation map](docs/README.md).
+- **MPS-based QAOA** for MaxCut on matrix product states with a bounded bond
+  dimension, plus a full tensor-network module (TEBD, DMRG, correlators).
+- **QAOA parameter transfer + targeted-layer optimization**
+  (arXiv:2601.15760) — donor-angle transfer with a ridge-regularized joint
+  optimization of the trailing layers, on 3-regular / Erdős–Rényi /
+  Barabási–Albert and weighted families. Available as a library call, an
+  example, and the `qf` command `qaoa-transfer`. Reproduces the paper's finding
+  that unweighted families hold ~98% of a full re-optimization while weighted
+  ER degrades.
+- **Supply-chain hygiene** — Dependabot configuration and a `cargo audit` CI
+  job against the RustSec advisory database.
+- **Python bindings** rebuilt and verified end-to-end against a real wheel.
 
 ## Quickstart
 

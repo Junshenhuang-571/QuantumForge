@@ -168,6 +168,34 @@
 //! # Ok::<(), quantumforge::optimizer::CircuitCostModelError>(())
 //! ```
 //!
+//! # Tensor networks and QAOA at scale
+//!
+//! Matrix product states with TEBD and DMRG live in [`tensor_network`], and
+//! [`mps_qaoa`] runs QAOA on an MPS with a bounded bond dimension — the route to
+//! MaxCut instances well beyond exact state vectors.
+//!
+//! [`qaoa_transfer`] implements parameter transfer (arXiv:2601.15760): optimize
+//! the angles on a small donor graph, transfer them to a larger acceptor, then
+//! jointly optimize only the trailing layers:
+//!
+//! ```
+//! use quantumforge::mps_qaoa::MaxCutProblem;
+//! use quantumforge::qaoa_transfer::{TransferOptions, run_parameter_transfer};
+//!
+//! let donor = MaxCutProblem::random_3_regular(8, 42);
+//! let acceptor = MaxCutProblem::random_3_regular(10, 43);
+//! let options = TransferOptions {
+//!     depth: 2,
+//!     donor_iterations: 20,
+//!     ..TransferOptions::default()
+//! };
+//! let outcome = run_parameter_transfer(&donor, &acceptor, &options).unwrap();
+//! println!("r_n = {:.4}  r_s = {:.4}", outcome.transferred_ratio, outcome.approximation_ratio);
+//! # assert!(outcome.approximation_ratio > 0.0);
+//! ```
+//!
+//! The same pipeline is available interactively as `qaoa-transfer` in the REPL.
+//!
 //! # Python bindings
 //!
 //! With the `python` cargo feature, the crate builds as an abi3 wheel
