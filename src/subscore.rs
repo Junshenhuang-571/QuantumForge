@@ -723,10 +723,10 @@ impl ShotHamiltonian {
     pub fn parameter_counts(&self) -> Vec<usize> {
         let mut counts = vec![0usize; self.ansatz.parameter_count()];
         for op in self.ansatz.operations() {
-            if let crate::ParameterizedOp::Rotation { parameter, .. } = op {
-                if *parameter < counts.len() {
-                    counts[*parameter] += 1;
-                }
+            if let crate::ParameterizedOp::Rotation { parameter, .. } = op
+                && *parameter < counts.len()
+            {
+                counts[*parameter] += 1;
             }
         }
         counts
