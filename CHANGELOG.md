@@ -1,6 +1,17 @@
 # Changelog
 
-## [0.2.8] - 2026-11-18
+## [Unreleased]
+
+### Added
+- Add user-visible changes here as they are merged.
+
+### Changed
+- Add behavior or API changes here, including migration notes.
+
+### Fixed
+- Add user-visible bug fixes here.
+
+## [0.2.9] - 2026-11-18
 
 ### Added
 - **Complete API documentation.** Every public item in the crate now carries a
@@ -11,12 +22,8 @@
 - Documentation map: `docs/README.md` ties together docs.rs, the wiki guides,
   the Python README, the examples and the release checklist, with an
   API-by-subsystem index.
-- Example-driven crate documentation: the docs.rs landing page now walks
-  through the Bell state, circuit construction, seeded sampling, QEC
-  verification, exact-rational algebra, Pauli sums, tensor networks and
-  parameter-transfer QAOA, cost-aware optimization, each as a runnable doctest.
-- README "Library demo" and "Highlights in 0.2.8" sections with copy-paste
-  Rust snippets and their real outputs.
+- Crate docs gain a "Tensor networks and QAOA at scale" section with a runnable
+  parameter-transfer doctest, and the README a "Highlights in 0.2.9" section.
 - Dependency hygiene: Dependabot configuration (weekly cargo updates) and a
   `cargo audit` CI job against the RustSec advisory database.
 - Property-based tests for the simulation core (`tests/proptest_quantum_core.rs`):
@@ -87,6 +94,16 @@
   `QecCode::syndrome_circuit` produces a readable syndrome instead of
   entangling ancillas without readout. Surface-code extraction already did
   this; the repetition and phase-flip builders now match it.
+
+## [0.2.8] - 2026-11-15
+
+### Added
+- Example-driven crate documentation: the docs.rs landing page now walks
+  through the Bell state, circuit construction, seeded sampling, QEC
+  verification, exact-rational algebra, Pauli sums, QASM round-trips, and
+  cost-aware optimization, each as a runnable doctest.
+- README "Library demo" section with copy-paste Rust snippets and their
+  real outputs.
 
 ## [0.2.7] - 2026-11-15
 

@@ -67,7 +67,7 @@ training) with results cross-checked against exact ground-state energies.
 The default test suite covers core semantics, robustness properties, and REPL
 end-to-end behavior.
 
-## Highlights in 0.2.8
+## Highlights in 0.2.9
 
 - **Every public item documented** — 775 doc comments added across 24 modules,
   enforced by a `missing_docs` lint that is a hard error rather than a warning

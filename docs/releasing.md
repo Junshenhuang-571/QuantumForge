@@ -28,14 +28,14 @@ has lints nightly lacks (and vice versa), so verify with the same one CI uses:
 
 - [ ] `cargo fmt --all -- --check`
 - [ ] `cargo clippy --all-targets -- -D warnings`
-- [ ] `cargo test --workspace --lib --tests` (281 tests at 0.2.8)
+- [ ] `cargo test --workspace --lib --tests` (327 tests at 0.2.9)
 - [ ] `cargo test --doc` — the crate docs are example-driven; doctests must pass
 - [ ] `cargo doc --workspace --no-deps`
 - [ ] Feature matrix: `cargo clippy --no-default-features --features <f> --lib
       -- -D warnings` for `llvm`, `python`, `rayon`, `ibm`, `ionq`, `rigetti`
       (the CI `feature-compile` jobs run these; `cuda`/`gpu` need a GPU host)
 - [ ] `cargo package` and check the reported file count/size is sane
-      (~122 files, ~314 KiB compressed at 0.2.8)
+      (~144 files, ~380 KiB compressed at 0.2.9)
 - [ ] `cargo publish --dry-run` — verifies the tarball compiles from a clean
       package directory. Note: it refuses on a dirty working tree; commit first.
 
