@@ -98,6 +98,105 @@ impl MaxCutProblem {
         self.edges.iter().map(|&(_, _, w)| w).sum()
     }
 
+    /// Random Erdős–Rényi graph: each unordered pair becomes an edge
+    /// independently with probability `probability`. Deterministic for a given
+    /// seed. Isolated vertices are left in place (they contribute nothing).
+    pub fn random_er(num_qubits: usize, probability: f64, seed: u64) -> Self {
+        assert!(num_qubits >= 2, "need at least 2 vertices");
+        assert!(
+            (0.0..=1.0).contains(&probability),
+            "probability must lie in [0, 1]"
+        );
+        let mut rng = SmallRng::seeded(seed);
+        let mut edges = Vec::new();
+        for u in 0..num_qubits {
+            for v in (u + 1)..num_qubits {
+                if rng.next_f64() < probability {
+                    edges.push((u, v, 1.0));
+                }
+            }
+        }
+        edges.sort_by_key(|a| (a.0, a.1));
+        Self::new(num_qubits, edges)
+    }
+
+    /// Random Barabási–Albert graph: start from a clique on
+    /// `edges_per_node + 1` vertices, then attach each new vertex to
+    /// `edges_per_node` existing ones with probability proportional to degree.
+    /// Deterministic for a given seed.
+    pub fn random_ba(num_qubits: usize, edges_per_node: usize, seed: u64) -> Self {
+        assert!(edges_per_node >= 1, "edges per new vertex must be >= 1");
+        assert!(
+            num_qubits > edges_per_node,
+            "Barabási–Albert needs more vertices than edges per new vertex"
+        );
+        let mut rng = SmallRng::seeded(seed);
+        let mut edges: Vec<(usize, usize, f64)> = Vec::new();
+        // Degree-proportional target pool: one entry per current endpoint.
+        let mut stubs: Vec<usize> = Vec::new();
+        for u in 0..=edges_per_node {
+            for v in (u + 1)..=edges_per_node {
+                edges.push((u, v, 1.0));
+                stubs.push(u);
+                stubs.push(v);
+            }
+        }
+        for new in (edges_per_node + 1)..num_qubits {
+            let mut chosen: Vec<usize> = Vec::with_capacity(edges_per_node);
+            let mut attempts = 0;
+            while chosen.len() < edges_per_node && attempts < 10_000 {
+                attempts += 1;
+                let candidate = stubs[(rng.next_u64() as usize) % stubs.len()];
+                if candidate == new || chosen.contains(&candidate) {
+                    continue;
+                }
+                chosen.push(candidate);
+            }
+            // Fall back to the lowest-index unused vertex if preferential
+            // attachment could not find enough distinct targets.
+            for candidate in 0..new {
+                if chosen.len() == edges_per_node {
+                    break;
+                }
+                if !chosen.contains(&candidate) {
+                    chosen.push(candidate);
+                }
+            }
+            for candidate in chosen {
+                edges.push((candidate, new, 1.0));
+                stubs.push(candidate);
+                stubs.push(new);
+            }
+        }
+        edges.sort_by_key(|a| (a.0, a.1));
+        Self::new(num_qubits, edges)
+    }
+
+    /// Copy of this problem with every edge weight replaced by a uniform random
+    /// value in `[min_weight, max_weight)`. Deterministic for a given seed.
+    ///
+    /// Used to test the weighted families, where the paper reports the transfer
+    /// method degrades.
+    pub fn with_random_weights(&self, seed: u64, min_weight: f64, max_weight: f64) -> Self {
+        assert!(
+            min_weight > 0.0 && max_weight > min_weight,
+            "need 0 < min_weight < max_weight"
+        );
+        let mut rng = SmallRng::seeded(seed);
+        let edges = self
+            .edges
+            .iter()
+            .map(|&(u, v, _)| {
+                (
+                    u,
+                    v,
+                    min_weight + rng.next_f64() * (max_weight - min_weight),
+                )
+            })
+            .collect();
+        Self::new(self.num_qubits, edges)
+    }
+
     /// Cut weight of a bitstring (bit `i` = vertex `i`).
     pub fn cut_value(&self, bits: u64) -> f64 {
         let mut total = 0.0;

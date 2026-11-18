@@ -83,6 +83,43 @@ fn acceptor_defaults_above_the_donor() {
 }
 
 #[test]
+fn family_option_selects_the_generator() {
+    let mut session = Session::new(4);
+    for family in ["3r", "er", "ba", "w3r", "wer"] {
+        assert!(
+            session.dispatch(&format!(
+                "qaoa-transfer family={family} acceptor=8 p=2 iters=10 full=0"
+            )),
+            "family {family} should run"
+        );
+        let stored = session.qaoa_transfer.as_ref().unwrap();
+        assert_eq!(stored.acceptor.num_qubits, 8);
+        assert!(stored.outcome.approximation_ratio > 0.0);
+    }
+}
+
+#[test]
+fn unknown_family_leaves_previous_run_untouched() {
+    let mut session = Session::new(4);
+    assert!(session.dispatch("qaoa-transfer acceptor=8 p=2 iters=10 full=0"));
+    let before = session
+        .qaoa_transfer
+        .as_ref()
+        .unwrap()
+        .outcome
+        .approximation_ratio;
+    assert!(session.dispatch("qaoa-transfer family=nope"));
+    assert!(session.dispatch("qaoa-transfer family=ba acceptor=7"));
+    let after = session
+        .qaoa_transfer
+        .as_ref()
+        .unwrap()
+        .outcome
+        .approximation_ratio;
+    assert_eq!(before, after);
+}
+
+#[test]
 fn help_lists_the_new_commands() {
     let mut session = Session::new(4);
     assert!(session.dispatch("help"));

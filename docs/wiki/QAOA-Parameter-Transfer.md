@@ -161,6 +161,38 @@ Worth recording so it is not re-tried:
   dimensions: the last 4 gives 0.9145 and all 6 gives 0.9170, both below the
   last 3. Three is the sweet spot at `p = 6`.
 
+## Graph families
+
+The paper studies three unweighted families (3-regular, Erdős–Rényi,
+Barabási–Albert) plus weighted variants. `MaxCutProblem::random_er`,
+`random_ba` and `with_random_weights` generate them; `examples/qaoa_transfer_families.rs`
+prints the comparison and the REPL takes `family=3r|er|ba` (prefix `w` for
+weighted).
+
+Measured at 12 acceptor vertices, donor 8, `p = 6`, 100 Adagrad iterations,
+3-layer block × 2 sweeps:
+
+| family | edges | r_n | r_s | r_f | r_s/r_f |
+|---|---|---|---|---|---|
+| 3r | 18 | 0.8583 | 0.8752 | 0.9062 | 96.6% |
+| er | 27 | 0.8297 | 0.8394 | 0.8573 | 97.9% |
+| ba | 21 | 0.9244 | 0.9286 | 0.9781 | 94.9% |
+| w3r | 18 | 0.7973 | 0.8009 | 0.8099 | 98.9% |
+| wer | 27 | 0.8129 | 0.8213 | 0.9216 | **89.1%** |
+
+Two of the paper's claims reproduce:
+
+- Unweighted families hold 95–98% of `r_f`, matching the paper's 98.88%.
+- **Weighted families split.** Weighted 3-regular stays at 98.9% — the paper's
+  "for some weighted families (weighted 3-regular) this approach works
+  perfectly" — while weighted ER falls to 89.1%, the paper's "not ideal for
+  weighted graph families". The paper does not explain the split; the likely
+  cause is that a single γ scale fits a graph whose edges all have equal weight,
+  but not one whose weights span a range.
+
+The absolute ratios also fall with vertex count, as in the paper's Table 2
+(3r: 0.9337 at 10 vertices → 0.8752 at 12).
+
 ## In the REPL
 
 ```

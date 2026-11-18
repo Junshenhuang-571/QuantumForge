@@ -1541,6 +1541,9 @@ impl Session {
         let mut sweeps = 2usize;
         let mut compare_full = false;
         let mut seed = 42u64;
+        let mut family = "3r".to_string();
+        let mut family_parameter = 0.5f64;
+        let mut family_parameter_given = false;
 
         if let Some(value) = Self::qaoa_kw(rest, "donor") {
             match value.parse::<usize>() {
@@ -1608,12 +1611,24 @@ impl Session {
                 Err(_) => return eprintln!("qaoa-transfer error: seed must be an integer"),
             }
         }
+        if let Some(value) = Self::qaoa_kw(rest, "family") {
+            family = value.to_ascii_lowercase();
+        }
+        if let Some(value) = Self::qaoa_kw(rest, "m") {
+            match value.parse::<f64>() {
+                Ok(v) => {
+                    family_parameter = v;
+                    family_parameter_given = true;
+                }
+                Err(_) => return eprintln!("qaoa-transfer error: m must be a number"),
+            }
+        }
 
         if !donor_nodes.is_multiple_of(2) || donor_nodes < 4 {
             return eprintln!("qaoa-transfer error: donor must be even and >= 4");
         }
-        if !acceptor_nodes.is_multiple_of(2) || acceptor_nodes < 4 {
-            return eprintln!("qaoa-transfer error: acceptor must be even and >= 4");
+        if acceptor_nodes < 4 {
+            return eprintln!("qaoa-transfer error: acceptor must have at least 4 vertices");
         }
         if donor_nodes > acceptor_nodes {
             return eprintln!(
@@ -1624,8 +1639,64 @@ impl Session {
             return eprintln!("qaoa-transfer error: p must be >= 1");
         }
 
-        let donor = MaxCutProblem::random_3_regular(donor_nodes, seed);
-        let acceptor = MaxCutProblem::random_3_regular(acceptor_nodes, seed.wrapping_add(1));
+        // Build the donor/acceptor pair. `m` is the edge probability for ER and
+        // the edges-per-new-vertex for BA; a `w` prefix randomizes the weights.
+        let weighted = family.starts_with('w');
+        let base_family = if weighted {
+            &family[1..]
+        } else {
+            family.as_str()
+        };
+        let build = |vertices: usize, salt: u64| -> Result<MaxCutProblem, String> {
+            let graph = match base_family {
+                "3r" | "3-regular" => {
+                    if !vertices.is_multiple_of(2) || vertices < 4 {
+                        return Err(format!(
+                            "family 3r needs an even vertex count >= 4, got {vertices}"
+                        ));
+                    }
+                    MaxCutProblem::random_3_regular(vertices, salt)
+                }
+                "er" | "erdos" | "e" => MaxCutProblem::random_er(vertices, family_parameter, salt),
+                "ba" | "barabasi" | "b" => {
+                    // `m` defaults to an edge probability for ER and to 2 edges
+                    // per new vertex for BA.
+                    let requested = if family_parameter_given {
+                        family_parameter
+                    } else {
+                        2.0
+                    };
+                    let m = requested as usize;
+                    if m < 1 {
+                        return Err("family ba needs m >= 1".to_owned());
+                    }
+                    if vertices <= m {
+                        return Err(format!(
+                            "family ba needs more vertices ({vertices}) than m ({m})"
+                        ));
+                    }
+                    MaxCutProblem::random_ba(vertices, m, salt)
+                }
+                other => {
+                    return Err(format!(
+                        "unknown family '{other}' (3r | er | ba, prefix w for weighted)"
+                    ));
+                }
+            };
+            if weighted {
+                Ok(graph.with_random_weights(salt ^ 0x5EED, 0.5, 2.0))
+            } else {
+                Ok(graph)
+            }
+        };
+        let donor = match build(donor_nodes, seed) {
+            Ok(graph) => graph,
+            Err(message) => return eprintln!("qaoa-transfer error: {message}"),
+        };
+        let acceptor = match build(acceptor_nodes, seed.wrapping_add(1)) {
+            Ok(graph) => graph,
+            Err(message) => return eprintln!("qaoa-transfer error: {message}"),
+        };
 
         let options = TransferOptions {
             depth,
@@ -1643,9 +1714,14 @@ impl Session {
         };
 
         println!(
-            "qaoa-transfer: {donor_nodes} -> {acceptor_nodes} vertices, p={depth}, \
+            "qaoa-transfer: {donor_nodes} -> {acceptor_nodes} vertices, family={family}, p={depth}, \
              TQA dt={dt}, Adagrad lr={learning_rate} iters={iterations}, \
-             lambda={lambda}, layers={layers}, sweeps={sweeps}"
+             lambda={lambda}, layers={layers}, sweeps={sweeps}",
+            family = if weighted {
+                format!("{base_family} (weighted)")
+            } else {
+                family.clone()
+            }
         );
         if cfg!(debug_assertions) {
             println!(

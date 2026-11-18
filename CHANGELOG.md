@@ -35,6 +35,12 @@
   (0.1 stalls under finite-difference gradients), the targeted block is the
   last 3 layers rather than 1 (98.7% of `r_f` versus 95.9% at 10 vertices),
   and the block runs twice.
+- MaxCut graph families for the transfer work: `MaxCutProblem::random_er`,
+  `random_ba` and `with_random_weights` join the existing `random_3_regular`,
+  so the paper's 3R/ER/BA and weighted comparisons can be reproduced. The REPL
+  `qaoa-transfer` takes `family=3r|er|ba` (prefix `w` for weighted) and `m`
+  (ER probability / BA edges per new vertex); example
+  `examples/qaoa_transfer_families.rs` prints the comparison table.
 - REPL: `qaoa-transfer` runs the pipeline and stores it on the session;
   `qaoa-angles`, `qaoa-layers` and `qaoa-layer` inspect the stored run.
   The default donor learning rate is 0.05 rather than the paper's 0.1, which

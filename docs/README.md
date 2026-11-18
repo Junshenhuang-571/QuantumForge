@@ -37,7 +37,7 @@ Rustdoc anchors (substitute the version you depend on):
 | Cost-aware circuit optimization | [`optimizer`](https://docs.rs/quantumforge/latest/quantumforge/optimizer/) |
 | Tensor networks (MPS, TEBD, DMRG) | [`tensor_network`](https://docs.rs/quantumforge/latest/quantumforge/tensor_network/) |
 | MPS-based QAOA | [`mps_qaoa`](https://docs.rs/quantumforge/latest/quantumforge/mps_qaoa/) |
-| QAOA parameter transfer + targeted-single-layer | [`qaoa_transfer`](https://docs.rs/quantumforge/latest/quantumforge/qaoa_transfer/) |
+| QAOA parameter transfer + targeted-layer | [`qaoa_transfer`](https://docs.rs/quantumforge/latest/quantumforge/qaoa_transfer/) |
 | Quantum error correction | [`qec`](https://docs.rs/quantumforge/latest/quantumforge/qec/) |
 | Stabilizer formalism | [`stabilizer`](https://docs.rs/quantumforge/latest/quantumforge/stabilizer/) |
 | Adiabatic quantum computing | [`aqc`](https://docs.rs/quantumforge/latest/quantumforge/aqc/) |
@@ -64,7 +64,8 @@ Every example is runnable (`cargo run --example <name>`); the ones marked
 - `qasm_roundtrip` — OpenQASM 2.0 import → export → re-import
 - `vqe_exact` — VQE against the exact ground-state energy
 - `mps_qaoa` *(release)* — QAOA on a matrix product state with a χ sweep
-- `qaoa_transfer` *(release)* — parameter transfer + targeted-single-layer optimization
+- `qaoa_transfer` *(release)* — parameter transfer + targeted-layer optimization
+- `qaoa_transfer_families` *(release)* — the same across 3r / er / ba / weighted families
 - `cost_aware_optimization` — rewrite against a weighted cost model
 - `qtm_probe` — quantum Turing machine exploration
 - `gpu_bench` — GPU benchmark entry point

@@ -55,13 +55,16 @@ QuantumForge REPL — one session, live state. Type 'help' for this, 'quit' to e
   anneal [NAME] [T=.. tol=.. steps=..] [path=linear|fast|poly] [driver=tf|xz]
                         Adiabatic QC: interpolate driver -> problem Hamiltonian
                           NAME = ising|tfim|heisenberg|xxz|hubbard (default demo ZZ)
-  qaoa-transfer [donor=8] [acceptor=N] [p=6] [dt=0.75] [lr=0.05] [iters=100]
-                [lambda=1e-4] [layers=3] [sweeps=2] [full=0] [seed=42]
+  qaoa-transfer [donor=8] [acceptor=N] [family=3r] [p=6] [dt=0.75] [lr=0.05]
+                [iters=100] [lambda=1e-4] [layers=3] [sweeps=2] [full=0] [seed=42]
                         QAOA parameter transfer + targeted-layer optimization
-                        (arXiv:2601.15760) on seeded 3-regular graphs: optimize
-                        the donor, transfer the angles, then jointly optimize
-                        the last `layers` layers (the paper uses 1; 3 recovers
-                        most of the gap to a full re-optimization).
+                        (arXiv:2601.15760). optimize the donor, transfer the
+                        angles, then jointly optimize the last `layers` layers
+                        (the paper uses 1; 3 recovers most of the gap to a full
+                        re-optimization).
+                        family = 3r | er | ba, prefixed with w for weighted
+                          (w3r, wer); m = ER edge probability (default 0.5) or
+                          BA edges per new vertex (default 2).
                         acceptor defaults to the live qubit count (otherwise
                         donor+2); prints r_n (transferred), r_s (targeted), the
                         per-sweep refinement and, with full=1, r_f (full
