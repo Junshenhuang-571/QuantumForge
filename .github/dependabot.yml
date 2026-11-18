@@ -7,7 +7,19 @@ updates:
     open-pull-requests-limit: 5
     commit-message:
       prefix: "deps"
+    # Major bumps need real migration work in this crate, not a routine merge:
+    # pyo3 >= 0.29 needs a newer compiler than the declared MSRV 1.88, rand 0.10
+    # and cudarc 0.19 change APIs, and criterion 0.8 deprecated `black_box` (an
+    # error under `-D warnings`). A grouped major PR therefore goes red and is
+    # useless. Take minors and patches automatically; bump majors by hand with
+    # the migration in the same change.
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
     groups:
       rust-dependencies:
         patterns:
           - "*"
+        update-types:
+          - minor
+          - patch
