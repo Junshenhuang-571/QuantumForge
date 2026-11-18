@@ -149,12 +149,12 @@ fn gp_matches_a_direct_dense_computation() {
     let mut kernel = vec![vec![0.0; 3]; 3];
     for (i, point) in points.iter().enumerate() {
         for (j, other) in points.iter().enumerate() {
-            kernel[i][j] = vqe_kernel(point, other, 2.0, 1.0, &counts);
+            let mut entry = vqe_kernel(point, other, 2.0, 1.0, &counts);
+            if i == j {
+                entry += variances[i]; // heteroscedastic noise on the diagonal
+            }
+            kernel[i][j] = entry;
         }
-    }
-    for (row, variance) in kernel.iter_mut().zip(variances) {
-        let n = row.len() - 1;
-        row[n] += variance;
     }
 
     let alpha = solve(kernel.clone(), values.to_vec());
