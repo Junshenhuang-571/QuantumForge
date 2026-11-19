@@ -195,7 +195,11 @@ legend: ─ wire  • control  ⊕ target(X)  │ span  x swap  M measure</span>
     </div>
     <div class="feature-card">
       <h3>Variational / QML</h3>
-      <p><code>ParameterizedCircuit</code> with data encoding, adjoint + parameter-shift gradients, Adam trainers for regression and classification.</p>
+      <p><code>ParameterizedCircuit</code> with data encoding, four gradient strategies (parameter shift, adjoint, backprop, finite-difference) with automatic selection, Adam trainers for regression and classification.</p>
+    </div>
+    <div class="feature-card">
+      <h3>Shot-Aware VQE</h3>
+      <p>SubsCoRe (arXiv:2502.01704) spends the measurement budget where it matters: a GP surrogate tracks the confident region and the shot count adapts to it, under a total shot budget.</p>
     </div>
     <div class="feature-card">
       <h3>CUDA Backend</h3>

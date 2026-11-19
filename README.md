@@ -82,14 +82,28 @@ end-to-end behavior.
   example, and the `qf` command `qaoa-transfer`. Reproduces the paper's finding
   that unweighted families hold ~98% of a full re-optimization while weighted
   ER degrades.
+- **Gradient strategies with automatic selection** — parameter shift, adjoint,
+  reverse-mode backprop, and a finite-difference fallback, chosen for you by
+  `Auto` (parameter shift when the expectation is sampled, adjoint otherwise,
+  nothing for a circuit with a noise channel) and reported with the number of
+  state-vector sweeps each one cost. See the
+  [gradient strategies guide](docs/wiki/Gradient-Strategies.md).
 - **Shot-aware VQE: SubsCoRe** (arXiv:2502.01704) — adaptive observation cost
   control. VQE is optimized one parameter axis at a time; a GP surrogate over
   the VQE kernel tracks the confident region, and the shot count at each
   observed point is chosen so the whole updated axis stays inside it. Shots
   move from the rapidly-improving phase to the converging phase under a total
-  budget. Available as a library call, `cargo run --release --example subscore`,
-  and the `qf` command `vqe-subscore`. See the
-  [SubsCoRe guide](docs/wiki/SubsCoRe.md).
+  budget. The shot budget is a thermostat — an observation over `N` shots has
+  variance `eta^2/N`, so the temperature is `T = eta/sqrt(N)` — and
+  `UpdateRule::FreeEnergy` turns that into the Gibbs acquisition
+  `argmin(<E> - T*S)`. Available as a library call,
+  `cargo run --release --example subscore`, and the `qf` command
+  `vqe-subscore`. See the [SubsCoRe guide](docs/wiki/SubsCoRe.md).
+- **Correctness in the shot-based paths** — `ShotHamiltonian::observe` now takes
+  a total shot budget (it previously took shots *per Pauli word*, so both the
+  spend and the GP's noise model were off by the word count) and reports the
+  estimator's own variance; `SmallRng::seeded` now mixes its seed, so
+  consecutive seeds give independent runs instead of near-identical ones.
 - **Supply-chain hygiene** — Dependabot configuration and a `cargo audit` CI
   job against the RustSec advisory database.
 - **Python bindings** rebuilt and verified end-to-end against a real wheel.
@@ -290,7 +304,7 @@ Core commands: `qubits`, `circuit`, `draw`, `add`, `clear`, `run`, `noisy`,
 |---|---|
 | `gradient X\|Y\|Z Q` | Adjoint vs parameter-shift gradient, cross-validated |
 | `vqe <ham>` | Variational Quantum Eigensolver — minimizes `<H>` over the circuit's rotations and compares to the exact ground state |
-| `vqe-subscore [ham=tfim] [budget=20000] [shots=64] [strategy=center\|bound] [seed=42]` | SubsCoRe — shot-aware VQE: optimizes one parameter axis at a time and spends shots where they matter, under a total shot budget |
+| `vqe-subscore [ham=tfim] [budget=20000] [shots=64] [strategy=center\|bound] [update=mean\|thompson\|guarded\|free] [seed=42]` | SubsCoRe — shot-aware VQE: optimizes one parameter axis at a time and spends shots where they matter, under a total shot budget |
 | `gradient X\|Y\|Z Q [method=auto\|shift\|adjoint\|backprop\|fd]` | `d<O>/dtheta` per rotation. Without `method=` the exact rules are cross-validated; with it one rule runs and reports its cost |
 | `train {regression\|classify} [DATA]` | Supervised QML (Adam). `DATA` is a flat brace list `{feat...,target, ...}` |
 | `qnn [DATA]` | Minimal 1-parameter `VariationalQnn`, Adam or gradient descent |
@@ -517,6 +531,9 @@ src/lib.rs            kernel entry, Circuit / StateVector / ParameterizedCircuit
 src/bin/qf.rs         the interactive REPL
 src/bin/main.rs       the CLI (demo/eval/simplify/shots/...)
 src/analytic.rs       exact-rational core: PauliSum, ScalarExpr, Rational
+src/gradients.rs      gradient strategies (shift / adjoint / backprop / finite-diff) + automatic selection
+src/subscore.rs       SubsCoRe: shot-aware VQE with a GP surrogate and adaptive observation cost
+src/qaoa_transfer.rs  QAOA parameter transfer + targeted-layer optimization
 src/quantum.rs        operators, observables, time-dependent evolution
 src/parser.rs         Wolfram-style circuit + scalar expression parser
 src/qtm.rs            Quantum Turing Machines (Bernstein–Vazirani unitary formulation)
@@ -553,6 +570,9 @@ Guides and reference material beyond this README:
 - [QEC codes](docs/wiki/QEC-Codes.md) — stabilizer codes, encoders, decoders
 - [GPU acceleration](docs/wiki/GPU-Acceleration.md) — `cuda` vs `gpu` features
 - [MPS-based QAOA](docs/wiki/MPS-QAOA.md) — MaxCut on matrix product states
+- [QAOA parameter transfer](docs/wiki/QAOA-Parameter-Transfer.md) — donor-angle transfer and targeted-layer optimization
+- [SubsCoRe](docs/wiki/SubsCoRe.md) — shot-aware VQE, the shot budget as a thermostat, and which statistical-mechanics models apply
+- [Gradient strategies](docs/wiki/Gradient-Strategies.md) — the four differentiation rules, automatic selection, and how they are cross-validated
 - [Contributing](docs/wiki/Contributing.md) / [CONTRIBUTING.md](CONTRIBUTING.md)
 - [Release checklist](docs/releasing.md) — how a version is cut and published
 - [Python bindings](python/README.md) — install, quickstart, and worked scripts

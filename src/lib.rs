@@ -196,11 +196,11 @@
 //! ```
 //!
 //! The shot budget is a thermostat: an observation averaged over `N` shots has
-//! variance `eta^2 / N`, so spending fewer shots is literally running hotter.
-//! [`subscore::UpdateRule::Thompson`] turns that into Boltzmann exploration by
-//! moving to
-//! the minimizer of a function drawn from the GP posterior rather than of its
-//! mean.
+//! variance `eta^2 / N`, so the temperature in energy units is
+//! `T = eta / sqrt(N)`, and spending fewer shots is literally running hotter.
+//! [`subscore::UpdateRule::FreeEnergy`] uses it as the Gibbs acquisition
+//! `argmin (<E> - T*S)`; [`subscore::UpdateRule::Thompson`] draws from the
+//! posterior instead, which is a different and much hotter quantity.
 //!
 //! The same pipeline is available interactively as `vqe-subscore`.
 //!

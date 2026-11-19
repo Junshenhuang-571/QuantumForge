@@ -1,8 +1,60 @@
 # Changelog
 
-## [Unreleased]
+## [0.2.9] - 2026-11-19
 
 ### Added
+- **Complete API documentation.** Every public item in the crate now carries a
+  doc comment (775 items added across 24 modules), verified by a
+  `missing_docs` lint that is now a hard error rather than a warning, so the
+  completeness cannot silently regress. This includes items that only compile
+  behind a feature flag (the `cuda` backend).
+- Documentation map: `docs/README.md` ties together docs.rs, the wiki guides,
+  the Python README, the examples and the release checklist, with an
+  API-by-subsystem index.
+- Crate docs gain a "Tensor networks and QAOA at scale" section with a runnable
+  parameter-transfer doctest, and the README a "Highlights in 0.2.9" section.
+- Dependency hygiene: Dependabot configuration (weekly cargo updates) and a
+  `cargo audit` CI job against the RustSec advisory database.
+- Property-based tests for the simulation core (`tests/proptest_quantum_core.rs`):
+  unitary circuits preserve the norm, shot counts are normalized and
+  reproducible under a fixed seed, basis-state measurement is deterministic,
+  Bell correlations hold, and the rotated surface code satisfies its
+  structural invariants.
+- **MPS-based QAOA** (`mps_qaoa` module): MaxCut on matrix product states with a
+  bounded bond dimension. Long-range diagonal gates applied as exact bond-2
+  MPOs, two-sweep SVD compression, transfer-contraction cost expectations
+  (no state-vector expansion), seeded 3-regular graph generator, and
+  parameter-shift angle finding with restarts. Example
+  `examples/mps_qaoa.rs` and guide `docs/wiki/MPS-QAOA.md`.
+- **QAOA parameter transfer + targeted-layer optimization**
+  (`qaoa_transfer` module, arXiv:2601.15760): TQA angle initialization,
+  finite-difference Adagrad on a small donor graph, transfer of the optimized
+  angles to a larger acceptor, then a ridge-regularized joint optimization of
+  the trailing layers. `TransferOutcome` reports `r_n`, `r_s`, per-sweep
+  refinement energies and optionally `r_f`. Example `examples/qaoa_transfer.rs`
+  and guide `docs/wiki/QAOA-Parameter-Transfer.md`.
+  Defaults deviate from the paper in three measured ways: donor `lr = 0.05`
+  (0.1 stalls under finite-difference gradients), the targeted block is the
+  last 3 layers rather than 1 (98.7% of `r_f` versus 95.9% at 10 vertices),
+  and the block runs twice.
+- MaxCut graph families for the transfer work: `MaxCutProblem::random_er`,
+  `random_ba` and `with_random_weights` join the existing `random_3_regular`,
+  so the paper's 3R/ER/BA and weighted comparisons can be reproduced. The REPL
+  `qaoa-transfer` takes `family=3r|er|ba` (prefix `w` for weighted) and `m`
+  (ER probability / BA edges per new vertex); example
+  `examples/qaoa_transfer_families.rs` prints the comparison table.
+- REPL: `qaoa-transfer` runs the pipeline and stores it on the session;
+  `qaoa-angles`, `qaoa-layers` and `qaoa-layer` inspect the stored run.
+  The default donor learning rate is 0.05 rather than the paper's 0.1, which
+  stalls under finite-difference gradients (donor r = 0.825 vs 0.980).
+- MPS: `apply_diagonal_two_site`, `compress_range`,
+  `expectation_two_site_product`, `norm_sqr_mps`.
+- Examples: `qec_roundtrip` (surface-code verification + repetition-code
+  encode/inject/syndrome/recover cycle), `qasm_roundtrip` (OpenQASM 2.0
+  import/export/re-import), `vqe_exact` (VQE vs exact ground-state energy).
+- Python first-run path: `python/README.md` plus worked scripts
+  `python/examples/bell.py`, `qec.py`, `vqe.py`.
+
 - **`UpdateRule::FreeEnergy`** — the one distribution model from statistical
   mechanics that survives contact. The Gibbs distribution minimizes
   `F = <E> - T S`, so the acquisition becomes `argmin (<E> - T*S)` with the
@@ -17,45 +69,6 @@
   binomial. But the GP consumes only the noise *variance*, which is already
   exact; measured `KL(binomial || Gaussian)` is 0.02 nats at `N=1`, 0.005 at
   `N=16` and 0.0004 at `N=256`, so the refinement buys nothing.
-
-### Fixed
-- **Corrected the thermodynamics claimed for `UpdateRule::Thompson`.** The
-  previous wording called posterior sampling Boltzmann exploration. It is not:
-  the posterior variance measures how ignorant the *surrogate* is away from its
-  observations, which is a different quantity in different units from the
-  estimator noise `eta^2 / N`. The module docs, the `UpdateRule` and
-  `exploration` doc comments, and `docs/wiki/SubsCoRe.md` now say so, and carry
-  the measurement: on the demo instance the quench reaches -4.4020 while
-  guarded Thompson at exploration 0.5/0.25/0.1 reaches -3.4310/-3.4532/-3.6045.
-  A 1D double-well check confirms the mechanism itself is sound — gradient
-  descent stays in the shallow well 400/400, an annealed Langevin step reaches
-  the deep well 199/400 — so the honest conclusion is that a shot-budgeted VQE
-  is information-limited, not barrier-limited, and step noise costs more than
-  it buys. The rule is kept as a documented negative result.
-### Fixed
-- **Flaky statistical assertions in `tests/subscore.rs`.** The reported-vs-
-  empirical variance check used 120 repeats against a 20% tolerance; the
-  standard error of an empirical variance at 120 samples is 13%, so it was a
-  ~1.5-sigma test that failed roughly one run in eight. It now uses 800 repeats
-  (about 4 sigma). The guard test's threshold sat at 80 while the measured
-  acceptance ranged 45..73 across seed bases, so a different seed base could
-  fail it; the threshold is now 100. The explore test's `at_home > 30` had a
-  worst observed value of 45; it is now `> 20`.
-- **`GradientStrategy::parse` panicked on an unknown name.** It returned
-  `Self` and `panic!`ed, so a caller-supplied string could abort the process.
-  It now returns `Option<Self>` and the REPL uses it instead of keeping a
-  second name table.
-- **`GradientOptions` could not express a shot budget.** `CircuitProfile.shots`
-  existed but no public path set it, so `Auto`'s sampled branch was unreachable
-  and the doc comment claimed otherwise. `GradientOptions::shots` now feeds the
-  profile; the gradient stays exact, and the option only tells `Auto` that the
-  caller intends to sample.
-- **CI test time.** The subscore variance test ran 1000 observations of a
-  4-qubit, 2-layer objective, 297 s of a 308 s binary. It now uses a 2-qubit,
-  1-layer objective with fewer shots per reading: 17 s, with the whole subscore
-  suite at 18 s instead of 308 s.
-
-### Added
 - **Gradient strategies with automatic selection** (new module `gradients`).
   Production variational stacks offer several ways to differentiate
   `<psi_x|O|psi_x>`; the crate had two. Now:
@@ -122,68 +135,6 @@
   The guide also documents where the paper's pseudocode scans the shot
   variance in the opposite direction to its own Eq. 15.
 
-
-### Changed
-- Add behavior or API changes here, including migration notes.
-
-### Fixed
-- Add user-visible bug fixes here.
-
-## [0.2.9] - 2026-11-18
-
-### Added
-- **Complete API documentation.** Every public item in the crate now carries a
-  doc comment (775 items added across 24 modules), verified by a
-  `missing_docs` lint that is now a hard error rather than a warning, so the
-  completeness cannot silently regress. This includes items that only compile
-  behind a feature flag (the `cuda` backend).
-- Documentation map: `docs/README.md` ties together docs.rs, the wiki guides,
-  the Python README, the examples and the release checklist, with an
-  API-by-subsystem index.
-- Crate docs gain a "Tensor networks and QAOA at scale" section with a runnable
-  parameter-transfer doctest, and the README a "Highlights in 0.2.9" section.
-- Dependency hygiene: Dependabot configuration (weekly cargo updates) and a
-  `cargo audit` CI job against the RustSec advisory database.
-- Property-based tests for the simulation core (`tests/proptest_quantum_core.rs`):
-  unitary circuits preserve the norm, shot counts are normalized and
-  reproducible under a fixed seed, basis-state measurement is deterministic,
-  Bell correlations hold, and the rotated surface code satisfies its
-  structural invariants.
-- **MPS-based QAOA** (`mps_qaoa` module): MaxCut on matrix product states with a
-  bounded bond dimension. Long-range diagonal gates applied as exact bond-2
-  MPOs, two-sweep SVD compression, transfer-contraction cost expectations
-  (no state-vector expansion), seeded 3-regular graph generator, and
-  parameter-shift angle finding with restarts. Example
-  `examples/mps_qaoa.rs` and guide `docs/wiki/MPS-QAOA.md`.
-- **QAOA parameter transfer + targeted-layer optimization**
-  (`qaoa_transfer` module, arXiv:2601.15760): TQA angle initialization,
-  finite-difference Adagrad on a small donor graph, transfer of the optimized
-  angles to a larger acceptor, then a ridge-regularized joint optimization of
-  the trailing layers. `TransferOutcome` reports `r_n`, `r_s`, per-sweep
-  refinement energies and optionally `r_f`. Example `examples/qaoa_transfer.rs`
-  and guide `docs/wiki/QAOA-Parameter-Transfer.md`.
-  Defaults deviate from the paper in three measured ways: donor `lr = 0.05`
-  (0.1 stalls under finite-difference gradients), the targeted block is the
-  last 3 layers rather than 1 (98.7% of `r_f` versus 95.9% at 10 vertices),
-  and the block runs twice.
-- MaxCut graph families for the transfer work: `MaxCutProblem::random_er`,
-  `random_ba` and `with_random_weights` join the existing `random_3_regular`,
-  so the paper's 3R/ER/BA and weighted comparisons can be reproduced. The REPL
-  `qaoa-transfer` takes `family=3r|er|ba` (prefix `w` for weighted) and `m`
-  (ER probability / BA edges per new vertex); example
-  `examples/qaoa_transfer_families.rs` prints the comparison table.
-- REPL: `qaoa-transfer` runs the pipeline and stores it on the session;
-  `qaoa-angles`, `qaoa-layers` and `qaoa-layer` inspect the stored run.
-  The default donor learning rate is 0.05 rather than the paper's 0.1, which
-  stalls under finite-difference gradients (donor r = 0.825 vs 0.980).
-- MPS: `apply_diagonal_two_site`, `compress_range`,
-  `expectation_two_site_product`, `norm_sqr_mps`.
-- Examples: `qec_roundtrip` (surface-code verification + repetition-code
-  encode/inject/syndrome/recover cycle), `qasm_roundtrip` (OpenQASM 2.0
-  import/export/re-import), `vqe_exact` (VQE vs exact ground-state energy).
-- Python first-run path: `python/README.md` plus worked scripts
-  `python/examples/bell.py`, `qec.py`, `vqe.py`.
-
 ### Changed
 - **Breaking**: `qaoa_transfer::TransferOutcome::layer_energies` renamed to
   `refinement_energies`, and it now holds the cut expectation after each
@@ -195,6 +146,7 @@
 - Dependabot ignores `version-update:semver-major`; major version bumps are
   done by hand together with their migration.
 - `Cargo.toml` description now lists the tensor-network, QEC and QAOA surface.
+
 
 ### Fixed
 - Dependencies: `tokio` 1.54.0 → 1.54.1, `rustix` 1.1.5 → 1.1.6 and
@@ -213,8 +165,42 @@
   entangling ancillas without readout. Surface-code extraction already did
   this; the repetition and phase-flip builders now match it.
 
-## [0.2.8] - 2026-11-15
+- **Corrected the thermodynamics claimed for `UpdateRule::Thompson`.** The
+  previous wording called posterior sampling Boltzmann exploration. It is not:
+  the posterior variance measures how ignorant the *surrogate* is away from its
+  observations, which is a different quantity in different units from the
+  estimator noise `eta^2 / N`. The module docs, the `UpdateRule` and
+  `exploration` doc comments, and `docs/wiki/SubsCoRe.md` now say so, and carry
+  the measurement: on the demo instance the quench reaches -4.4020 while
+  guarded Thompson at exploration 0.5/0.25/0.1 reaches -3.4310/-3.4532/-3.6045.
+  A 1D double-well check confirms the mechanism itself is sound — gradient
+  descent stays in the shallow well 400/400, an annealed Langevin step reaches
+  the deep well 199/400 — so the honest conclusion is that a shot-budgeted VQE
+  is information-limited, not barrier-limited, and step noise costs more than
+  it buys. The rule is kept as a documented negative result.
+- **Flaky statistical assertions in `tests/subscore.rs`.** The reported-vs-
+  empirical variance check used 120 repeats against a 20% tolerance; the
+  standard error of an empirical variance at 120 samples is 13%, so it was a
+  ~1.5-sigma test that failed roughly one run in eight. It now uses 800 repeats
+  (about 4 sigma). The guard test's threshold sat at 80 while the measured
+  acceptance ranged 45..73 across seed bases, so a different seed base could
+  fail it; the threshold is now 100. The explore test's `at_home > 30` had a
+  worst observed value of 45; it is now `> 20`.
+- **`GradientStrategy::parse` panicked on an unknown name.** It returned
+  `Self` and `panic!`ed, so a caller-supplied string could abort the process.
+  It now returns `Option<Self>` and the REPL uses it instead of keeping a
+  second name table.
+- **`GradientOptions` could not express a shot budget.** `CircuitProfile.shots`
+  existed but no public path set it, so `Auto`'s sampled branch was unreachable
+  and the doc comment claimed otherwise. `GradientOptions::shots` now feeds the
+  profile; the gradient stays exact, and the option only tells `Auto` that the
+  caller intends to sample.
+- **CI test time.** The subscore variance test ran 1000 observations of a
+  4-qubit, 2-layer objective, 297 s of a 308 s binary. It now uses a 2-qubit,
+  1-layer objective with fewer shots per reading: 17 s, with the whole subscore
+  suite at 18 s instead of 308 s.
 
+## [0.2.8] - 2026-11-15
 ### Added
 - Example-driven crate documentation: the docs.rs landing page now walks
   through the Bell state, circuit construction, seeded sampling, QEC
@@ -223,8 +209,8 @@
 - README "Library demo" section with copy-paste Rust snippets and their
   real outputs.
 
-## [0.2.7] - 2026-11-15
 
+## [0.2.7] - 2026-11-15
 ### Added
 - Python wheel smoke test (`python/smoke_test.py`): imports, Bell-state
   sampling, and rotated surface-code construction, verified against a real
@@ -243,6 +229,7 @@
 - Property-based CAS tests (`tests/proptest_cas.rs`) and CAS integration tests
   (`tests/cas_integration.rs`).
 
+
 ### Changed
 - **Breaking**: `ClusterState::gflow_exists` renamed to
   `gflow_necessary_condition`; it checks a necessary condition only (every
@@ -260,6 +247,7 @@
   `quantumforge_cuda` / `quantumforge_llvm` modules (there are no such
   packages; CUDA/LLVM are compile-time cargo features of one module).
 
+
 ### Fixed
 - `surface_code_rotated(3)` logical operators were previously declared as
   top-row X / left-column Z, which do NOT commute with the stabilizers; they
@@ -271,24 +259,26 @@
 - Python bindings compiled with dead-code and deprecation warnings under
   `--features python`; `parse_qasm_py` was defined but never registered.
 
-## [0.2.6] - 2026-11-10
 
+## [0.2.6] - 2026-11-10
 ### Added
 - `Rational::as_f64` and `ExactComplex::as_complex64` lossy floating-point
   approximations for overflow-prone exact arithmetic.
 - Linear-time necessary-condition check in `ClusterState::gflow_exists`.
+
 
 ### Changed
 - QASM user-defined gate definitions now parse parameters vs qargs correctly.
 - QASM qubit references tolerate trailing semicolons.
 - MBQC `gflow_exists` no longer brute-forces subsets (was exponential).
 
+
 ### Fixed
 - Version metadata synchronized across `Cargo.toml`, `pyproject.toml`,
   `API_STABILITY.md`, and `CHANGELOG.md` (all 0.2.6).
 
-## [0.2.3] - 2026-10-30
 
+## [0.2.3] - 2026-10-30
 ### Added
 - HHL quantum simulation for general NxN matrices
 - Shor quantum period finding
@@ -300,6 +290,7 @@
 - Entanglement entropy computation
 - Circuit visualization (ASCII + SVG)
 - Surface codes with MWPM decoder
+
 
 ### Fixed
 - TEBD imaginary-time evolution
