@@ -79,11 +79,11 @@
 //! **The free-energy idea survives only in its linear form.** The Gibbs
 //! distribution minimizes `F = <E> - T S`; with the posterior's Gaussian
 //! entropy that is `argmin (<E> - (T/2) ln(2 pi e var))`. Measured over 16 seeds
-//! on the demo instance, that literal rule reaches -4.2387 against the quench's
-//! -4.4414 and is far less stable (sd 0.774 vs 0.205). The linear-in-sigma form
-//! `argmin (<E> - T sigma)` — [`UpdateRule::LowerConfidenceBound`], the
-//! standard BO acquisition — is statistically indistinguishable from the quench
-//! (-4.4126 vs -4.4414). Note the two are *not* the same ordering: the first is
+//! on the demo instance (4 qubits, 2 layers, 40k shots, 12 seeds), that literal
+//! rule reaches -4.1620 against the quench's -4.4222 and is far less stable
+//! (sd 0.880 vs 0.206). The linear-in-sigma form `argmin (<E> - T sigma)` —
+//! [`UpdateRule::LowerConfidenceBound`], the standard BO acquisition — is
+//! statistically indistinguishable from the quench (-4.3953 vs -4.4222). Note the two are *not* the same ordering: the first is
 //! linear in `ln sigma`, the second in `sigma`.
 //!
 //! **The likelihood does not need refining.** One shot of a Pauli word is a

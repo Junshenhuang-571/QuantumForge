@@ -4,12 +4,10 @@
 //! cargo run --release --example subscore
 //! ```
 //!
-//! Runs the same VQE problem under one total shot budget and compares a
-//! fixed-shot NFT baseline, SubsCoRe-Bound, SubsCoRe-Center with the
-//! zero-temperature update (posterior-mean minimizer), and SubsCoRe-Center
-//! with the finite-temperature update (Thompson sampling from the GP
-//! posterior). Every number is averaged over several seeds: one shot budget on
-//! a multimodal landscape is a coin flip.
+//! One campaign, seven rules, twelve seeds: a fixed-shot NFT baseline, the
+//! paper's own update (GP-mean argmin) under both shot-allocation rules, the two
+//! thermodynamic acquisitions, and posterior sampling. Every number is the exact
+//! energy of the returned parameters, with the standard deviation across seeds.
 
 use quantumforge::analytic::{ExactComplex, Pauli, PauliSum, PauliWord, Rational};
 use quantumforge::subscore::{
@@ -42,7 +40,7 @@ fn ansatz(qubits: usize, layers: usize) -> (ParameterizedCircuit, Vec<f64>) {
     (circuit, params)
 }
 
-/// Transverse-field Ising Hamiltonian `-sum ZZ -sum X`.
+/// Transverse-field Ising Hamiltonian `-sum ZZ - sum X`.
 fn tfim(qubits: usize) -> PauliSum {
     let mut sum = PauliSum::zero(qubits);
     for qubit in 0..qubits - 1 {
@@ -63,7 +61,7 @@ fn main() {
     let qubits = 4;
     let layers = 2;
     let budget = 40_000;
-    let seeds = [1u64, 2, 3, 4, 5, 6];
+    let seeds = [1u64, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 
     let (circuit, params) = ansatz(qubits, layers);
     let objective = ShotHamiltonian::new(circuit, tfim(qubits), qubits);
@@ -80,122 +78,89 @@ fn main() {
     println!("start energy {start:.4}, effective single-shot variance eta^2 = {eta_sq:.1}");
     println!();
     println!(
-        "{:<26} {:>8} {:>8} {:>10} {:>8}",
-        "method", "mean E", "best E", "vs start", "iters"
+        "{:<30} {:>9} {:>8} {:>8}",
+        "method", "mean E", "sd", "iters"
     );
 
-    let mut runs: Vec<(&str, SubsCoReOptions)> = Vec::new();
-    // Fixed-shot NFT baseline: a constant observation variance, so the shot
-    // count per point never adapts.
-    let fixed_shots = 512;
-    runs.push((
+    let fixed_shots = 512.0;
+    let mut rows: Vec<(&str, SubsCoReOptions)> = vec![(
         "fixed-shot NFT",
         SubsCoReOptions {
             total_shot_budget: budget,
-            initial_shots: fixed_shots,
-            initial_core_variance: eta_sq / fixed_shots as f64,
-            core_min: eta_sq / fixed_shots as f64,
-            core_slope_scale: 0.0,
             eta_sq,
+            initial_shots: fixed_shots as usize,
+            initial_core_variance: eta_sq / fixed_shots,
+            core_min: eta_sq / fixed_shots,
+            core_slope_scale: 0.0,
             strategy: ReadoutStrategy::Center,
             ..SubsCoReOptions::default()
         },
-    ));
-    for (name, strategy, update_rule, exploration) in [
-        (
-            "Bound + mean",
-            ReadoutStrategy::Bound,
-            UpdateRule::Mean,
-            1.0,
-        ),
-        (
-            "Center + mean",
-            ReadoutStrategy::Center,
-            UpdateRule::Mean,
-            1.0,
-        ),
-        (
-            "Center + Thompson",
-            ReadoutStrategy::Center,
-            UpdateRule::Thompson,
-            1.0,
-        ),
-        (
-            "Center + guarded Thompson",
-            ReadoutStrategy::Center,
-            UpdateRule::GuardedThompson,
-            1.0,
-        ),
-        (
-            "Center + guarded Th. x1.5",
-            ReadoutStrategy::Center,
-            UpdateRule::GuardedThompson,
-            1.5,
-        ),
+    )];
+    for (name, strategy, update_rule) in [
+        ("Bound + mean", ReadoutStrategy::Bound, UpdateRule::Mean),
         (
             "Bound + lower conf. bound",
             ReadoutStrategy::Bound,
             UpdateRule::LowerConfidenceBound,
-            1.0,
         ),
         (
             "Bound + free energy",
             ReadoutStrategy::Bound,
             UpdateRule::FreeEnergy,
-            1.0,
+        ),
+        ("Center + mean", ReadoutStrategy::Center, UpdateRule::Mean),
+        (
+            "Center + Thompson",
+            ReadoutStrategy::Center,
+            UpdateRule::Thompson,
+        ),
+        (
+            "Center + guarded Thompson",
+            ReadoutStrategy::Center,
+            UpdateRule::GuardedThompson,
         ),
     ] {
-        runs.push((
+        rows.push((
             name,
             SubsCoReOptions {
                 total_shot_budget: budget,
                 eta_sq,
-                strategy,
-                update_rule,
-                exploration,
                 initial_shots: 128,
                 // The paper's Table 1 quotes the threshold as a shot count
                 // (512 to start, 4096 at the floor); convert with eta^2.
                 initial_core_variance: eta_sq / 512.0,
                 core_min: eta_sq / 4096.0,
+                strategy,
+                update_rule,
                 ..SubsCoReOptions::default()
             },
         ));
     }
 
-    for (name, options) in runs {
+    for (name, options) in rows {
         let mut energies = Vec::new();
         let mut iterations = Vec::new();
-        let mut early = 0usize;
-        let mut late = 0usize;
         for &seed in &seeds {
             let outcome = run_trial(&objective, &params, &counts, &options, seed);
             energies.push(objective.exact_energy(&outcome.best).unwrap());
             iterations.push(outcome.iterations);
-            early = outcome.shots_per_iteration.first().copied().unwrap_or(0);
-            late = outcome.shots_per_iteration.last().copied().unwrap_or(0);
         }
-        let mean = energies.iter().sum::<f64>() / energies.len() as f64;
-        let best = energies.iter().cloned().fold(f64::INFINITY, f64::min);
-        let mean_iters = iterations.iter().sum::<usize>() / iterations.len();
+        let n = energies.len() as f64;
+        let mean = energies.iter().sum::<f64>() / n;
+        let sd = (energies.iter().map(|e| (e - mean).powi(2)).sum::<f64>() / (n - 1.0)).sqrt();
         println!(
-            "{name:<26} {:>8.4} {:>8.4} {:>10.4} {:>8}",
-            mean,
-            best,
-            mean - start,
-            mean_iters
+            "{name:<30} {mean:>9.4} {sd:>8.3} {:>8}",
+            iterations.iter().sum::<usize>() / iterations.len()
         );
-        if name.contains("Thompson") {
-            println!("  shots per iteration: {early} early -> {late} late");
-        }
     }
 
     println!();
-    println!("the shot budget is the thermostat. The shot noise is a variance, so the");
-    println!("temperature in energy units is T = eta / sqrt(N). Bound + mean cools");
-    println!("adaptively; Bound + free energy adds the Gibbs bonus T*S with that same");
-    println!("temperature, which is why it tracks the quench. Posterior sampling uses");
-    println!("the surrogate's ignorance instead, which is far hotter and loses.");
+    println!("the shot budget is a thermostat: the noise is a variance, so the");
+    println!("temperature in energy units is T = eta/sqrt(N). Bound + mean cools");
+    println!("adaptively; the lower-confidence-bound rule adds T*sigma with that same");
+    println!("temperature and lands on the quench. The literal Gibbs entropy makes the");
+    println!("bonus linear in ln sigma, which is worse. Posterior sampling uses the");
+    println!("surrogate's ignorance instead, which is far hotter and loses.");
 }
 
 /// One seeded trial.

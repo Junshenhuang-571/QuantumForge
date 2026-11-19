@@ -75,24 +75,26 @@ every parameter drives exactly one gate, it is all ones.
 ## What the example shows
 
 `cargo run --release --example subscore` runs a 4-qubit, 2-layer transverse-field
-Ising VQE under one 40,000-shot budget and averages over 6 seeds. Measured on
-this machine:
+The demo is a 4-qubit, 2-layer transverse-field
+4 qubits, 2 layers, 40,000-shot budget, 12 seeds. `sd` is the standard
+deviation across seeds, and every energy is exact:
 
-| method | mean E | best E | vs start | iterations |
-|---|---|---|---|---|
-| fixed-shot NFT | -3.9977 | -4.3878 | -0.6077 | 28 |
-| SubsCoRe-Bound + mean | -4.4908 | -4.6201 | -1.1009 | 20 |
-| SubsCoRe-Center + mean | -3.7495 | -4.5788 | -0.3596 | 17 |
-| Center + Thompson | -0.4071 | -0.8298 | +2.9829 | 13 |
-| Center + guarded Thompson | -2.2377 | -3.4107 | +1.1523 | 15 |
-| Center + guarded Thompson x1.5 | -2.4584 | -3.6681 | +0.9316 | 14 |
+| method | mean E | sd | iterations |
+|---|---|---|---|
+| fixed-shot NFT | -3.9709 | 0.411 | 28 |
+| Bound + mean | -4.4222 | 0.206 | 20 |
+| Bound + lower conf. bound | -4.3953 | 0.200 | 20 |
+| Bound + free energy | -4.1620 | 0.880 | 19 |
+| Center + mean | -3.5768 | 1.118 | 16 |
+| Center + Thompson | -0.1381 | 1.282 | 12 |
+| Center + guarded Thompson | -2.3350 | 1.253 | 14 |
 
 Three things are worth reading off that table.
 
 **Adaptive beats fixed-shot once the threshold is annealed.** Bound + mean
-reaches -4.49 against the fixed-shot -4.00 at the same budget. That gap appeared
-only after the threshold was made monotone (see below); before that the run
-could make itself hotter than it started and starved its own observations.
+reaches -4.4222 against the fixed-shot -3.9709 at the same budget. That gap
+appeared only after the threshold was made monotone (see below); before that the
+run could make itself hotter than it started and starved its own observations.
 
 **Center underperforms Bound here.** The paper reports Center >= Bound. On this
 instance it is worse, because Center spends the center point (the point the
@@ -124,8 +126,8 @@ statement "the surrogate is cold enough here to act on".
 noise, only choose its size. The gain comes from spending it where accuracy does
 not matter rather than uniformly across the run — which is what the adaptive
 threshold does. On the demo instance that reaches a lower energy than a uniform
-shot count at the same total budget (Bound + mean -4.4908 against fixed-shot
--3.9977). *That* is the thermodynamic benefit, and it is real. Hajek's condition
+shot count at the same total budget (Bound + mean -4.4222 against fixed-shot
+-3.9709). *That* is the thermodynamic benefit, and it is real. Hajek's condition
 says a cooling schedule may not fall faster than `T(t) >= c / ln(t)` if you want
 a guarantee of reaching the global minimum; the slope rule here cools faster
 than that, so it converges to a good minimum rather than provably the best one.
@@ -137,15 +139,10 @@ well, plain gradient descent stays in the shallow well 400/400 times, while a
 Langevin step with an annealed temperature reaches the deep well 199/400 times.
 But VQE at a practical shot budget is *information-limited*, not
 barrier-limited — it has not measured enough to know where to go — and step noise
-then destroys information. Measured on the demo instance, every thermal scale
-tried does worse than the quench:
-
-| update rule | mean E |
-|---|---|
-| mean (quench) | -4.4020 |
-| guarded Thompson x0.5 | -3.4310 |
-| guarded Thompson x0.25 | -3.4532 |
-| guarded Thompson x0.1 | -3.6045 |
+then destroys information. In the canonical run above, the quench is
+-4.4222 and both posterior-sampling rules are far worse (-0.1381 and -2.3350),
+with the largest spreads of the whole table (sd 1.28 and 1.25): the jump is not
+just bad on average, it is unreliable.
 
 **Do not confuse model uncertainty with temperature.** `GaussianProcess::sample`
 draws from the posterior, whose variance is large far from the observed points
@@ -167,7 +164,7 @@ is the whole mapping with a verdict for each.
 | Boltzmann / Gibbs, `p ∝ exp(-f/T)` | the equilibrium distribution minimizes the free energy `F = <E> - T S` | **applies** — this is the right target, and it gives the acquisition below |
 | two-level (Boltzmann/Fermi-Dirac) single shot | `P(±1) = (1 ± <W>)/2`; `N` shots give a binomial, Gaussian only as `N → ∞` | **dead end**: the posterior of Eqs. 4-5 uses only the noise *variance*, which is already exact. Measured `KL(binomial ‖ Gaussian)` peaks at 0.275 nats (`N=1`, a nearly deterministic word) and falls below 0.006 by `N=256` |
 | Maxwell-Boltzmann + fluctuation-dissipation | the step noise is `sigma = sqrt(2 * lr * T)`; noise amplitude and dissipation are tied | **correct**, and it is what makes the annealing demo work: gradient descent stays in the shallow well 400/400, an annealed Langevin step reaches the deep well 199/400 |
-| free energy `F = <E> - T S` | equilibrium is `argmin F`; entropy `S` is the exploration bonus | **implemented** as `UpdateRule::FreeEnergy`, with the literal Gaussian entropy `S = ½ ln(2 pi e var)` and `T = eta/sqrt(N)`. Measured -4.2387 (sd 0.774) against the quench's -4.4414 (sd 0.205) — worse |
+| free energy `F = <E> - T S` | equilibrium is `argmin F`; entropy `S` is the exploration bonus | **implemented** as `UpdateRule::FreeEnergy`, with the literal Gaussian entropy `S = ½ ln(2 pi e var)` and `T = eta/sqrt(N)`. Measured -4.1620 (sd 0.880) against the quench's -4.4222 (sd 0.206) — worse |
 | lower confidence bound `<E> - T sigma` | the linear-in-sigma acquisition of Bayesian optimization | **implemented** as `UpdateRule::LowerConfidenceBound`; measured -4.4126 (sd 0.209), statistically indistinguishable from the quench |
 | Metropolis acceptance | accept an uphill move with probability `exp(-df/T)` | equivalent to the free-energy rule; not implemented separately |
 | Bose-Einstein, Planck | bosonic occupancy, blackbody spectrum | no analogue — the estimator is not a bosonic mode |

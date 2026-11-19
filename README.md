@@ -94,9 +94,11 @@ end-to-end behavior.
   observed point is chosen so the whole updated axis stays inside it. Shots
   move from the rapidly-improving phase to the converging phase under a total
   budget. The shot budget is a thermostat — an observation over `N` shots has
-  variance `eta^2/N`, so the temperature is `T = eta/sqrt(N)` — and
-  `UpdateRule::FreeEnergy` turns that into the Gibbs acquisition
-  `argmin(<E> - T*S)`. Available as a library call,
+  variance `eta^2/N`, so the temperature is `T = eta/sqrt(N)`. Two acquisitions
+  use it: `UpdateRule::LowerConfidenceBound` (`argmin(<E> - T*sigma)`) is
+  statistically indistinguishable from the plain quench, while the literal
+  Gibbs form `UpdateRule::FreeEnergy` (`argmin(<E> - T*S)`, with
+  `S = 1/2 ln(2 pi e var)`) is worse and less stable. Available as a library call,
   `cargo run --release --example subscore`, and the `qf` command
   `vqe-subscore`. See the [SubsCoRe guide](docs/wiki/SubsCoRe.md).
 - **Correctness in the shot-based paths** — `ShotHamiltonian::observe` now takes

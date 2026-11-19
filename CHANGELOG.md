@@ -63,10 +63,11 @@
   form `argmin(<E> - T*S)` with the posterior's Gaussian entropy
   `S = 1/2 ln(2 pi e var)`. Measured on the 4-qubit demo over 16 seeds, with the
   standard deviation across seeds:
-  - quench (`UpdateRule::Mean`) -4.4414 (sd 0.205)
-  - `LowerConfidenceBound` -4.4126 (sd 0.209) — indistinguishable from it
-  - `FreeEnergy` (literal entropy) -4.2387 (sd 0.774) — worse and less stable
-  - posterior sampling -3.43 to -3.60
+  - fixed-shot NFT -3.9709 (sd 0.411)
+  - quench (`UpdateRule::Mean`, Bound) -4.4222 (sd 0.206)
+  - `LowerConfidenceBound` -4.3953 (sd 0.200) — indistinguishable from it
+  - `FreeEnergy` (literal entropy) -4.1620 (sd 0.880) — worse and less stable
+  - `Center + Thompson` -0.1381 (sd 1.282), guarded -2.3350 (sd 1.253)
   The two acquisitions are *not* the same ordering: one is linear in `ln
   sigma`, the other in `sigma`.
 - Corrected an earlier claim of mine: I had written that using `sigma` in place
@@ -122,8 +123,9 @@
   - REPL: `vqe-subscore` gains `update=mean|thompson|guarded`, `explore=` and
     the objective's own `eta^2`.
   - Measured on a 4-qubit / 2-layer TFIM at 40k shots over 6 seeds: Bound+mean
-    -4.4908 vs fixed-shot NFT -3.9977. Center+mean -3.7495 and Thompson
-    -0.4071 both do worse; the guide reports this as a negative result.
+    -4.4222 vs fixed-shot NFT -3.9709. Center+mean -3.5768, Thompson -0.1381
+    and guarded Thompson -2.3350 all do worse; the guide reports this as a
+    negative result.
 - **Fixed `SmallRng::seeded` not mixing the seed.** Raw xorshift64 maps nearby
   seeds to nearby first outputs (`seeded(1..N)` gave first draws proportional to
   the seed), so "independent" runs with consecutive seeds were silently
@@ -180,8 +182,8 @@
   observations, which is a different quantity in different units from the
   estimator noise `eta^2 / N`. The module docs, the `UpdateRule` and
   `exploration` doc comments, and `docs/wiki/SubsCoRe.md` now say so, and carry
-  the measurement: on the demo instance the quench reaches -4.4020 while
-  guarded Thompson at exploration 0.5/0.25/0.1 reaches -3.4310/-3.4532/-3.6045.
+  the measurement: on the demo instance the quench reaches -4.4222 while
+  Thompson and guarded Thompson reach -0.1381 and -2.3350.
   A 1D double-well check confirms the mechanism itself is sound — gradient
   descent stays in the shallow well 400/400, an annealed Langevin step reaches
   the deep well 199/400 — so the honest conclusion is that a shot-budgeted VQE

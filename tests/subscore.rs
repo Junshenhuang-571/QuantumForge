@@ -562,10 +562,11 @@ fn guarded_thompson_runs_and_never_regresses_past_the_start() {
 
 #[test]
 fn acquisition_rules_track_the_quench() {
-    // Measured on the 4-qubit / 2-layer demo over 16 seeds (sd in brackets):
-    //   quench                 -4.4414 (0.205)
-    //   LowerConfidenceBound   -4.4126 (0.209)   <- indistinguishable
-    //   FreeEnergy (literal)   -4.2387 (0.774)   <- worse and less stable
+    // Canonical 4-qubit / 2-layer campaign, 12 seeds, 40k shots (sd):
+    //   fixed-shot NFT         -3.9709 (0.411)
+    //   quench (Bound + mean)  -4.4222 (0.206)
+    //   LowerConfidenceBound   -4.3953 (0.200)   <- indistinguishable
+    //   FreeEnergy (literal)   -4.1620 (0.880)   <- worse and less stable
     // The test pins the first two and only requires the literal free energy to
     // descend, since it is a weaker rule.
     let qubits = 3;
