@@ -157,6 +157,38 @@ physics. `UpdateRule::Thompson` and `::GuardedThompson` are kept because they ar
 a legitimate finite-temperature update and a documented negative result, not
 because they accelerate anything here.
 
+## Which statistical-mechanics models actually apply
+
+The repertoire is larger than the one distribution everyone reaches for, so here
+is the whole mapping with a verdict for each.
+
+| model | what it says | verdict here |
+|---|---|---|
+| Boltzmann / Gibbs, `p ∝ exp(-f/T)` | the equilibrium distribution minimizes the free energy `F = <E> - T S` | **applies** — this is the right target, and it gives the acquisition below |
+| two-level (Boltzmann) single shot | `P(±1) = (1 ± <W>)/2`; `N` shots give a binomial, Gaussian only as `N → ∞` | exact, but **a dead end**: the GP uses only the noise *variance*, which is already exact. Measured `KL(binomial ‖ Gaussian)` is 0.02 nats at `N=1`, 0.005 at `N=16`, 0.0004 at `N=256` |
+| Maxwell-Boltzmann + fluctuation-dissipation | the step noise is `sigma = sqrt(2 * lr * T)`; noise amplitude and dissipation are tied | **correct**, and it is what makes the annealing demo work: gradient descent stays in the shallow well 400/400, an annealed Langevin step reaches the deep well 199/400 |
+| free energy `F = <E> - T S` | equilibrium is `argmin F`; entropy `S` is the exploration bonus | **implemented** as `UpdateRule::FreeEnergy`, with `T = eta/sqrt(N)` in energy units. Measured -4.3534 against the quench's -4.4020 over 16 seeds |
+| Metropolis acceptance | accept an uphill move with probability `exp(-df/T)` | equivalent to the free-energy rule; not implemented separately |
+| Bose-Einstein, Planck | bosonic occupancy, blackbody spectrum | no analogue — the estimator is not a bosonic mode |
+| Jarzynski / Crooks | free-energy differences from a nonequilibrium work ensemble | would need a trajectory ensemble you do not have; noted, not built |
+| H-theorem, `KL(p \|\| p_eq)` | a Lyapunov function: the divergence to equilibrium decreases | a plausible stopping criterion, not implemented |
+
+Two readings worth keeping separate:
+
+**Temperature is a standard deviation, not a variance.** The shot noise is a
+variance, `eta^2/N`, so the temperature in `exp(-f/T)` is `T = eta/sqrt(N)`. For
+the 4-qubit demo `eta = 2.65`, so 512 shots per point is `T = 0.117` against an
+energy scale of about 4 — a cold bath. Getting hot enough to cross a barrier of
+height `dE` needs `N ~ eta^2 / dE^2`, which for `dE = 1` is about 7 shots per
+point. That is the thermometer: the shot count that can cross a barrier is
+readable off the barrier height.
+
+**The free-energy rule is the one that survives contact.** It uses the physical
+temperature, so its exploration bonus `T * sigma` is at most `0.117` at 512
+shots — small next to the energy differences the optimizer works with, and it
+vanishes automatically as the run cools. That is why it tracks the quench
+instead of collapsing the way posterior sampling does.
+
 `ShotHamiltonian::observe` reports the estimator's *actual* variance
 `sum_w c_w^2 (1 - <W_w>^2) / N_w` with every reading, so the GP is never told
 the noise is smaller than it is. An earlier version assumed `eta^2 / N` for a

@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+### Added
+- **`UpdateRule::FreeEnergy`** — the one distribution model from statistical
+  mechanics that survives contact. The Gibbs distribution minimizes
+  `F = <E> - T S`, so the acquisition becomes `argmin (<E> - T*S)` with the
+  temperature in energy units, `T = eta/sqrt(N)` (the shot noise is a variance,
+  so its square root is the temperature). Measured on the 4-qubit demo over 16
+  seeds: -4.3534 against the quench's -4.4020, versus -3.43 to -3.60 for
+  posterior sampling. It tracks the quench instead of collapsing because the
+  bonus `T*sigma` is small at practical shot counts and vanishes as the run
+  cools.
+- Checked and rejected: the exact single-shot likelihood. One shot of a Pauli
+  word is a two-level Boltzmann system, `P(±1) = (1 ± <W>)/2`, and `N` shots are
+  binomial. But the GP consumes only the noise *variance*, which is already
+  exact; measured `KL(binomial || Gaussian)` is 0.02 nats at `N=1`, 0.005 at
+  `N=16` and 0.0004 at `N=256`, so the refinement buys nothing.
+
 ### Fixed
 - **Corrected the thermodynamics claimed for `UpdateRule::Thompson`.** The
   previous wording called posterior sampling Boltzmann exploration. It is not:

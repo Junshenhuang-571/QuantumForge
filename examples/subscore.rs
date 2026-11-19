@@ -132,6 +132,12 @@ fn main() {
             UpdateRule::GuardedThompson,
             1.5,
         ),
+        (
+            "Bound + free energy",
+            ReadoutStrategy::Bound,
+            UpdateRule::FreeEnergy,
+            1.0,
+        ),
     ] {
         runs.push((
             name,
@@ -179,9 +185,11 @@ fn main() {
     }
 
     println!();
-    println!("the shot budget is the thermostat: T = eta^2 / N. Center moves shots");
-    println!("from the hot early phase to the cold converging phase, and a Thompson");
-    println!("update spends the remaining temperature on exploration.");
+    println!("the shot budget is the thermostat. The shot noise is a variance, so the");
+    println!("temperature in energy units is T = eta / sqrt(N). Bound + mean cools");
+    println!("adaptively; Bound + free energy adds the Gibbs bonus T*S with that same");
+    println!("temperature, which is why it tracks the quench. Posterior sampling uses");
+    println!("the surrogate's ignorance instead, which is far hotter and loses.");
 }
 
 /// One seeded trial.
