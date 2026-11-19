@@ -23,6 +23,7 @@ Start here. Everything is either rendered from the source (rustdoc, on
 - [MPS-based QAOA](wiki/MPS-QAOA.md) — matrix-product-state simulation for MaxCut
 - [QAOA parameter transfer](wiki/QAOA-Parameter-Transfer.md) — TQA init, transferred angles, targeted-single-layer optimization
 - [SubsCoRe](wiki/SubsCoRe.md) — adaptive observation cost control for VQE (arXiv:2502.01704); the confident region and the paper's inverted shot search
+- [Gradient strategies](wiki/Gradient-Strategies.md) — parameter shift / adjoint / backprop / finite difference, automatic selection, and how they are cross-validated
 - [Contributing](wiki/Contributing.md) · [CONTRIBUTING.md](../../CONTRIBUTING.md)
 
 ## API by subsystem
@@ -40,6 +41,7 @@ Rustdoc anchors (substitute the version you depend on):
 | MPS-based QAOA | [`mps_qaoa`](https://docs.rs/quantumforge/latest/quantumforge/mps_qaoa/) |
 | QAOA parameter transfer + targeted-layer | [`qaoa_transfer`](https://docs.rs/quantumforge/latest/quantumforge/qaoa_transfer/) |
 | Shot-aware VQE (SubsCoRe) | [`subscore`](https://docs.rs/quantumforge/latest/quantumforge/subscore/) |
+| Variational gradients | [`gradients`](https://docs.rs/quantumforge/latest/quantumforge/gradients/) |
 | Quantum error correction | [`qec`](https://docs.rs/quantumforge/latest/quantumforge/qec/) |
 | Stabilizer formalism | [`stabilizer`](https://docs.rs/quantumforge/latest/quantumforge/stabilizer/) |
 | Adiabatic quantum computing | [`aqc`](https://docs.rs/quantumforge/latest/quantumforge/aqc/) |

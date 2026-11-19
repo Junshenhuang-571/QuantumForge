@@ -3,6 +3,30 @@
 ## [Unreleased]
 
 ### Added
+- **Gradient strategies with automatic selection** (new module `gradients`).
+  Production variational stacks offer several ways to differentiate
+  `<psi_x|O|psi_x>`; the crate had two. Now:
+  - `GradientStrategy` (`ParameterShift`, `Adjoint`, `Backprop`,
+    `FiniteDifference`, `Auto`), `CircuitProfile`, `GradientOptions` and
+    `GradientEstimate` (which reports the rule used and its state-vector sweep
+    count).
+  - `GradientStrategy::select`: a noise channel disqualifies every
+    state-vector rule; a shot budget forces `ParameterShift` (the only exact
+    sampled rule); otherwise `Adjoint`, which costs one backward sweep instead
+    of two evaluations per gate.
+  - `finite_difference_gradient_with_inputs` — central differences with a
+    validated step, per gate occurrence, for gates with no shift rule.
+  - `backprop_gradient_with_inputs` — reverse-mode backpropagation written from
+    the definition, independent of the adjoint shortcut.
+  - REPL `gradient X|Y|Z Q [method=...]`; the previous cross-check output is
+    unchanged when `method=` is omitted.
+  - `QuantumError::InvalidFiniteDifferenceStep`.
+  `tests/gradients.rs` cross-validates: an analytic anchor (`<Z> = cos theta`),
+  every exact rule against every other on a 42-parameter circuit, shared
+  parameters, second-order convergence of the finite-difference rule, and the
+  auto-selection rules. `Backprop` and `Adjoint` agree to 1e-9 — they are
+  algebraically the same reverse-mode computation for a Pauli observable, and
+  the guide says so rather than presenting them as different mathematics.
 - **SubsCoRe: shot-aware VQE with the shot budget as a thermostat.**
   `subscore` (arXiv:2502.01704) optimizes one parameter axis at a time and
   chooses the shots at each observed point so the whole updated axis stays

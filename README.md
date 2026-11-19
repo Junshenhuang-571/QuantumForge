@@ -227,8 +227,9 @@ Run any of them with `cargo run --example <name>`.
 - **Simulation**: state vectors, density matrices with noise channels
   (depolarizing / amplitude / phase damping), seeded reproducible shots, and a
   matrix-free sparse Lanczos eigensolver for ground-state energies.
-- **Variational / QML**: `ParameterizedCircuit` with data encoding, adjoint +
-  parameter-shift gradients (exact and finite-shot), Adam trainers for
+- **Variational / QML**: `ParameterizedCircuit` with data encoding, four
+  gradient strategies (parameter shift, adjoint, backprop, finite-difference
+  fallback) with automatic selection and cost reporting, Adam trainers for
   regression and classification, and shot-aware VQE (`subscore`: SubsCoRe
   adaptive observation cost control with a GP surrogate).
 - **Algorithms**: Grover, QFT, QPE, Deutsch-Jozsa, Bernstein-Vazirani, HHL
@@ -290,6 +291,7 @@ Core commands: `qubits`, `circuit`, `draw`, `add`, `clear`, `run`, `noisy`,
 | `gradient X\|Y\|Z Q` | Adjoint vs parameter-shift gradient, cross-validated |
 | `vqe <ham>` | Variational Quantum Eigensolver — minimizes `<H>` over the circuit's rotations and compares to the exact ground state |
 | `vqe-subscore [ham=tfim] [budget=20000] [shots=64] [strategy=center\|bound] [seed=42]` | SubsCoRe — shot-aware VQE: optimizes one parameter axis at a time and spends shots where they matter, under a total shot budget |
+| `gradient X\|Y\|Z Q [method=auto\|shift\|adjoint\|backprop\|fd]` | `d<O>/dtheta` per rotation. Without `method=` the exact rules are cross-validated; with it one rule runs and reports its cost |
 | `train {regression\|classify} [DATA]` | Supervised QML (Adam). `DATA` is a flat brace list `{feat...,target, ...}` |
 | `qnn [DATA]` | Minimal 1-parameter `VariationalQnn`, Adam or gradient descent |
 

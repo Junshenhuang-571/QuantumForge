@@ -719,25 +719,65 @@ impl Session {
             Some(q) => q,
             None => return eprintln!("usage: gradient X|Y|Z Q"),
         };
+        // Optional `method=...` selects a single strategy; without it both
+        // exact rules are computed and cross-checked, as before.
+        let mut method = String::new();
+        for part in parts {
+            if let Some(value) = part.strip_prefix("method=") {
+                method = value.to_ascii_lowercase();
+            }
+        }
         let (pc, params) = match self.build_parameterized() {
             Ok(v) => v,
             Err(e) => return eprintln!("{e}"),
         };
-        let adjoint = match pc.adjoint_gradient(&params, self.qubits, obs, q) {
-            Ok(g) => g,
-            Err(e) => return eprintln!("adjoint error: {e}"),
+
+        if method.is_empty() {
+            let adjoint = match pc.adjoint_gradient(&params, self.qubits, obs, q) {
+                Ok(g) => g,
+                Err(e) => return eprintln!("adjoint error: {e}"),
+            };
+            let shift = match pc.parameter_shift_gradient_for(&params, self.qubits, obs, q) {
+                Ok(g) => g,
+                Err(e) => return eprintln!("parameter-shift error: {e}"),
+            };
+            println!("d<{obs:?}_{q}>/dtheta over {} rotations:", params.len());
+            for (i, ((p, a), s)) in params.iter().zip(&adjoint).zip(&shift).enumerate() {
+                let agree = (a - s).abs() < 1e-6;
+                println!(
+                    "  θ[{i}]={p:+.4}  adjoint={a:+.6}  shift={s:+.6}  {}",
+                    if agree { "✓ agree" } else { "✗ MISMATCH" }
+                );
+            }
+            return;
+        }
+
+        use crate::gradients::{GradientOptions, GradientStrategy};
+        let strategy = match method.as_str() {
+            "auto" => GradientStrategy::Auto,
+            "parameter-shift" | "shift" => GradientStrategy::ParameterShift,
+            "adjoint" => GradientStrategy::Adjoint,
+            "backprop" => GradientStrategy::Backprop,
+            "finite-difference" | "fd" => GradientStrategy::FiniteDifference,
+            other => return eprintln!("gradient error: unknown method '{other}'"),
         };
-        let shift = match pc.parameter_shift_gradient_for(&params, self.qubits, obs, q) {
-            Ok(g) => g,
-            Err(e) => return eprintln!("parameter-shift error: {e}"),
+        let options = GradientOptions {
+            strategy,
+            ..GradientOptions::default()
         };
-        println!("d<{obs:?}_{q}>/dtheta over {} rotations:", params.len());
-        for (i, ((p, a), s)) in params.iter().zip(&adjoint).zip(&shift).enumerate() {
-            let agree = (a - s).abs() < 1e-6;
-            println!(
-                "  θ[{i}]={p:+.4}  adjoint={a:+.6}  shift={s:+.6}  {}",
-                if agree { "✓ agree" } else { "✗ MISMATCH" }
-            );
+        match pc.gradient(&options, &params, self.qubits, obs, q) {
+            Ok(estimate) => {
+                println!(
+                    "d<{obs:?}_{q}>/dtheta over {} rotations: method={} ({} sweeps)",
+                    params.len(),
+                    estimate.strategy.name(),
+                    estimate.evaluations
+                );
+                for (i, (p, g)) in params.iter().zip(&estimate.gradient).enumerate() {
+                    println!("  θ[{i}]={p:+.4}  d/dθ={g:+.8}");
+                }
+            }
+            Err(e) => eprintln!("gradient error: {e}"),
         }
     }
 

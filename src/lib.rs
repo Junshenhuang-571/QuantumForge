@@ -204,6 +204,43 @@
 //!
 //! The same pipeline is available interactively as `vqe-subscore`.
 //!
+//! # Gradient strategies
+//!
+//! [`gradients`] offers the four differentiation rules a production variational
+//! stack needs, plus [`gradients::GradientStrategy::Auto`], which picks the
+//! cheapest one that applies to the circuit: parameter shift when the
+//! expectation is sampled, adjoint otherwise, and nothing at all for a circuit
+//! with a noise channel.
+//!
+//! ```
+//! use quantumforge::gradients::{GradientOptions, GradientStrategy};
+//! use quantumforge::{ParameterizedCircuit, RotationAxis, SingleQubitObservable};
+//!
+//! let mut circuit = ParameterizedCircuit::new(1);
+//! circuit.rotation(RotationAxis::Y, 0, 0);
+//!
+//! // <Z> = cos(theta) after Ry(theta)|0>, so the exact derivative is -sin.
+//! let estimate = circuit
+//!     .gradient(
+//!         &GradientOptions::default(),
+//!         &[0.7],
+//!         1,
+//!         SingleQubitObservable::Z,
+//!         0,
+//!     )
+//!     .unwrap();
+//! assert_eq!(estimate.strategy, GradientStrategy::Adjoint);
+//! assert!((estimate.gradient[0] + 0.7f64.sin()).abs() < 1e-12);
+//!
+//! let profile = circuit.circuit_profile();
+//! assert_eq!(
+//!     GradientStrategy::select(&profile),
+//!     Some(GradientStrategy::Adjoint)
+//! );
+//! ```
+//!
+//! The REPL exposes the same choice as `gradient Z 0 method=backprop`.
+//!
 //! # Tensor networks and QAOA at scale
 //!
 //! Matrix product states with TEBD and DMRG live in [`tensor_network`], and
@@ -297,6 +334,7 @@ pub mod parser;
 pub use parser::parse_circuit;
 pub mod algorithms;
 pub mod algorithms_templates;
+pub mod gradients;
 pub mod hardware;
 pub mod optimizer;
 #[cfg(feature = "pyo3")]
@@ -441,6 +479,8 @@ pub enum QuantumError {
     NonFiniteParameter,
     /// The optimizer learning rate or batch size is invalid.
     InvalidOptimizerConfiguration,
+    /// A finite-difference step was not positive and finite; carries the value.
+    InvalidFiniteDifferenceStep(f64),
     /// An unsupported operation; carries a description.
     UnsupportedOperation(String),
     /// The operation exceeded its time budget.
@@ -497,6 +537,10 @@ impl fmt::Display for QuantumError {
             Self::InvalidOptimizerConfiguration => write!(
                 f,
                 "optimizer learning rate and batch size must be positive and finite"
+            ),
+            Self::InvalidFiniteDifferenceStep(step) => write!(
+                f,
+                "finite-difference step must be positive and finite, got {step}"
             ),
             Self::UnsupportedOperation(msg) => write!(f, "unsupported operation: {msg}"),
             Self::Timeout => write!(f, "operation timed out"),
@@ -1967,7 +2011,7 @@ impl fmt::Display for Gate {
     }
 }
 
-fn rotation_gate(axis: RotationAxis, theta: f64) -> Gate {
+pub(crate) fn rotation_gate(axis: RotationAxis, theta: f64) -> Gate {
     match axis {
         RotationAxis::X => Gate::Rx(theta),
         RotationAxis::Y => Gate::Ry(theta),
@@ -1975,7 +2019,7 @@ fn rotation_gate(axis: RotationAxis, theta: f64) -> Gate {
     }
 }
 
-fn adjoint_gate(gate: Gate) -> Gate {
+pub(crate) fn adjoint_gate(gate: Gate) -> Gate {
     match gate {
         Gate::Rx(theta) => Gate::Rx(-theta),
         Gate::Ry(theta) => Gate::Ry(-theta),
@@ -2571,9 +2615,9 @@ pub enum ParameterizedOp {
 /// Ideal state-vector circuit with runtime-bound rotation parameters.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ParameterizedCircuit {
-    operations: Vec<ParameterizedOp>,
-    parameter_count: usize,
-    input_count: usize,
+    pub(crate) operations: Vec<ParameterizedOp>,
+    pub(crate) parameter_count: usize,
+    pub(crate) input_count: usize,
 }
 
 /// Optimizer settings shared by parameterized-circuit training routines.

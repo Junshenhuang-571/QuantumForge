@@ -25,7 +25,10 @@ QuantumForge REPL — one session, live state. Type 'help' for this, 'quit' to e
   purity               show trace + purity of the density matrix
   expect X|Y|Z Q       expectation value of X/Y/Z on qubit Q
   bloch Q              print Bloch vector (<X>, <Y>, <Z>) for qubit Q
-  gradient X|Y|Z Q     d<O>/dtheta for each rotation (adjoint vs parameter-shift)
+  gradient X|Y|Z Q [method=auto|shift|adjoint|backprop|fd]
+                        d<O>/dtheta for each rotation. Without `method=` the exact
+                        rules are cross-validated; with it one rule runs and its
+                        evaluation cost is reported.
   vqe <ham>            Variational Quantum Eigensolver: minimize <ham> over the
                          circuit's rotation params; ham = h2 | heh+ | tfim |
                          heisenberg | ising | xxz | hubbard  (exact ground energy shown too)
