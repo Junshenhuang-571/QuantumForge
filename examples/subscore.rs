@@ -133,6 +133,12 @@ fn main() {
             1.5,
         ),
         (
+            "Bound + lower conf. bound",
+            ReadoutStrategy::Bound,
+            UpdateRule::LowerConfidenceBound,
+            1.0,
+        ),
+        (
             "Bound + free energy",
             ReadoutStrategy::Bound,
             UpdateRule::FreeEnergy,

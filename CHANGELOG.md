@@ -55,20 +55,29 @@
 - Python first-run path: `python/README.md` plus worked scripts
   `python/examples/bell.py`, `qec.py`, `vqe.py`.
 
-- **`UpdateRule::FreeEnergy`** — the one distribution model from statistical
-  mechanics that survives contact. The Gibbs distribution minimizes
-  `F = <E> - T S`, so the acquisition becomes `argmin (<E> - T*S)` with the
-  temperature in energy units, `T = eta/sqrt(N)` (the shot noise is a variance,
-  so its square root is the temperature). Measured on the 4-qubit demo over 16
-  seeds: -4.3534 against the quench's -4.4020, versus -3.43 to -3.60 for
-  posterior sampling. It tracks the quench instead of collapsing because the
-  bonus `T*sigma` is small at practical shot counts and vanishes as the run
-  cools.
-- Checked and rejected: the exact single-shot likelihood. One shot of a Pauli
-  word is a two-level Boltzmann system, `P(±1) = (1 ± <W>)/2`, and `N` shots are
-  binomial. But the GP consumes only the noise *variance*, which is already
-  exact; measured `KL(binomial || Gaussian)` is 0.02 nats at `N=1`, 0.005 at
-  `N=16` and 0.0004 at `N=256`, so the refinement buys nothing.
+- **`UpdateRule::LowerConfidenceBound` and `UpdateRule::FreeEnergy`** — the
+  acquisition side of the statistical-mechanics reading, with the temperature
+  in energy units, `T = eta/sqrt(N)` (the shot noise is a variance, so its
+  square root is the temperature). `LowerConfidenceBound` is `argmin(<E> -
+  T*sigma)`, the standard BO acquisition. `FreeEnergy` is the literal Gibbs
+  form `argmin(<E> - T*S)` with the posterior's Gaussian entropy
+  `S = 1/2 ln(2 pi e var)`. Measured on the 4-qubit demo over 16 seeds, with the
+  standard deviation across seeds:
+  - quench (`UpdateRule::Mean`) -4.4414 (sd 0.205)
+  - `LowerConfidenceBound` -4.4126 (sd 0.209) — indistinguishable from it
+  - `FreeEnergy` (literal entropy) -4.2387 (sd 0.774) — worse and less stable
+  - posterior sampling -3.43 to -3.60
+  The two acquisitions are *not* the same ordering: one is linear in `ln
+  sigma`, the other in `sigma`.
+- Corrected an earlier claim of mine: I had written that using `sigma` in place
+  of the entropy gives "the same ordering". It does not — a counterexample is in
+  the module docs, and the two rules now exist separately under their correct
+  names.
+- Corrected the `KL(binomial || Gaussian)` numbers I had quoted (they came from a
+  probe with a `usize` underflow). Correct values: at most 0.275 nats at `N=1`
+  (a nearly deterministic word), 0.056 at `N=16`, below 0.006 at `N=256`. The
+  conclusion is unchanged — the posterior of Eqs. 4-5 uses only the noise
+  variance, which is already exact, so refining the likelihood buys nothing.
 - **Gradient strategies with automatic selection** (new module `gradients`).
   Production variational stacks offer several ways to differentiate
   `<psi_x|O|psi_x>`; the crate had two. Now:

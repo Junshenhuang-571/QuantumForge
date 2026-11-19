@@ -76,16 +76,22 @@
 //! information. Measured on the demo instance, every thermal scale tried
 //! (0.05x to 1x) does worse than the quench. See [`UpdateRule`].
 //!
-//! **The one distribution model that survives is the free energy.** The Gibbs
-//! distribution minimizes `F = <E> - T S`, so the grounded acquisition is
-//! [`UpdateRule::FreeEnergy`] with `T = eta / sqrt(N)` in energy units. Its
-//! bonus `T * sigma` is small at practical shot counts and vanishes as the run
-//! cools, which is why it tracks [`UpdateRule::Mean`] (measured -4.3534 vs
-//! -4.4020 over 16 seeds) instead of collapsing the way posterior sampling
-//! does. The exact single-shot distribution is the two-level Boltzmann form
-//! `P(±1) = (1 ± <W>)/2`, but the GP consumes only the noise variance, which is
-//! already exact — measured `KL(binomial || Gaussian)` is 0.02 nats at `N = 1`
-//! and 0.0004 at `N = 256`, so refining the likelihood buys nothing.
+//! **The free-energy idea survives only in its linear form.** The Gibbs
+//! distribution minimizes `F = <E> - T S`; with the posterior's Gaussian
+//! entropy that is `argmin (<E> - (T/2) ln(2 pi e var))`. Measured over 16 seeds
+//! on the demo instance, that literal rule reaches -4.2387 against the quench's
+//! -4.4414 and is far less stable (sd 0.774 vs 0.205). The linear-in-sigma form
+//! `argmin (<E> - T sigma)` — [`UpdateRule::LowerConfidenceBound`], the
+//! standard BO acquisition — is statistically indistinguishable from the quench
+//! (-4.4126 vs -4.4414). Note the two are *not* the same ordering: the first is
+//! linear in `ln sigma`, the second in `sigma`.
+//!
+//! **The likelihood does not need refining.** One shot of a Pauli word is a
+//! two-level system, `P(±1) = (1 ± <W>)/2`, and `N` shots are binomial; but the
+//! posterior mean and variance of Eqs. 4-5 depend only on the noise *variances*,
+//! which are already exact. Measured `KL(binomial || Gaussian)` is at most 0.28
+//! nats (`N = 1`, a nearly deterministic word) and falls below 0.006 by
+//! `N = 256`.
 //!
 //! **Do not confuse model uncertainty with temperature.**
 //! [`GaussianProcess::sample`] draws from the *posterior*, whose variance is
@@ -649,10 +655,17 @@ pub enum UpdateRule {
     /// VQE is information-limited rather than barrier-limited. See the module
     /// docs before making it a default.
     Thompson,
-    /// The equilibrium distribution of statistical mechanics is the one that
-    /// minimizes the free energy, so the physically grounded acquisition is
-    /// [`UpdateRule::FreeEnergy`] rather than a sample.
+    /// The Gaussian free-energy acquisition `argmin (<E> - T S)`, with the
+    /// entropy of the posterior `S = 1/2 ln(2 pi e var)` and the temperature in
+    /// energy units `T = eta / sqrt(N)`.
     FreeEnergy,
+    /// Lower-confidence-bound acquisition `argmin (<E> - T sigma)`. This is the
+    /// linear-in-sigma form, standard in Bayesian optimization; it is *not* the
+    /// same ordering as [`UpdateRule::FreeEnergy`], whose bonus is linear in
+    /// `ln sigma` instead. Counterexample at `T = 1`: with A `(mu, sigma) =
+    /// (-2.0, 0.001)` and B `(-1.0, 0.5)`, the linear form picks A (`-2.001`
+    /// vs `-1.5`) while the log form picks B (`4.91` vs `-0.31`).
+    LowerConfidenceBound,
     /// Thompson sampling that rejects a kick which is uphill by more than the
     /// surrogate's own standard deviation there. The kick may cross a barrier;
     /// it may not discard a solution the surrogate already trusts. Still loses
@@ -883,17 +896,24 @@ where
         let scan = axis_scan(&best, axis, options.search.scan_grid.max(8));
         let surrogate: Vec<f64> = match options.update_rule {
             UpdateRule::Mean => scan.iter().map(|point| gp.posterior_mean(point)).collect(),
-            UpdateRule::FreeEnergy => {
-                // F = <E> - T S, with T in energy units. The shot noise is a
-                // variance, eta^2/N, so the temperature is its square root.
-                // Entropy is log-sqrt(2 pi e var), but a standard deviation is
-                // the same ordering and needs no extra constants.
+            UpdateRule::FreeEnergy | UpdateRule::LowerConfidenceBound => {
+                // The shot noise is a variance, eta^2/N, so the temperature
+                // in exp(-f/T) is its square root.
                 let shots_per_point = (spent as f64 / points.len() as f64).max(1.0);
                 let temperature = options.eta_sq.sqrt() / shots_per_point.sqrt();
                 scan.iter()
                     .map(|point| {
                         let (mean, variance) = gp.posterior_mean_and_variance(point);
-                        mean - temperature * variance.sqrt()
+                        if options.update_rule == UpdateRule::FreeEnergy {
+                            // F = <E> - T S with the Gaussian entropy
+                            // S = 1/2 ln(2 pi e var).
+                            let entropy = 0.5
+                                * (2.0 * std::f64::consts::PI * std::f64::consts::E * variance)
+                                    .ln();
+                            mean - temperature * entropy
+                        } else {
+                            mean - temperature * variance.sqrt()
+                        }
                     })
                     .collect()
             }
