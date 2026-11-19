@@ -244,6 +244,20 @@ fn auto_selects_the_cheapest_applicable_rule() {
     let mut noisy = exact_profile;
     noisy.has_channel = true;
     assert_eq!(GradientStrategy::select(&noisy), None);
+    // `Auto` reads the shot budget from the options, not from the profile.
+    let sampled = circuit
+        .gradient(
+            &GradientOptions {
+                shots: 100,
+                ..GradientOptions::default()
+            },
+            &[0.3],
+            2,
+            SingleQubitObservable::Z,
+            0,
+        )
+        .unwrap();
+    assert_eq!(sampled.strategy, GradientStrategy::ParameterShift);
     assert!(
         circuit
             .gradient(
@@ -293,17 +307,18 @@ fn strategy_names_round_trip() {
         "finite-difference",
         "auto",
     ] {
-        let strategy = GradientStrategy::parse(name);
+        let strategy = GradientStrategy::parse(name).expect("known strategy name");
         assert_eq!(strategy.name(), name);
     }
     assert_eq!(
         GradientStrategy::parse("fd"),
-        GradientStrategy::FiniteDifference
+        Some(GradientStrategy::FiniteDifference)
     );
     assert_eq!(
         GradientStrategy::parse("shift"),
-        GradientStrategy::ParameterShift
+        Some(GradientStrategy::ParameterShift)
     );
+    assert_eq!(GradientStrategy::parse("nonsense"), None);
 }
 
 #[test]

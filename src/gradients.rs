@@ -100,25 +100,26 @@ impl GradientStrategy {
     }
 
     /// Whether the rule is exact rather than a finite-difference
-    /// approximation.
+    /// approximation. Meaningless for [`Self::Auto`], which is a request to
+    /// choose rather than a rule.
     pub fn is_exact(self) -> bool {
         !matches!(self, Self::FiniteDifference)
     }
 
     /// Parse a strategy from the name used in [`Self::name`] and the REPL.
     ///
-    /// # Panics
-    ///
-    /// Panics on an unknown name.
-    pub fn parse(name: &str) -> Self {
-        match name {
+    /// Accepts the long name and the short aliases (`shift`, `fd`), and
+    /// returns `None` for anything else rather than panicking: a caller
+    /// supplied the string.
+    pub fn parse(name: &str) -> Option<Self> {
+        Some(match name {
             "parameter-shift" | "shift" => Self::ParameterShift,
             "adjoint" => Self::Adjoint,
             "backprop" | "backpropagation" => Self::Backprop,
             "finite-difference" | "finite-diff" | "fd" => Self::FiniteDifference,
             "auto" => Self::Auto,
-            other => panic!("unknown gradient strategy '{other}'"),
-        }
+            _ => return None,
+        })
     }
 }
 
@@ -142,10 +143,15 @@ pub struct CircuitProfile {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct GradientOptions {
     /// Which rule to use; [`GradientStrategy::Auto`] resolves it from the
-    /// circuit.
+    /// circuit and from [`Self::shots`].
     pub strategy: GradientStrategy,
     /// Central-difference step for [`GradientStrategy::FiniteDifference`].
     pub finite_difference_step: f64,
+    /// Shot budget the caller intends for the expectation. It does not make
+    /// this exact API sample anything; it tells `Auto` that the gradient will
+    /// ultimately be taken on sampled values, which is the condition under which
+    /// [`GradientStrategy::ParameterShift`] is the right choice.
+    pub shots: usize,
 }
 
 impl Default for GradientOptions {
@@ -153,6 +159,7 @@ impl Default for GradientOptions {
         Self {
             strategy: GradientStrategy::Auto,
             finite_difference_step: 1e-3,
+            shots: 0,
         }
     }
 }
@@ -211,11 +218,12 @@ impl ParameterizedCircuit {
 
     /// Gradient with encoded inputs and the chosen rule.
     ///
-    /// `Auto` resolves to [`GradientStrategy::ParameterShift`] when
-    /// `options.strategy` is `Auto` and a shot budget is set through
-    /// [`CircuitProfile::shots`] — callers that want sampled gradients should
-    /// pass [`GradientStrategy::ParameterShift`] explicitly, since the exact
-    /// API here has no shot parameter.
+    /// `Auto` resolves from the circuit and `options.shots`: a non-zero shot
+    /// budget selects [`GradientStrategy::ParameterShift`], the only exact
+    /// rule that survives sampling. The gradient returned is still exact —
+    /// this API has no shot parameter — so a caller that intends to sample
+    /// should take the exact gradient as the reference and use the
+    /// `_gradient_shots` variants for the noisy one.
     ///
     /// # Errors
     ///
@@ -231,7 +239,7 @@ impl ParameterizedCircuit {
         observable_qubit: usize,
     ) -> Result<GradientEstimate, QuantumError> {
         let mut profile = self.circuit_profile();
-        profile.shots = 0;
+        profile.shots = options.shots;
         let strategy = match options.strategy {
             GradientStrategy::Auto => GradientStrategy::select(&profile)
                 .ok_or(QuantumError::OperationRequiresDensityMatrix)?,

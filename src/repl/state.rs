@@ -753,13 +753,9 @@ impl Session {
         }
 
         use crate::gradients::{GradientOptions, GradientStrategy};
-        let strategy = match method.as_str() {
-            "auto" => GradientStrategy::Auto,
-            "parameter-shift" | "shift" => GradientStrategy::ParameterShift,
-            "adjoint" => GradientStrategy::Adjoint,
-            "backprop" => GradientStrategy::Backprop,
-            "finite-difference" | "fd" => GradientStrategy::FiniteDifference,
-            other => return eprintln!("gradient error: unknown method '{other}'"),
+        let strategy = match GradientStrategy::parse(&method) {
+            Some(strategy) => strategy,
+            None => return eprintln!("gradient error: unknown method '{method}'"),
         };
         let options = GradientOptions {
             strategy,

@@ -30,9 +30,20 @@ asserts.
 - otherwise → `Adjoint`.
 
 `GradientOptions::default()` is `strategy: Auto` with a finite-difference step
-of `1e-3`. `gradient_auto(...)` is the same call with those defaults, and
-`GradientEstimate` reports which rule actually ran and how many state-vector
-sweeps it consumed — the number that matters when you are choosing between them.
+of `1e-3` and `shots: 0`. `gradient_auto(...)` is the same call with those
+defaults, and `GradientEstimate` reports which rule actually ran and how many
+state-vector sweeps it consumed — the number that matters when you are choosing
+between them.
+
+`GradientOptions::shots` does not make this exact API sample anything. It tells
+`Auto` that the gradient will ultimately be taken on sampled values, which is
+the condition under which `ParameterShift` is the right answer. The gradient you
+get back is still exact; take the noisy one from the `*_gradient_shots`
+variants.
+
+`GradientStrategy::parse` accepts the long names plus `shift` and `fd`, and
+returns `None` for anything else — the REPL uses it rather than keeping a
+second copy of the name table.
 
 ## What is actually new
 

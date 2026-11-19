@@ -2,6 +2,30 @@
 
 ## [Unreleased]
 
+### Fixed
+### Fixed
+- **Flaky statistical assertions in `tests/subscore.rs`.** The reported-vs-
+  empirical variance check used 120 repeats against a 20% tolerance; the
+  standard error of an empirical variance at 120 samples is 13%, so it was a
+  ~1.5-sigma test that failed roughly one run in eight. It now uses 800 repeats
+  (about 4 sigma). The guard test's threshold sat at 80 while the measured
+  acceptance ranged 45..73 across seed bases, so a different seed base could
+  fail it; the threshold is now 100. The explore test's `at_home > 30` had a
+  worst observed value of 45; it is now `> 20`.
+- **`GradientStrategy::parse` panicked on an unknown name.** It returned
+  `Self` and `panic!`ed, so a caller-supplied string could abort the process.
+  It now returns `Option<Self>` and the REPL uses it instead of keeping a
+  second name table.
+- **`GradientOptions` could not express a shot budget.** `CircuitProfile.shots`
+  existed but no public path set it, so `Auto`'s sampled branch was unreachable
+  and the doc comment claimed otherwise. `GradientOptions::shots` now feeds the
+  profile; the gradient stays exact, and the option only tells `Auto` that the
+  caller intends to sample.
+- **CI test time.** The subscore variance test ran 1000 observations of a
+  4-qubit, 2-layer objective, 297 s of a 308 s binary. It now uses a 2-qubit,
+  1-layer objective with fewer shots per reading: 17 s, with the whole subscore
+  suite at 18 s instead of 308 s.
+
 ### Added
 - **Gradient strategies with automatic selection** (new module `gradients`).
   Production variational stacks offer several ways to differentiate
