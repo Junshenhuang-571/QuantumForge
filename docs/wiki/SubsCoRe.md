@@ -112,32 +112,50 @@ rather than quietly dropped.
 ## The shot noise is a temperature
 
 An observation averaged over `N` shots has variance `eta^2 / N`. Write
-`T = eta^2 / N` with `k_B = 1` and the shot budget *is* a thermostat.
+`T = eta^2 / N` with `k_B = 1` and the shot budget *is* a thermostat. Three
+consequences follow, and they are not equally useful.
 
 **Fluctuation-dissipation.** The noise strength of the estimator is fixed by
-the shot count, so a step that trusts a noisy surrogate is a hot step and one
-that trusts an accurate surrogate is cold. The confident region is exactly the
-statement "the surrogate is cold enough here to act on". SubsCoRe's adaptive
-threshold is therefore a cooling schedule: loose while the energy falls, tight
-near convergence. It is clamped to be monotone non-increasing, because annealing
-that gets hotter than its own starting point is not annealing.
+the shot count, so a step that trusts a noisy surrogate is hot and one that
+trusts an accurate surrogate is cold. The confident region is exactly the
+statement "the surrogate is cold enough here to act on".
 
-**Finite-temperature updates.** `GaussianProcess::sample` draws a whole
-function from the posterior (a joint draw, so the sampled curve keeps the
-posterior's correlations), and `UpdateRule::Thompson` moves to *its* minimizer.
-That is Boltzmann exploration: the posterior variance plays the role of `T`, so
-the temperature falls automatically as shots accumulate. Hajek's condition for
-guaranteed convergence to a global minimum is `T(t) >= c / ln(t)`; the schedule
-here is whatever the budget imposes, so a run that ends with many shots per
-point has quenched.
+**The useful direction is cooling, and it is measured.** You cannot delete the
+noise, only choose its size. The gain comes from spending it where accuracy does
+not matter rather than uniformly across the run — which is what the adaptive
+threshold does. On the demo instance that reaches a lower energy than a uniform
+shot count at the same total budget (Bound + mean -4.4908 against fixed-shot
+-3.9977). *That* is the thermodynamic benefit, and it is real. Hajek's condition
+says a cooling schedule may not fall faster than `T(t) >= c / ln(t)` if you want
+a guarantee of reaching the global minimum; the slope rule here cools faster
+than that, so it converges to a good minimum rather than provably the best one.
 
-`UpdateRule::GuardedThompson` adds a safeguard: a kick is refused when it is
-uphill by more than the surrogate's own standard deviation there. (Comparing
-against the mean alone refuses almost every kick and reduces the rule to
-`Mean`.) The thermal step may cross a barrier, but it may not discard a solution
-the surrogate already trusts. On the demo instance above even the guarded
-variant loses to the plain quench — the exploration it buys is not worth the
-shots at this budget.
+**Adding thermal noise to the step is a different mechanism with a narrow
+domain.** Annealing escapes a local minimum only when the optimizer is
+*barrier-limited*. It is easy to confirm that it works there: on a 1D double
+well, plain gradient descent stays in the shallow well 400/400 times, while a
+Langevin step with an annealed temperature reaches the deep well 199/400 times.
+But VQE at a practical shot budget is *information-limited*, not
+barrier-limited — it has not measured enough to know where to go — and step noise
+then destroys information. Measured on the demo instance, every thermal scale
+tried does worse than the quench:
+
+| update rule | mean E |
+|---|---|
+| mean (quench) | -4.4020 |
+| guarded Thompson x0.5 | -3.4310 |
+| guarded Thompson x0.25 | -3.4532 |
+| guarded Thompson x0.1 | -3.6045 |
+
+**Do not confuse model uncertainty with temperature.** `GaussianProcess::sample`
+draws from the posterior, whose variance is large far from the observed points
+because the *model* is ignorant there. That is not `T = eta^2 / N`: different
+quantity, different units, and a sampled minimizer is a jump to an arbitrary
+point rather than a Boltzmann fluctuation around the incumbent. Scaling the
+deviation by `exploration` makes the step colder; it does not make it thermal
+physics. `UpdateRule::Thompson` and `::GuardedThompson` are kept because they are
+a legitimate finite-temperature update and a documented negative result, not
+because they accelerate anything here.
 
 `ShotHamiltonian::observe` reports the estimator's *actual* variance
 `sum_w c_w^2 (1 - <W_w>^2) / N_w` with every reading, so the GP is never told

@@ -3,6 +3,19 @@
 ## [Unreleased]
 
 ### Fixed
+- **Corrected the thermodynamics claimed for `UpdateRule::Thompson`.** The
+  previous wording called posterior sampling Boltzmann exploration. It is not:
+  the posterior variance measures how ignorant the *surrogate* is away from its
+  observations, which is a different quantity in different units from the
+  estimator noise `eta^2 / N`. The module docs, the `UpdateRule` and
+  `exploration` doc comments, and `docs/wiki/SubsCoRe.md` now say so, and carry
+  the measurement: on the demo instance the quench reaches -4.4020 while
+  guarded Thompson at exploration 0.5/0.25/0.1 reaches -3.4310/-3.4532/-3.6045.
+  A 1D double-well check confirms the mechanism itself is sound — gradient
+  descent stays in the shallow well 400/400, an annealed Langevin step reaches
+  the deep well 199/400 — so the honest conclusion is that a shot-budgeted VQE
+  is information-limited, not barrier-limited, and step noise costs more than
+  it buys. The rule is kept as a documented negative result.
 ### Fixed
 - **Flaky statistical assertions in `tests/subscore.rs`.** The reported-vs-
   empirical variance check used 120 repeats against a 20% tolerance; the

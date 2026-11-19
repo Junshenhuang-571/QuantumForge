@@ -52,24 +52,38 @@
 //! # The shot noise is a temperature
 //!
 //! An observation averaged over `N` shots has variance `eta^2 / N`. Write
-//! `T = eta^2 / N` (with `k_B = 1`): the shot budget *is* a thermostat, and
+//! `T = eta^2 / N` with `k_B = 1`: the shot budget *is* a thermostat, and
 //! [`SubsCoReOptions::eta_sq`] must be the objective's effective single-shot
-//! variance for that reading to hold. Two consequences are built in.
+//! variance for that reading to hold. Three things follow, and they are not
+//! equally useful.
 //!
 //! **Fluctuation-dissipation.** The noise strength of the estimator is fixed
 //! by the shot count, so a step that trusts a noisy surrogate is a hot step and
 //! a step that trusts an accurate one is cold. The confident region is exactly
 //! the statement "the surrogate is cold enough here to act on".
 //!
-//! **Finite-temperature updates.** [`GaussianProcess::sample`] draws a whole
-//! function from the posterior, and [`UpdateRule::Thompson`] moves to that
-//! sample's minimizer instead of the posterior mean's. This is Boltzmann
-//! exploration: it crosses barriers that the zero-temperature (mean-argmin)
-//! rule cannot, and the temperature falls automatically as shots accumulate.
-//! Hajek's condition for guaranteed convergence to the global minimum is
-//! `T(t) >= c / ln(t)`; the practical schedule here is whatever the shot
-//! budget imposes, so a run that ends with many shots per point is a run that
-//! cooled to a quench.
+//! **The useful direction is cooling, and it is measured.** You cannot delete
+//! the noise, only choose its size, so the gain comes from spending it where
+//! accuracy does not matter instead of uniformly. The adaptive threshold is
+//! that policy, and on the demo instance it reaches a lower energy than a
+//! uniform shot count at the same total budget. This is the thermodynamic
+//! benefit, and it is real.
+//!
+//! **Adding thermal noise to the step is a different mechanism with a narrow
+//! domain.** Annealing escapes a local minimum only when the optimizer is
+//! *barrier-limited*. At practical shot budgets VQE is *information-limited* —
+//! it has not measured enough to know where to go — and step noise then destroys
+//! information. Measured on the demo instance, every thermal scale tried
+//! (0.05x to 1x) does worse than the quench. See [`UpdateRule`].
+//!
+//! **Do not confuse model uncertainty with temperature.**
+//! [`GaussianProcess::sample`] draws from the *posterior*, whose variance is
+//! large far from the observed points because the model is ignorant there.
+//! That is not `T = eta^2 / N`; it is a statement about the surrogate, in
+//! different units, and a sampled minimizer is a jump to an arbitrary point
+//! rather than a Boltzmann fluctuation around the incumbent. Scaling a sample
+//! by [`SubsCoReOptions::exploration`] makes the step colder but does not turn
+//! it into thermal physics.
 //!
 //! `ShotHamiltonian` reports the *actual* estimator variance with every
 //! observation, so the GP is never told the noise is smaller than it is.
@@ -614,12 +628,20 @@ pub enum UpdateRule {
     /// limit. Best when the surrogate is already accurate.
     Mean,
     /// Thompson sampling: draw one function from the GP posterior and move to
-    /// *its* minimizer. The posterior variance acts as a temperature, so the
-    /// step can cross barriers the mean-argmin rule cannot.
+    /// *its* minimizer.
+    ///
+    /// This is a finite-temperature update in form, but note what its
+    /// temperature is: the posterior variance measures how ignorant the
+    /// *surrogate* is away from its observations, not the estimator noise
+    /// `eta^2 / N`. Measured, it loses to [`UpdateRule::Mean`] on the demo
+    /// instance at every `exploration` scale tried, because a shot-budgeted
+    /// VQE is information-limited rather than barrier-limited. See the module
+    /// docs before making it a default.
     Thompson,
-    /// Thompson sampling that rejects a step when the posterior mean says it is
-    /// worse than staying put. The thermal kick can cross a barrier; it cannot
-    /// throw away a solution the surrogate already trusts.
+    /// Thompson sampling that rejects a kick which is uphill by more than the
+    /// surrogate's own standard deviation there. The kick may cross a barrier;
+    /// it may not discard a solution the surrogate already trusts. Still loses
+    /// to [`UpdateRule::Mean`] on the demo instance — see [`UpdateRule::Thompson`].
     GuardedThompson,
 }
 
@@ -668,10 +690,10 @@ pub struct SubsCoReOptions {
     pub strategy: ReadoutStrategy,
     /// How the next iterate is chosen (see [`UpdateRule`]).
     pub update_rule: UpdateRule,
-    /// Thermal factor applied to a Thompson step's deviation from the mean:
-    /// `1.0` is the posterior's own temperature, `> 1` explores harder (the
-    /// temperature is scaled by its square), `< 1` approaches the quench.
-    /// Ignored by [`UpdateRule::Mean`].
+    /// Scale on a Thompson step's deviation from the posterior mean: `1.0` is
+    /// the posterior's own spread, `> 1` explores harder, `< 1` approaches the
+    /// quench. Ignored by [`UpdateRule::Mean`]. Every value tried (0.05 to 1.5)
+    /// did worse than the quench on the demo instance.
     pub exploration: f64,
     /// Seed for the observation noise and for Thompson sampling.
     pub seed: u64,
