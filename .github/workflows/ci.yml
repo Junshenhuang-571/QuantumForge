@@ -177,6 +177,12 @@ jobs:
   python-bindings:
     name: python wheel / ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    # The steps below use POSIX syntax and POSIX-style venv paths
+    # (.venv-wheeltest/bin/python), but Windows defaults `run` to PowerShell,
+    # where a quoted command followed by -m is a parse error.
+    defaults:
+      run:
+        shell: bash
     strategy:
       fail-fast: false
       matrix:
@@ -213,7 +219,12 @@ jobs:
         run: python -m pip install --quiet 'maturin==1.12.6'
 
       - name: Build wheel
-        run: maturin build --release --features python -o dist
+        # --auditwheel skip: this job installs the wheel into a venv on the
+        # runner itself to test the bindings. It is not producing a
+        # distributable artifact -- the publish workflow builds those inside a
+        # manylinux container. The audit rejects a host-glibc build outright
+        # (offending GLIBC_2.39 symbols on ubuntu-latest).
+        run: maturin build --release --features python -o dist --auditwheel skip
 
       - name: Install wheel into a clean venv
         run: |
