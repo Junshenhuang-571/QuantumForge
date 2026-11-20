@@ -10,13 +10,17 @@ documentation = "https://docs.rs/quantumforge"
 readme = "README.md"
 keywords = ["quantum", "simulation", "quantum-computing", "vqe", "cuda"]
 categories = ["science", "simulation", "hardware-support"]
-exclude = ["dist/*", "wheeltest*/", "__pycache__/", "**/*.pyc", "target/pkg/*"]
+exclude = ["dist/*", "wheeltest*/", "__pycache__/", "**/*.pyc", "target/pkg/*", "fuzz/*"]
 
 [lib]
 crate-type = ["lib", "cdylib"]
 
 [workspace]
 members = ["."]
+# The fuzzing crate is a separate workspace: it needs nightly and
+# libfuzzer-sys, and it must not be pulled into `cargo test --workspace` or
+# into the published tarball.
+exclude = ["fuzz"]
 resolver = "2"
 
 [features]

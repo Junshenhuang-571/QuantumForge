@@ -167,3 +167,125 @@ jobs:
           cargo audit
           --ignore RUSTSEC-2025-0020
           --ignore RUSTSEC-2026-0177
+
+  # The Python bindings are a published artifact (PyPI wheels), so they need an
+  # end-to-end check rather than a compile check: build a wheel, install it into
+  # a clean venv, then run the smoke test, the binding-surface drift test and
+  # the worked examples. The tests run from a neutral directory on purpose --
+  # running them from the checkout root would let a stray `quantumforge/`
+  # directory shadow the installed wheel.
+  python-bindings:
+    name: python wheel / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            venv-python: .venv-wheeltest/bin/python
+          - os: windows-latest
+            venv-python: .venv-wheeltest/Scripts/python.exe
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-python-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-python-
+
+      - name: Install maturin
+        # Pinned: newer maturin mis-detects bindings on a pyo3+abi3 crate and
+        # tries to generate cffi declarations, which fails inside CI containers.
+        run: python -m pip install --quiet 'maturin==1.12.6'
+
+      - name: Build wheel
+        run: maturin build --release --features python -o dist
+
+      - name: Install wheel into a clean venv
+        run: |
+          python -m venv .venv-wheeltest
+          "${{ matrix.venv-python }}" -m pip install --quiet --upgrade pip
+          "${{ matrix.venv-python }}" -m pip install --quiet dist/*.whl
+
+      - name: Import from the checkout root
+        # Regression guard for the shadowing bug: a `quantumforge/` directory
+        # at the repository root takes precedence over the installed wheel for
+        # any interpreter with the checkout on sys.path, so a bare
+        # `import quantumforge` fails with
+        # "No module named quantumforge.quantumforge". The shim now lives under
+        # python/, so the import must resolve into site-packages.
+        run: >-
+          "${{ matrix.venv-python }}" -c "import quantumforge;
+          assert 'site-packages' in quantumforge.__file__, quantumforge.__file__;
+          print('root import OK:', quantumforge.__file__)"
+
+      - name: Run binding tests from a neutral directory
+        run: |
+          mkdir -p wheeltest-neutral
+          cp python/smoke_test.py python/test_exports.py python/test_api.py wheeltest-neutral/
+          cp python/examples/*.py wheeltest-neutral/
+          cd wheeltest-neutral
+          "$GITHUB_WORKSPACE/${{ matrix.venv-python }}" smoke_test.py
+          "$GITHUB_WORKSPACE/${{ matrix.venv-python }}" test_api.py
+          "$GITHUB_WORKSPACE/${{ matrix.venv-python }}" test_exports.py "$GITHUB_WORKSPACE/python/API.md"
+          for script in bell qec vqe; do
+            "$GITHUB_WORKSPACE/${{ matrix.venv-python }}" "$script.py"
+          done
+
+  # Benchmarks are compiled but not run in CI: a full `cargo bench` campaign is
+  # far beyond a CI budget, but a bench target that no longer compiles would
+  # otherwise go unnoticed. This proves the bench tree still builds.
+  benches:
+    name: cargo bench (compile check)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-bench-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-bench-
+
+      - name: Compile benchmarks
+        run: cargo bench --no-run
+
+  # Fuzz targets for the two parsers that accept untrusted input: the circuit
+  # DSL and OpenQASM. Only compiled here, not run -- a campaign needs hours of
+  # CPU and belongs in a scheduled job. libfuzzer-sys needs a nightly compiler.
+  fuzz:
+    name: fuzz targets (compile check)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install nightly Rust
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+
+      - name: Build fuzz targets
+        run: cargo fuzz build

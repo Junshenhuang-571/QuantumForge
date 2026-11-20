@@ -19,3 +19,8 @@ __pycache__/
 wheeltest*/
 extonly/
 target/wheels/
+# maturin wheel output. (An older wheel is still tracked from before this
+# rule; `git rm --cached dist/*.whl` removes it without touching the file.)
+dist/
+# cargo-fuzz build output (its own workspace)
+fuzz/target/

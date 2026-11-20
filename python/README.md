@@ -76,17 +76,36 @@ python python/examples/bell.py
 | Circuits | `Circuit`, `parse_circuit_py`, `parse_qasm_py`, `export_qasm_py`, `parse_gate_py`, `optimize_circuit_py`, `OptimizeConfig` |
 | States | `StateVector`, `DensityMatrix`, `ShotResult` |
 | QEC | `QecCode`, `PauliString`, `repetition_code_bitflip`, `repetition_code_phaseflip`, `shor_code`, `steane_code`, `surface_code_planar`, `surface_code_rotated`, `encode_repetition_bitflip` |
-| Variational | `ParameterizedCircuit` |
+| Variational | `ParameterizedCircuit` (including `gradient` and `profile`) |
+| Gradients | `gradient_strategies`, `GradientResult`, `CircuitProfile` |
+| Exact-rational core | `Rational`, `ExactComplex`, `PauliSum` |
+| Shot-aware VQE | `vqe_subscore`, `SubsCoReOutcome` |
 | Algorithms | `Grover`, `QAOABuilder`, `QAOAAnsatzBuilder`, `HEABuilder`, `qft_circuit_py`, `hhl_*`, `shor_*` |
 | Tensor networks | `MPS`, `Tensor`, `TEBD`, `DMRG` |
 
-The authoritative list is `quantumforge/__init__.py` in the repository; the
-Rust doc comments on each type carry usage examples.
+The full reference is [`python/API.md`](API.md): every name, its signature, and
+a worked example. The authoritative export list is
+`python/quantumforge/__init__.py`.
+
+## Tests
+
+Three scripts run against an installed wheel:
+
+```bash
+python python/smoke_test.py     # imports and exercises the surface
+python python/test_api.py       # gradients, exact rationals, SubsCoRe
+python python/test_exports.py   # binding surface matches API.md
+```
+
+`test_exports.py` compares the compiled extension's public names with the
+shim's re-exports and with `API.md`, so a `#[pyfunction]` added without a
+re-export or a doc entry fails. CI runs all three, plus the examples, on a
+freshly built wheel.
 
 ## Notes
 
 - Wheels are abi3 (`cp38-abi3`), so one wheel serves Python 3.8+.
-- - Measurement outcomes are classical-register bit vectors, least-significant
+- Measurement outcomes are classical-register bit vectors, least-significant
   bit first; `ShotResult.counts()` returns a list of `(bits, count)` pairs.
 - The Python API mirrors the Rust API one-to-one; the Rust documentation at
   <https://docs.rs/quantumforge> applies, with `snake_case` method names.

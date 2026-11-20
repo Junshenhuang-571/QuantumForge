@@ -22,6 +22,12 @@ classifiers = [
 ]
 
 [tool.maturin]
+# The Python shim lives under python-source so the repository root does not
+# contain a `quantumforge/` directory: such a directory shadows the installed
+# wheel for any interpreter that has the checkout on sys.path (a bare
+# `python -c "import quantumforge"` from the root then fails with
+# "No module named quantumforge.quantumforge").
+python-source = "python"
 features = ["python"]
 manylinux = "2_28"
 

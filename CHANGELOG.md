@@ -3,6 +3,35 @@
 ## [0.2.9] - 2026-11-19
 
 ### Added
+- **Python bindings: gradient strategies, exact-rational core, SubsCoRe.**
+  `ParameterizedCircuit.gradient(...)` and `.profile(shots)` expose the four
+  gradient rules and the automatic chooser (`gradient_strategies`,
+  `GradientResult`, `CircuitProfile`); `Rational`, `ExactComplex` and
+  `PauliSum` expose the exact-rational analytic core; `vqe_subscore(...)` and
+  `SubsCoReOutcome` expose adaptive observation cost control. 45 public names.
+- **Python API reference** (`python/API.md`) covering every exported name with
+  signatures and worked examples, plus three test scripts: `test_api.py`
+  (gradients, exact rationals, SubsCoRe), `test_exports.py` (asserts the
+  extension's public names, the shim's re-exports and `API.md` agree), and the
+  existing `smoke_test.py`.
+- **Fuzz targets** for the two untrusted-input parsers (`fuzz/`: circuit DSL and
+  OpenQASM), with a `cargo fuzz build` CI job. The fuzz crate is a separate
+  workspace so it stays out of `cargo test --workspace` and the tarball.
+
+### Fixed
+- **A `quantumforge/` directory at the repository root shadowed the installed
+  wheel.** Any interpreter with the checkout on `sys.path` imported a shim
+  with no compiled extension and failed with
+  `ModuleNotFoundError: No module named 'quantumforge.quantumforge'`. The shim
+  now lives at `python/quantumforge/__init__.py` with
+  `[tool.maturin] python-source = "python"`, and CI asserts that importing from
+  the checkout root resolves into `site-packages`.
+
+### Changed
+- **CI gains three jobs**: `python-bindings` (builds a wheel, installs it into
+  a clean venv, runs the smoke test, the API test, the export-drift test and
+  the examples, on Ubuntu and Windows), `benches` (`cargo bench --no-run`), and
+  `fuzz`.
 - **Complete API documentation.** Every public item in the crate now carries a
   doc comment (775 items added across 24 modules), verified by a
   `missing_docs` lint that is now a hard error rather than a warning, so the

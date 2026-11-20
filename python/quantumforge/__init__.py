@@ -15,6 +15,14 @@ aliases them to the clean public names. Import is smoke-tested by
 
 from .quantumforge import (
     PyCircuit as Circuit,
+    PyGradientResult as GradientResult,
+    PyCircuitProfile as CircuitProfile,
+    gradient_strategies,
+    PyRational as Rational,
+    PyExactComplex as ExactComplex,
+    PyPauliSum as PauliSum,
+    PySubsCoReOutcome as SubsCoReOutcome,
+    vqe_subscore_py as vqe_subscore,
     PyStateVector as StateVector,
     PyDensityMatrix as DensityMatrix,
     PyShotResult as ShotResult,
@@ -55,6 +63,14 @@ from .quantumforge import (
 
 __all__ = [
     "Circuit",
+    "GradientResult",
+    "CircuitProfile",
+    "gradient_strategies",
+    "Rational",
+    "ExactComplex",
+    "PauliSum",
+    "SubsCoReOutcome",
+    "vqe_subscore",
     "StateVector",
     "DensityMatrix",
     "ShotResult",

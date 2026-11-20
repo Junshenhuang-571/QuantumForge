@@ -1,0 +1,29 @@
+# Its own workspace: cargo-fuzz needs nightly and libfuzzer-sys, and it must
+# stay out of the library's `--workspace` builds and out of the published
+# tarball.
+[workspace]
+
+[package]
+name = "quantumforge-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+quantumforge = { path = ".." }
+
+[[bin]]
+name = "parse_circuit"
+path = "fuzz_targets/parse_circuit.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "parse_qasm"
+path = "fuzz_targets/parse_qasm.rs"
+test = false
+doc = false

@@ -588,6 +588,54 @@ pub mod python_bindings {
                 )
                 .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))
         }
+
+        /// Facts about this circuit that decide which gradient rule applies.
+        ///
+        /// `shots` is the shot budget the caller intends for the expectation;
+        /// it does not make anything here sample.
+        fn profile(&self, shots: usize) -> PyCircuitProfile {
+            let mut profile = self.inner.circuit_profile();
+            profile.shots = shots;
+            PyCircuitProfile { inner: profile }
+        }
+
+        /// Gradient of `<observable>` on `observable_qubit` with a chosen rule.
+        ///
+        /// `strategy` is one of the names from `gradient_strategies()`; `"auto"`
+        /// resolves it from [`Self::profile`]. Exact rules return the analytic
+        /// gradient, so the result is a reference you can compare a sampled
+        /// gradient against.
+        #[pyo3(signature = (params, qubits, observable = "Z", observable_qubit = 0,
+                            strategy = "auto", finite_difference_step = 1e-3, shots = 0))]
+        #[allow(clippy::too_many_arguments)]
+        fn gradient(
+            &self,
+            params: Vec<f64>,
+            qubits: usize,
+            observable: &str,
+            observable_qubit: usize,
+            strategy: &str,
+            finite_difference_step: f64,
+            shots: usize,
+        ) -> PyResult<PyGradientResult> {
+            let observable = parse_single_qubit_observable(observable)?;
+            let strategy =
+                crate::gradients::GradientStrategy::parse(strategy).ok_or_else(|| {
+                    PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+                        "unknown gradient strategy '{strategy}'; see gradient_strategies()"
+                    ))
+                })?;
+            let options = crate::gradients::GradientOptions {
+                strategy,
+                finite_difference_step,
+                shots,
+            };
+            let estimate = self
+                .inner
+                .gradient_with_inputs(&options, &[], &params, qubits, observable, observable_qubit)
+                .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?;
+            Ok(PyGradientResult { inner: estimate })
+        }
     }
     /// QAOA-style ansatz (alternating cost/mixer).
     #[pyclass]
@@ -965,6 +1013,517 @@ pub mod python_bindings {
         crate::algorithms::shor_factor_quantum(n)
     }
 
+    // ------------------------------------------------------------------
+    // Gradient strategies
+    // ------------------------------------------------------------------
+
+    /// A gradient estimate: the gradient, the rule that ran, and how many
+    /// state-vector sweeps it consumed.
+    #[pyclass]
+    struct PyGradientResult {
+        inner: crate::gradients::GradientEstimate,
+    }
+
+    #[pymethods]
+    impl PyGradientResult {
+        #[getter]
+        fn gradient(&self) -> Vec<f64> {
+            self.inner.gradient.clone()
+        }
+
+        #[getter]
+        fn strategy(&self) -> String {
+            self.inner.strategy.name().to_string()
+        }
+
+        #[getter]
+        fn evaluations(&self) -> usize {
+            self.inner.evaluations
+        }
+
+        fn __repr__(&self) -> String {
+            format!(
+                "GradientResult(strategy='{}', evaluations={}, gradient={:?})",
+                self.inner.strategy.name(),
+                self.inner.evaluations,
+                self.inner.gradient
+            )
+        }
+    }
+
+    /// Static facts about a parameterized circuit, used to choose a rule.
+    #[pyclass]
+    struct PyCircuitProfile {
+        inner: crate::gradients::CircuitProfile,
+    }
+
+    #[pymethods]
+    impl PyCircuitProfile {
+        #[getter]
+        fn operations(&self) -> usize {
+            self.inner.operations
+        }
+
+        #[getter]
+        fn parameters(&self) -> usize {
+            self.inner.parameters
+        }
+
+        #[getter]
+        fn parameterized_operations(&self) -> usize {
+            self.inner.parameterized_operations
+        }
+
+        #[getter]
+        fn has_channel(&self) -> bool {
+            self.inner.has_channel
+        }
+
+        #[getter]
+        fn shots(&self) -> usize {
+            self.inner.shots
+        }
+
+        fn __repr__(&self) -> String {
+            format!(
+                "CircuitProfile(operations={}, parameters={}, parameterized_operations={}, has_channel={}, shots={})",
+                self.inner.operations,
+                self.inner.parameters,
+                self.inner.parameterized_operations,
+                self.inner.has_channel,
+                self.inner.shots
+            )
+        }
+    }
+
+    fn parse_single_qubit_observable(name: &str) -> PyResult<SingleQubitObservable> {
+        match name {
+            "X" => Ok(SingleQubitObservable::X),
+            "Y" => Ok(SingleQubitObservable::Y),
+            "Z" => Ok(SingleQubitObservable::Z),
+            other => Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+                "unknown observable '{other}'; expected X, Y or Z"
+            ))),
+        }
+    }
+
+    /// The gradient rule names accepted by `ParameterizedCircuit.gradient`,
+    /// including `"auto"`.
+    #[pyfunction]
+    fn gradient_strategies() -> Vec<&'static str> {
+        [
+            "auto",
+            "parameter-shift",
+            "adjoint",
+            "backprop",
+            "finite-difference",
+        ]
+        .to_vec()
+    }
+
+    // ------------------------------------------------------------------
+    // Exact-rational analytic core
+    // ------------------------------------------------------------------
+
+    /// An exact rational number `numerator / denominator`, reduced to lowest
+    /// terms. This is the arithmetic the analytic core uses: no floating point,
+    /// so `1/3 + 1/6` is exactly `1/2`.
+    #[pyclass]
+    #[derive(Clone)]
+    struct PyRational {
+        inner: crate::analytic::Rational,
+    }
+
+    fn rational_binary(
+        op: impl Fn(
+            crate::analytic::Rational,
+            crate::analytic::Rational,
+        ) -> Result<crate::analytic::Rational, crate::analytic::AnalyticError>,
+        left: &PyRational,
+        right: &PyRational,
+    ) -> PyResult<PyRational> {
+        op(left.inner, right.inner)
+            .map(|inner| PyRational { inner })
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))
+    }
+
+    #[pymethods]
+    impl PyRational {
+        #[new]
+        fn new(numerator: i128, denominator: i128) -> PyResult<Self> {
+            Ok(Self {
+                inner: crate::analytic::Rational::new(numerator, denominator)
+                    .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?,
+            })
+        }
+
+        #[getter]
+        fn numerator(&self) -> i128 {
+            self.inner.numerator()
+        }
+
+        #[getter]
+        fn denominator(&self) -> i128 {
+            self.inner.denominator()
+        }
+
+        /// The value as a float. Lossy for anything that is not dyadic.
+        fn to_float(&self) -> f64 {
+            self.inner.as_f64()
+        }
+
+        fn is_zero(&self) -> bool {
+            self.inner.is_zero()
+        }
+
+        fn __str__(&self) -> String {
+            self.inner.to_string()
+        }
+
+        fn __repr__(&self) -> String {
+            format!(
+                "Rational({}, {})",
+                self.inner.numerator(),
+                self.inner.denominator()
+            )
+        }
+
+        fn __add__(&self, other: &PyRational) -> PyResult<PyRational> {
+            rational_binary(|a, b| a.checked_add(b), self, other)
+        }
+
+        fn __sub__(&self, other: &PyRational) -> PyResult<PyRational> {
+            rational_binary(|a, b| a.checked_sub(b), self, other)
+        }
+
+        fn __mul__(&self, other: &PyRational) -> PyResult<PyRational> {
+            rational_binary(|a, b| a.checked_mul(b), self, other)
+        }
+
+        fn __truediv__(&self, other: &PyRational) -> PyResult<PyRational> {
+            rational_binary(|a, b| a.checked_div(b), self, other)
+        }
+
+        fn __neg__(&self) -> PyResult<PyRational> {
+            self.inner
+                .checked_neg()
+                .map(|inner| PyRational { inner })
+                .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))
+        }
+
+        fn __eq__(&self, other: &PyRational) -> bool {
+            self.inner == other.inner
+        }
+    }
+
+    /// An exact complex number with rational real and imaginary parts.
+    #[pyclass]
+    #[derive(Clone)]
+    struct PyExactComplex {
+        inner: crate::analytic::ExactComplex,
+    }
+
+    fn exact_complex_binary(
+        op: impl Fn(
+            crate::analytic::ExactComplex,
+            crate::analytic::ExactComplex,
+        ) -> Result<crate::analytic::ExactComplex, crate::analytic::AnalyticError>,
+        left: &PyExactComplex,
+        right: &PyExactComplex,
+    ) -> PyResult<PyExactComplex> {
+        op(left.inner, right.inner)
+            .map(|inner| PyExactComplex { inner })
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))
+    }
+
+    #[pymethods]
+    impl PyExactComplex {
+        #[new]
+        fn new(real: &PyRational, imag: &PyRational) -> Self {
+            Self {
+                inner: crate::analytic::ExactComplex {
+                    re: real.inner,
+                    im: imag.inner,
+                },
+            }
+        }
+
+        /// The real part as an exact rational.
+        #[getter]
+        fn real(&self) -> PyRational {
+            PyRational {
+                inner: self.inner.re,
+            }
+        }
+
+        /// The imaginary part as an exact rational.
+        #[getter]
+        fn imag(&self) -> PyRational {
+            PyRational {
+                inner: self.inner.im,
+            }
+        }
+
+        /// The value as a Python complex. Lossy; exactness lives in this type.
+        fn to_complex(&self) -> (f64, f64) {
+            let value = self.inner.to_complex64();
+            (value.re, value.im)
+        }
+
+        fn is_zero(&self) -> bool {
+            self.inner.is_zero()
+        }
+
+        fn __str__(&self) -> String {
+            self.inner.to_string()
+        }
+
+        fn __repr__(&self) -> String {
+            format!("ExactComplex({}, {})", self.inner.re, self.inner.im)
+        }
+
+        fn __add__(&self, other: &PyExactComplex) -> PyResult<PyExactComplex> {
+            exact_complex_binary(|a, b| a.checked_add(b), self, other)
+        }
+
+        fn __sub__(&self, other: &PyExactComplex) -> PyResult<PyExactComplex> {
+            exact_complex_binary(|a, b| a.checked_sub(b), self, other)
+        }
+
+        fn __mul__(&self, other: &PyExactComplex) -> PyResult<PyExactComplex> {
+            exact_complex_binary(|a, b| a.checked_mul(b), self, other)
+        }
+
+        fn __truediv__(&self, other: &PyExactComplex) -> PyResult<PyExactComplex> {
+            exact_complex_binary(|a, b| a.checked_div(b), self, other)
+        }
+
+        fn __neg__(&self) -> PyResult<PyExactComplex> {
+            self.inner
+                .checked_neg()
+                .map(|inner| PyExactComplex { inner })
+                .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))
+        }
+
+        fn __eq__(&self, other: &PyExactComplex) -> bool {
+            self.inner == other.inner
+        }
+    }
+
+    /// An exact linear combination of Pauli words.
+    ///
+    /// Coefficients are exact rationals, so a Hamiltonian built here has an
+    /// exactly representable energy.
+    #[pyclass]
+    struct PyPauliSum {
+        inner: crate::analytic::PauliSum,
+    }
+
+    fn parse_pauli_pattern(pattern: &str, qubits: usize) -> PyResult<crate::analytic::PauliWord> {
+        let letters: Vec<char> = pattern.chars().collect();
+        if letters.len() != qubits {
+            return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+                "pattern '{pattern}' has {} letters but the sum acts on {qubits} qubits",
+                letters.len()
+            )));
+        }
+        let mut word = Vec::with_capacity(qubits);
+        for letter in letters {
+            word.push(match letter {
+                'I' => crate::analytic::Pauli::I,
+                'X' => crate::analytic::Pauli::X,
+                'Y' => crate::analytic::Pauli::Y,
+                'Z' => crate::analytic::Pauli::Z,
+                other => {
+                    return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+                        "invalid Pauli letter '{other}' in '{pattern}'; expected I, X, Y or Z"
+                    )));
+                }
+            });
+        }
+        Ok(crate::analytic::PauliWord::new(word))
+    }
+
+    #[pymethods]
+    impl PyPauliSum {
+        #[new]
+        fn new(qubits: usize) -> Self {
+            Self {
+                inner: crate::analytic::PauliSum::zero(qubits),
+            }
+        }
+
+        /// Adds `numerator/denominator * |pattern>` to the sum.
+        fn add_term(&mut self, pattern: &str, numerator: i128, denominator: i128) -> PyResult<()> {
+            let word = parse_pauli_pattern(pattern, self.inner.qubits())?;
+            let coefficient = crate::analytic::ExactComplex::real(
+                crate::analytic::Rational::new(numerator, denominator)
+                    .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?,
+            );
+            self.inner
+                .add_term(coefficient, word)
+                .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))
+        }
+
+        fn qubits(&self) -> usize {
+            self.inner.qubits()
+        }
+
+        fn term_count(&self) -> usize {
+            self.inner.terms().len()
+        }
+
+        fn __str__(&self) -> String {
+            self.inner.to_string()
+        }
+
+        fn __repr__(&self) -> String {
+            format!("PauliSum({})", self.inner)
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // SubsCoRe: adaptive observation cost control
+    // ------------------------------------------------------------------
+
+    /// The outcome of a SubsCoRe run: the best parameters, the exact energy at
+    /// them, and the shot accounting.
+    #[pyclass]
+    struct PySubsCoReOutcome {
+        inner: crate::subscore::SubsCoReOutcome,
+    }
+
+    #[pymethods]
+    impl PySubsCoReOutcome {
+        #[getter]
+        fn best(&self) -> Vec<f64> {
+            self.inner.best.clone()
+        }
+
+        #[getter]
+        fn best_value(&self) -> f64 {
+            self.inner.best_value
+        }
+
+        #[getter]
+        fn shots_used(&self) -> usize {
+            self.inner.shots_used
+        }
+
+        #[getter]
+        fn iterations(&self) -> usize {
+            self.inner.iterations
+        }
+
+        #[getter]
+        fn shots_per_iteration(&self) -> Vec<usize> {
+            self.inner.shots_per_iteration.clone()
+        }
+
+        #[getter]
+        fn core_variances(&self) -> Vec<f64> {
+            self.inner.core_variances.clone()
+        }
+
+        fn __repr__(&self) -> String {
+            format!(
+                "SubsCoReOutcome(best_value={}, shots_used={}, iterations={})",
+                self.inner.best_value, self.inner.shots_used, self.inner.iterations
+            )
+        }
+    }
+
+    fn parse_update_rule(name: &str) -> PyResult<crate::subscore::UpdateRule> {
+        use crate::subscore::UpdateRule;
+        match name {
+            "mean" => Ok(UpdateRule::Mean),
+            "thompson" => Ok(UpdateRule::Thompson),
+            "guarded-thompson" | "guarded" => Ok(UpdateRule::GuardedThompson),
+            "free-energy" | "free_energy" => Ok(UpdateRule::FreeEnergy),
+            "lower-confidence-bound" | "lcb" => Ok(UpdateRule::LowerConfidenceBound),
+            other => Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+                "unknown update rule '{other}'; expected mean, thompson, \
+                 guarded-thompson, free-energy or lower-confidence-bound"
+            ))),
+        }
+    }
+
+    fn parse_readout_strategy(name: &str) -> PyResult<crate::subscore::ReadoutStrategy> {
+        use crate::subscore::ReadoutStrategy;
+        match name {
+            "bound" => Ok(ReadoutStrategy::Bound),
+            "center" => Ok(ReadoutStrategy::Center),
+            other => Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+                "unknown readout strategy '{other}'; expected bound or center"
+            ))),
+        }
+    }
+
+    /// SubsCoRe (arXiv:2502.01704): minimize `<H>` on `circuit` while spending
+    /// `total_shot_budget` shots, cooling the confident-region threshold as the
+    /// run progresses.
+    ///
+    /// `hamiltonian` is a `PauliSum` built with exact rational coefficients.
+    /// `eta_sq` defaults to the objective's own single-shot variance; the
+    /// thresholds default to the paper's `eta^2/512` and `eta^2/4096`.
+    #[pyfunction]
+    #[pyo3(signature = (circuit, hamiltonian, params, qubits, total_shot_budget,
+                        eta_sq = None, initial_shots = 128,
+                        initial_core_variance = None, core_min = None,
+                        update_rule = "mean", strategy = "bound", seed = 0))]
+    #[allow(clippy::too_many_arguments)]
+    fn vqe_subscore_py(
+        circuit: &PyParameterizedCircuit,
+        hamiltonian: &PyPauliSum,
+        params: Vec<f64>,
+        qubits: usize,
+        total_shot_budget: usize,
+        eta_sq: Option<f64>,
+        initial_shots: usize,
+        initial_core_variance: Option<f64>,
+        core_min: Option<f64>,
+        update_rule: &str,
+        strategy: &str,
+        seed: u64,
+    ) -> PyResult<PySubsCoReOutcome> {
+        let objective = crate::subscore::ShotHamiltonian::new(
+            circuit.inner.clone(),
+            hamiltonian.inner.clone(),
+            qubits,
+        );
+        let eta_sq = match eta_sq {
+            Some(value) => value,
+            None => objective.single_shot_variance(),
+        };
+        let initial_core_variance = match initial_core_variance {
+            Some(value) => value,
+            None => eta_sq / 512.0,
+        };
+        let core_min = match core_min {
+            Some(value) => value,
+            None => eta_sq / 4096.0,
+        };
+        let options = crate::subscore::SubsCoReOptions {
+            total_shot_budget,
+            eta_sq,
+            initial_shots,
+            initial_core_variance,
+            core_min,
+            update_rule: parse_update_rule(update_rule)?,
+            strategy: parse_readout_strategy(strategy)?,
+            seed,
+            ..crate::subscore::SubsCoReOptions::default()
+        };
+        let counts = objective.parameter_counts();
+        let outcome = crate::subscore::run_subscore(
+            |point, shots, run_seed| objective.observe(point, shots, run_seed),
+            &params,
+            &counts,
+            &options,
+        );
+        Ok(PySubsCoReOutcome { inner: outcome })
+    }
+
     /// Python module definition
     #[pymodule]
     pub fn quantumforge(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
@@ -985,6 +1544,20 @@ pub mod python_bindings {
         m.add_class::<PyTensor>()?;
         m.add_class::<PyTEBD>()?;
         m.add_class::<PyDMRG>()?;
+
+        // Gradient strategies
+        m.add_class::<PyGradientResult>()?;
+        m.add_class::<PyCircuitProfile>()?;
+        m.add_function(wrap_pyfunction!(gradient_strategies, m)?)?;
+
+        // Exact-rational analytic core
+        m.add_class::<PyRational>()?;
+        m.add_class::<PyExactComplex>()?;
+        m.add_class::<PyPauliSum>()?;
+
+        // SubsCoRe
+        m.add_class::<PySubsCoReOutcome>()?;
+        m.add_function(wrap_pyfunction!(vqe_subscore_py, m)?)?;
 
         m.add_function(wrap_pyfunction!(qft_circuit_py, m)?)?;
         m.add_function(wrap_pyfunction!(hhl_2x2_py, m)?)?;
