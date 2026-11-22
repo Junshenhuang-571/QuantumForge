@@ -1,653 +1,116 @@
 # QuantumForge
 
-A pre-1.0 quantum-computing toolkit in Rust: an **exact-rational analytic
-core**, a **CPU simulator** (state vectors + density matrices + seeded shots),
-**tensor networks** (MPS with TEBD and DMRG), **quantum error correction**
-(surface, repetition, Shor, Steane), **QAOA** at both state-vector and MPS
-scale, an **interactive REPL**, and optional **CUDA simulation / LLVM scalar
-JIT** features.
+[![CI](https://github.com/Junshenhuang-571/QuantumForge/actions/workflows/ci.yml/badge.svg)](https://github.com/Junshenhuang-571/QuantumForge/actions/workflows/ci.yml) [![Crates.io](https://img.shields.io/crates/v/quantumforge)](https://crates.io/crates/quantumforge) [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 
-[![CI](https://github.com/Junshenhuang-571/QuantumForge/actions/workflows/ci.yml/badge.svg)](https://github.com/Junshenhuang-571/QuantumForge/actions/workflows/ci.yml)
+QuantumForge is a local quantum-circuit simulator and research toolkit written in Rust. Use it to build circuits, simulate states and noise, sample measurements, and experiment with algorithms such as VQE and QAOA. It works on a regular CPU and can be embedded as a Rust library; Python bindings are also available.
 
-QuantumForge is for researchers, students, and developers who want a Rust
-environment for learning and prototyping gate-model simulation, variational
-algorithms, MBQC, adiabatic evolution, and reversible quantum Turing machines.
-It is a classical simulator and research toolkit, not a quantum-hardware
-runtime.
+It is a **classical simulator**, not a connection to quantum hardware. The project is pre-1.0, so APIs may change. State-vector memory grows exponentially with qubit count; density matrices are for smaller systems. IBM Quantum, IonQ, and Rigetti modules are interface scaffolds, without device discovery or job submission.
 
-## Why this project matters
+## Start in a minute
 
-QuantumForge is designed to be more than a toy simulator. It aims to provide:
+Install the command-line REPL with Rust and Cargo:
 
-- a shared semantic layer across multiple quantum paradigms
-- exact symbolic reasoning alongside numerical simulation
-- a REPL for fast exploration and education
-- optional acceleration for larger workloads
-- a library API that can be embedded in Rust applications
-
-## Who it's for
-
-- researchers exploring quantum algorithms and Hamiltonians
-- students learning quantum computing concepts hands-on
-- developers prototyping simulation and optimization workflows
-- teams building domain-specific quantum tooling around a Rust core
-
-## Project health snapshot
-
-The CPU simulator, command-line tools, and core algorithm modules are usable
-today, but the project is pre-1.0 and evolving. In particular:
-
-- state-vector simulation uses memory exponential in the qubit count; density
-  matrices grow faster and are intended for small systems
-- CUDA accelerates selected simulation paths; LLVM JIT compiles scalar numeric
-  expressions, not quantum circuits
-- IBM Quantum, IonQ, and Rigetti provider modules are interface scaffolds; job
-  submission and device discovery are not implemented
-- results and algorithms should be treated as research/educational tools, not
-  independently validated scientific or production outputs
-
-Contributions and issue reports are welcome; the current focus is on reliable
-onboarding, explicit API expectations, and correctness across supported paths.
-
-QuantumForge spans **five models of quantum computation** under one roof:
-
-| Paradigm | What it is | `qf` command |
-|---|---|---|
-| **Circuit / gate model** | the standard qubits-and-gates model | `add`, `run`, `draw`, `shots` |
-| **Variational (VQE / QML)** | parameterized circuits optimized classically | `vqe`, `train`, `qnn`, `gradient` |
-| **Measurement-based (MBQC)** | the "one-way" model — cluster states measured adaptively | `mbqc edges=.. qubits=N pattern=SPEC` |
-| **Adiabatic (AQC)** | evolve a ground state from a driver to a problem Hamiltonian | `anneal NAME T=.. tol=.. steps=..` |
-| **Quantum Turing machine** | reversible transition unitaries on configuration superpositions | `qtm machine=counter\|scan\|erase cells=N` |
-
-Every paradigm command is **data-driven** — supply your own cluster graph,
-problem Hamiltonian, or tape size rather than running a fixed demo. The headline
-feature is the `qf` REPL: build circuits incrementally, draw them as ASCII
-diagrams, run and measure them, and run variational algorithms (VQE, QML
-training) with results cross-checked against exact ground-state energies.
-The default test suite covers core semantics, robustness properties, and REPL
-end-to-end behavior.
-
-## Highlights in 0.2.9
-
-- **Every public item documented** — 775 doc comments added across 24 modules,
-  enforced by a `missing_docs` lint that is a hard error rather than a warning
-  (including feature-gated items such as the CUDA backend). See the
-  [documentation map](docs/README.md).
-- **MPS-based QAOA** for MaxCut on matrix product states with a bounded bond
-  dimension, plus a full tensor-network module (TEBD, DMRG, correlators).
-- **QAOA parameter transfer + targeted-layer optimization**
-  (arXiv:2601.15760) — donor-angle transfer with a ridge-regularized joint
-  optimization of the trailing layers, on 3-regular / Erdős–Rényi /
-  Barabási–Albert and weighted families. Available as a library call, an
-  example, and the `qf` command `qaoa-transfer`. Reproduces the paper's finding
-  that unweighted families hold ~98% of a full re-optimization while weighted
-  ER degrades.
-- **Gradient strategies with automatic selection** — parameter shift, adjoint,
-  reverse-mode backprop, and a finite-difference fallback, chosen for you by
-  `Auto` (parameter shift when the expectation is sampled, adjoint otherwise,
-  nothing for a circuit with a noise channel) and reported with the number of
-  state-vector sweeps each one cost. See the
-  [gradient strategies guide](docs/wiki/Gradient-Strategies.md).
-- **Shot-aware VQE: SubsCoRe** (arXiv:2502.01704) — adaptive observation cost
-  control. VQE is optimized one parameter axis at a time; a GP surrogate over
-  the VQE kernel tracks the confident region, and the shot count at each
-  observed point is chosen so the whole updated axis stays inside it. Shots
-  move from the rapidly-improving phase to the converging phase under a total
-  budget. The shot budget is a thermostat — an observation over `N` shots has
-  variance `eta^2/N`, so the temperature is `T = eta/sqrt(N)`. Two acquisitions
-  use it: `UpdateRule::LowerConfidenceBound` (`argmin(<E> - T*sigma)`) is
-  statistically indistinguishable from the plain quench, while the literal
-  Gibbs form `UpdateRule::FreeEnergy` (`argmin(<E> - T*S)`, with
-  `S = 1/2 ln(2 pi e var)`) is worse and less stable. Available as a library call,
-  `cargo run --release --example subscore`, and the `qf` command
-  `vqe-subscore`. See the [SubsCoRe guide](docs/wiki/SubsCoRe.md).
-- **Quantum noise as statistical mechanics** — `NoiseChannel::ThermalDamping`
-  is a finite-temperature channel whose fixed point is the Gibbs state
-  (`p1/p0 = exp(-beta*Delta)`), `DensityMatrix::von_neumann_entropy` measures the
-  entropy, and the ordinary amplitude-damping channel is the `T = 0` limit.
-  SubsCoRe can stop on an information-gain criterion; `readout::ConfusionMatrix`
-  mitigates readout error by the inverse matrix or iterative Bayesian unfolding;
-  `qec::noise` simulates Pauli/readout noise with an exact minimum-weight
-  decoder and estimates a threshold by finite-size scaling (the bit-flip
-  repetition family recovers its exact `p = 1/2` threshold to 0.015); and a
-  quantum Turing machine step is priced at `k_B T` times its entropy production
-  (`ln 2` per erased bit). See the
-  [noise and statistical mechanics guide](docs/wiki/Noise-and-Statistical-Mechanics.md).
-- **Correctness in the shot-based paths** — `ShotHamiltonian::observe` now takes
-  a total shot budget (it previously took shots *per Pauli word*, so both the
-  spend and the GP's noise model were off by the word count) and reports the
-  estimator's own variance; `SmallRng::seeded` now mixes its seed, so
-  consecutive seeds give independent runs instead of near-identical ones.
-- **Supply-chain hygiene** — Dependabot configuration and a `cargo audit` CI
-  job against the RustSec advisory database.
-- **Python bindings** rebuilt and verified end-to-end against a real wheel.
-
-## Quickstart
-
-For a guided install and walkthrough, see [docs/getting-started.md](docs/getting-started.md).
-
-Install and run the interactive REPL:
-
-```bash
+```sh
 cargo install quantumforge
 qf
 ```
 
-Or build from source:
+At the `qf>` prompt, make and sample a Bell pair:
 
-```bash
-git clone https://github.com/Junshenhuang-571/QuantumForge.git
-cd QuantumForge
-cargo run --bin qf
+```text
+qubits 2
+add H[0]
+add CNOT[0,1]
+draw
+run
+probs
+add Measure[0,0]
+add Measure[1,1]
+shots 8 42
 ```
 
-Then build a Bell state, measure both qubits, and sample reproducible outcomes:
+`probs` shows the ideal distribution. Add the two measurement operations before sampling; each shot is `|00>` or `|11>`. The seed (`42`) makes the counts repeatable. Type `help` for the REPL commands or `quit` to exit.
 
-```
-qf> qubits 2
-qf> add H[0]
-qf> add CNOT[0,1]
-qf> add Measure[0,0]
-qf> add Measure[1,1]
-qf> draw
-qf> shots 8 42
-  |00>  4
-  |11>  4
-legend: ─ wire  • control  ⊕ target(X)  │ span  x swap  M measure
+For scripts and CI, sample a circuit directly from the shell. The `shots` CLI measures every qubit automatically when the circuit has no explicit `Measure` operations:
+
+```sh
+quantumforge shots 2 1000 42 'Circuit[H[0], CNOT[0,1]]'
 ```
 
-### Library demo (Rust API)
+From a source checkout, run the same command with `cargo run --bin quantumforge -- shots 2 1000 42 'Circuit[H[0], CNOT[0,1]]'`.
 
-Exact Bell state — amplitudes are exact rationals, not floats:
+## Optimize a circuit
+
+The batch CLI can simplify a circuit and optionally route it onto a linear qubit topology:
+
+```sh
+quantumforge optimize 3 all --line 'Circuit[H[0], H[0], CNOT[0,2]]' > optimized.json
+quantumforge optimize 3 all --input circuit.qasm --line --format qasm > optimized.qasm
+quantumforge optimize 3 all --input circuit.qasm --report compile-report.json > optimized.json
+quantumforge optimize 5 all --topology device-map.json --input circuit.qasm
+quantumforge optimize 3 all --verify 'Circuit[H[0], H[0]]'
+```
+
+`all` enables rotation fusion, inverse cancellation, identity removal, and safe commutation rewrites; `conservative` limits changes to identity removal and inverse pairs. `--input` reads a circuit expression or OpenQASM 2.0 file; use `--input -` to read from standard input. `--line` routes over a linear topology; `--topology FILE` accepts a JSON undirected coupling map such as `{"num_qubits":5,"edges":[[0,1],[1,2],[1,3],[3,4]]}`. The map's qubit count must match `QUBITS`. `--verify` exhaustively compares all computational-basis inputs for unitary circuits up to 10 qubits, allowing one global phase; it refuses measurements and noise channels and does not replace independent cross-tool validation. The resource summary goes to the terminal; optimized JSON is the default output and can be loaded with `Circuit::from_json`, while `--format qasm` emits OpenQASM 2.0. `--report FILE` saves a separate machine-readable JSON record with the run settings, rewrite counts, before/after resource metrics, and verification status. QASM output rejects noise-channel operations instead of silently dropping them. When simulating JSON output, initialize the state with the same qubit count passed to the command. Routing uses shortest paths and does not perform global qubit placement, directed-coupling checks, or calibration-aware gate selection.
+
+See the [optimizer product assessment and roadmap](docs/optimizer-roadmap.md) for a research-backed comparison and prioritized path toward device-targeted compilation.
+
+## Use QuantumForge from Rust
+
+Add the crate to your project:
+
+```sh
+cargo add quantumforge
+```
+
+Build and simulate a Bell pair:
 
 ```rust
 use quantumforge::{Circuit, Gate, StateVector};
 
-let mut bell = Circuit::new();
-bell.push(Gate::H, 0);
-bell.cnot(0, 1);
-let state = bell.run(StateVector::zero(2).unwrap()).unwrap();
-println!("{:?}", state.probabilities()); // [0.5, 0.0, 0.0, 0.5]
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let mut circuit = Circuit::new();
+    circuit.push(Gate::H, 0);
+    circuit.cnot(0, 1);
+
+    let state = circuit.run(StateVector::zero(2)?)?;
+    println!("{:?}", state.probabilities());
+    // [0.5000000000000001, 0.0, 0.0, 0.5000000000000001]
+    Ok(())
+}
 ```
 
-Seeded sampling with confidence intervals:
+The simulator uses floating point. Exact rational arithmetic is available in the separate symbolic algebra module for supported expressions; it does not make general circuit simulation exact. See the [API docs](https://docs.rs/quantumforge) for details.
 
-```rust
-use quantumforge::{parse_circuit, StateVector};
+## What you can build
 
-let circuit = parse_circuit("Circuit[H[0], CNOT[0,1], Measure[0,0], Measure[1,1]]").unwrap();
-let result = circuit.run_shots(&StateVector::zero(2).unwrap(), 1024, 42).unwrap();
-let (p, (lo, hi)) = result.probability_with_ci(&vec![0, 0]);
-println!("P(00) = {p:.3}  95% CI [{lo:.3}, {hi:.3}]");
-```
-
-QEC — build and verify the rotated surface code:
-
-```rust
-use quantumforge::qec::{surface_code_rotated, verify_code};
-
-let code = surface_code_rotated(3); // 9 physical, 1 logical
-assert!(verify_code(&code));
-println!("{} stabilizers, {} syndromes", code.stabilizers.len(), code.recovery.len());
-```
-
-Symbolic algebra on exact rationals:
-
-```rust
-use quantumforge::analytic::{ExactComplex, Rational, ScalarExpr};
-
-let x = ScalarExpr::symbol("x");
-let f = ScalarExpr::pow(x.clone(), 3).unwrap();
-println!("{}", f.differentiate("x").unwrap()); // 3 * x^2
-let four = ExactComplex::real(Rational::new(4, 1).unwrap());
-let quad = ScalarExpr::subtract(ScalarExpr::pow(x, 2).unwrap(), ScalarExpr::exact(four)).unwrap();
-for root in quad.solve("x") { println!("{root}"); } // exact roots of x^2 - 4
-```
-
-Every example above is a compiled, tested doctest in the crate
-documentation (docs.rs) — copy them straight into your project.
-
-The `shots` command reruns the circuit from `|0...0>` and uses the supplied seed
-to make the sample reproducible. To inspect the state without sampling, use
-`run` followed by `state`.
-
-Or use it as a library:
-
-```rust
-use quantumforge::{Circuit, StateVector, parse_circuit};
-
-let circuit = parse_circuit("Circuit[H[0], CNOT[0,1], Measure[0,0]]").unwrap();
-let initial = StateVector::zero(2).unwrap();
-let result = circuit.run_shots(&initial, 1000, 42).unwrap();
-println!("{:?}", result.counts);
-```
-
-## Example gallery
-
-A few quick starting points:
-
-- `examples/hello_world.rs` — minimal Bell-state example
-- `examples/qec_roundtrip.rs` — surface-code verification plus a full
-  repetition-code encode → inject → syndrome → recover → verify cycle
-- `examples/qasm_roundtrip.rs` — OpenQASM 2.0 import → export → re-import
-- `examples/vqe_exact.rs` — VQE converged against the exact ground-state energy
-- `examples/mps_qaoa.rs` — QAOA on a matrix product state, with a bond-dimension sweep
-- `examples/cost_aware_optimization.rs` — compare a rewrite against a
-  target-weighted logical cost model
-- `examples/qtm_probe.rs` — QTM exploration code
-- `examples/gpu_bench.rs` — GPU benchmark entry point
-
-Run any of them with `cargo run --example <name>`.
-
-## Highlights
-
-- **Exact symbolic arithmetic where supported.** The analytic core
-  (`PauliSum` / `ExactComplex` / `Rational`) represents supported expressions
-  exactly. Variational optimization and state-vector simulation use floating
-  point; VQE outcomes depend on the ansatz, optimizer, and convergence.
-- **Interactive `qf` REPL** — live state, `draw` renders a real circuit diagram
-  with vertical connectors across wires:
-  ```
-  q0 ───H──────•────────────────────•──────M─────────────────
-  q1 ──────────⊕──────•─────────────│─────────────M──────────
-  q2 ─────────────────⊕───Ry0.79────•────────────────────M───
-  ```
-- **Simulation**: state vectors, density matrices with noise channels
-  (depolarizing / amplitude / phase damping), seeded reproducible shots, and a
-  matrix-free sparse Lanczos eigensolver for ground-state energies.
-- **Variational / QML**: `ParameterizedCircuit` with data encoding, four
-  gradient strategies (parameter shift, adjoint, backprop, finite-difference
-  fallback) with automatic selection and cost reporting, Adam trainers for
-  regression and classification, and shot-aware VQE (`subscore`: SubsCoRe
-  adaptive observation cost control with a GP surrogate).
-- **Algorithms**: Grover, QFT, QPE, Deutsch-Jozsa, Bernstein-Vazirani, HHL
-  (linear systems), Shor (factoring). Quantum + classical hybrid solvers.
-- **Visualization**: ASCII circuit diagrams (`draw`) and SVG export (`to_svg`).
-- **Circuit optimization**: conservative and iterative rewrite passes, with
-  before/after gate, depth, and qubit statistics. `CircuitCostProfile` and
-  `CircuitCostModel` let you compare candidates using target-specific logical
-  resource weights; they are estimates, not device timing predictions.
-- **QEC**: Repetition, Shor, Steane, surface codes with MWPM decoder.
-- **Backends**: optional `cuda` (NVRTC device-resident state vectors, density
-  matrices, batched shots) and `llvm` (lower scalar expressions to LLVM IR /
-  runtime-JIT), both validated against the Rust reference.
-
-## Requirements
-
-- Rust 1.88+ (edition 2024; this is the declared MSRV) and Cargo.
-- Optional: CUDA toolkit + NVRTC (for `--features cuda`), LLVM tools
-  (`opt`, `llc`) and `clang` (for `--features llvm` JIT).
-
-## Build & test
-
-```bash
-cargo build            # default (CPU-only) build
-cargo test             # 202 tests (default build; llvm/cuda tests need feature flags)
-```
-
-Run the interactive REPL:
-
-```bash
-cargo run --bin qf
-```
-
-## The `qf` REPL
-
-Type `help` inside the REPL for the full command list. A quick tour:
-
-```
-qf> qubits 3
-qf> add H[0]
-qf> add CNOT[0,1]
-qf> add Ry[Pi/4,2]
-qf> draw                       # ASCII circuit diagram
-qf> run
-qf> add Measure[0,0]
-qf> shots 1000 42              # seeded shots -> reproducible counts
-```
-
-Core commands: `qubits`, `circuit`, `draw`, `add`, `clear`, `run`, `noisy`,
-`state`, `probs`, `ptrace Q1,Q2,...` (partial trace to a subsystem), `mix`
-(maximally-mixed state), `expect X|Y|Z Q`, `bloch Q`, `shots N SEED`,
-`shots-noise N SEED`, plus the analytic core (`eval`, `simplify`, `diff`,
-`pauli`, `assume`).
-
-### Variational & QML commands
-
-| Command | What it does |
+| Goal | Starting point |
 |---|---|
-| `gradient X\|Y\|Z Q` | Adjoint vs parameter-shift gradient, cross-validated |
-| `vqe <ham>` | Variational Quantum Eigensolver — minimizes `<H>` over the circuit's rotations and compares to the exact ground state |
-| `vqe-subscore [ham=tfim] [budget=20000] [shots=64] [strategy=center\|bound] [update=mean\|thompson\|guarded\|free] [seed=42]` | SubsCoRe — shot-aware VQE: optimizes one parameter axis at a time and spends shots where they matter, under a total shot budget |
-| `gradient X\|Y\|Z Q [method=auto\|shift\|adjoint\|backprop\|fd]` | `d<O>/dtheta` per rotation. Without `method=` the exact rules are cross-validated; with it one rule runs and reports its cost |
-| `train {regression\|classify} [DATA]` | Supervised QML (Adam). `DATA` is a flat brace list `{feat...,target, ...}` |
-| `qnn [DATA]` | Minimal 1-parameter `VariationalQnn`, Adam or gradient descent |
+| Learn gates, states, and measurement | The `qf` REPL and [getting-started guide](docs/getting-started.md) |
+| Simulate noisy circuits or inspect density matrices | `DensityMatrix`, noise channels, and the [noise guide](docs/wiki/Noise-and-Statistical-Mechanics.md) |
+| Experiment with VQE, QML gradients, or QAOA | [algorithm guides](docs/wiki/Algorithms.md) and runnable examples in `examples/` |
+| Explore tensor networks beyond small state vectors | MPS, TEBD, DMRG, and [MPS QAOA](docs/wiki/MPS-QAOA.md) |
+| Build or verify quantum error-correcting codes | `qec` module and [QEC guide](docs/wiki/QEC-Codes.md) |
+| Use the library from Python | [Python setup and examples](python/README.md) and [API reference](python/API.md) |
 
-Built-in VQE Hamiltonians (exact rational coefficients): `tfim`, `ising`,
-`heisenberg`, `xxz`, `hubbard`. Example:
+The analytic module supports exact rational and symbolic operations where defined. Simulation, optimization, and most algorithm outputs are numerical and depend on their configuration and convergence.
 
-```
-qf> qubits 3
-qf> add Ry[0.3,0] ... (build a Ry+CNOT ansatz)
-qf> vqe hubbard
-  vqe ground energy = -0.686141
-  exact ground energy = -0.686141
-  |vqe - exact| = 5.92e-12  ✓ converged
-```
+## Run an example
 
-### Tensor Network commands (TEBD / DMRG)
+Clone the repository and run the minimal circuit example:
 
-Imaginary-time evolution and variational ground-state search for 1D nearest-neighbor Hamiltonians (TFIM: `-Σ Z_i Z_{i+1} - Σ X_i`). Both use SVD-based truncation with bond-dimension control.
-
-| Command | What it does |
-|---|---|
-| `tebd [qubits=N] [dt=..] [tol=..] [max-bond=..] [steps=N]` | TEBD imaginary-time evolution — outputs ground state energy, updates live MPS |
-| `dmrg [qubits=N] [bond=..] [tol=..] [sweeps=N]` | DMRG variational sweeps — same Hamiltonian, sweeps until energy converges |
-| `tebd-correl [site=..]` | Print `<Z_i Z_{i+1}>` from live TEBD MPS |
-| `dmrg-correl [site=..]` | Print `<Z_i Z_{i+1}>` from live DMRG MPS |
-
-Example:
-```
-qf> tebd qubits=6 dt=0.05 tol=1e-10 max-bond=32 steps=50
-TEBD converged: ground state energy = -7.296230
-qf> dmrg qubits=8 bond=64 tol=1e-12 sweeps=20
-DMRG converged: ground state energy = -9.837951
+```sh
+git clone https://github.com/Junshenhuang-571/QuantumForge.git
+cd QuantumForge
+cargo run --example hello_world
 ```
 
-Notes:
-- TEBD computes the ground state via imaginary-time evolution (Trotter decomposition
-  of exp(-βH)) with SVD truncation, verified against exact diagonalization for
-  n ≤ 8 qubits. Results match DMRG to full precision.
-- DMRG uses exact diagonalization (faer `self_adjoint_evd`) for n ≤ 12 qubits.
-- For n ≥ 13 qubits, DMRG uses sparse Lanczos (Krylov subspace, m=100)
-  with full reorthogonalization — verified against exact diagonalization for n=13
-  (agreement to 6 decimal places).
-- Correlation queries (`tebd-correl`, `dmrg-correl`) read from the live MPS,
-  which is reconstructed from the ground state in both exact-diagonalization
-  and sparse-Lanczos paths.
+Browse [`examples/`](examples/) for QEC, QAOA, VQE, OpenQASM, and tensor-network workflows. The [documentation map](docs/README.md) links the API, guides, coverage notes, and release information.
 
-### Stabilizer Simulation (Gottesman-Knill)
+## Optional backends
 
-Clifford circuits (H, S, X, Y, Z, CNOT, measurement) can be simulated in **O(n²) per gate** instead of exponential 2^n, handling 1000+ qubits. Uses the Aaronson-Gottesman tableau algorithm with phase tracking.
-
-```rust
-use quantumforge::stabilizer::StabilizerTableau;
-let mut tab = StabilizerTableau::new(100);
-tab.h(0);
-tab.cnot(0, 1);
-// ... Clifford circuit
-```
-GPU-accelerated sparse Lanczos now works with **any** PauliSum Hamiltonian, including 2D and 3D lattice models. Previously, GPU sparse Lanczos was hardcoded for 1D TFIM only.
-
-- `sparse_lanczos_gpu(&sparse_op, max_iter, tol)` — generic, works with `ising2d`, `heisenberg2d`, `ising3d`
-- CSR sparse matrix-vector product kernel on GPU
-- Enables ground-state computation for 2D/3D quantum systems on GPU
-
-### Sampling Error (1/√N) Confidence Intervals
-
-Shot-based measurements return Wilson score confidence intervals. `ShotResult` provides:
-- `wilson_ci_for(outcome, confidence)` — Wilson CI for a specific outcome
-- `probability_with_ci(outcome)` — probability + 95% Wilson CI
-
-### New Spin Models
-- `ising2d` — 2D Ising on square lattice (perfect square qubit count: 4, 9, 16, 25...)
-- `heisenberg2d` — 2D Heisenberg on square lattice
-- `ising3d` — 3D Ising on cubic lattice (perfect cube: 8, 27...)
-- `StateVector::entanglement_entropy(n_a)` — von Neumann entropy for bipartition
-- `StateVector::renyi_entropy(n_a, alpha)` — Rényi entropy of order α (α=1 → von Neumann)
-- Uses faer eigendecomposition of reduced density matrix
-
-### Performance
-
-Run `cargo bench` for criterion-based micro-benchmarks (state-vector gate application, density-matrix operations).
-
-GPU acceleration activates for sparse Lanczos (>=13 qubits) and batched circuit execution. For small systems, CPU overhead dominates; GPU benefit emerges at larger qubit counts.
-
-- `examples/gpu_bench.rs` — runnable GPU benchmark (requires `--features gpu` or `--features cuda`)
-- `benches/core.rs` — criterion benchmarks for core operations
-
-### Batched GPU Circuits
-
-## Benchmark: CPU vs GPU
-
-DMRG ground-state energy for TFIM (H = -Σ Z_i Z_{i+1} - Σ X_i). **Note:** for n ≤ 12, DMRG uses exact diagonalization (full 2^n eigendecomposition); for n ≥ 13, it uses sparse Lanczos (Krylov subspace). These are different algorithms — timings are not directly comparable across the 12/13 boundary. GPU acceleration activates for sparse Lanczos (>=13 qubits).
-
-![CPU vs GPU benchmark](docs/benchmark_cpu_vs_gpu.svg)
-
-Stabilizer codes with syndrome extraction circuits and recovery tables. Currently supports bit-flip / phase-flip repetition codes, Shor's 9-qubit, Steane's 7-qubit, and planar/rotated surface codes. Includes MWPM decoder for single/multi-error recovery. Verified: all stabilizers commute; repetition code end-to-end correction; rotated surface code d=3 has distinct syndromes for all single errors with a verified logical-operator basis. Note: the planar construction is face-stabilizers-only and encodes 2d-1 logicals (see NUMERICS.md); use rotated d=3 for a verified single-logical code.
-
-| Command | What it does |
-|---|---|
-| `qec-code [type=bitflip\|phaseflip\|shor\|steane\|surface] [n=..] [d=..]` | Build QEC code, print stabilizers + logical ops |
-| `qec-encode [type=bitflip\|phaseflip] [n=..] [state=0\|1]` | Encode logical \|0⟩ or \|1⟩ into repetition code, updates live state |
-| `qec-syndrome` | Measure syndrome on live state using code's circuit (pads with ancillas) |
-| `qec-recover [syndrome=N]` | Apply recovery circuit for given syndrome bits |
-
-Example:
-```
-qf> qec-code type=bitflip n=5
-QEC Code: bitflip (n=5, k=1)
-Stabilizers (4): S0=ZZIII, S1=IZZII, S2=IIZZI, S3=IIIZZ
-qf> qec-encode type=bitflip n=5 state=1
-Encoded logical |1> into 5-qubit repetition code
-qf> qec-syndrome
-Syndrome measurement complete. Ancilla qubits measured.
-```
-
-## Command-line binary
-
-```bash
-cargo run --bin main -- demo                            # one-qubit sim + QNN training
-cargo run --bin main -- eval "2 + 3*Pi"
-cargo run --bin main -- simplify "x + x + 2 + 3"
-cargo run --bin main -- shots 2 1000 42 'Circuit[H[0], CNOT[0,1], Measure[0,0], Measure[1,1]]'
-```
-
-With feature flags: `llvm-ir` / `jit-eval` (llvm), `cuda-demo` (cuda).
-
-## Library usage
-
-```rust
-use quantumforge::{Circuit, Gate, StateVector, parse_circuit};
-
-// Build from a Wolfram-style expression, or the builder API.
-let circuit = parse_circuit("Circuit[H[0], CNOT[0,1], Measure[0,0]]").unwrap();
-let initial = StateVector::zero(2).unwrap();
-let result = circuit.run_shots(&initial, 1000, 42).unwrap();
-```
-
-Key types: `Circuit` / `Gate` / `NoiseChannel`, `StateVector`, `DensityMatrix`,
-`ParameterizedCircuit` (QML), `VariationalQnn`, and the analytic module's
-`PauliSum` / `ExactComplex` / `Rational` / `ScalarExpr`.
-
-### Compare circuit optimization costs
-
-The optimizer reports structural resources so you can judge a rewrite against
-your backend's priorities. For example, a fault-tolerant workload can assign a
-higher weight to T gates, while a device with expensive entangling operations
-can emphasize CNOT, CZ, and SWAP counts:
-
-```rust
-use quantumforge::{Circuit, Gate};
-use quantumforge::optimizer::{
-    CircuitCostModel, OptimizeConfig, optimize_for_cost_model,
-};
-
-let mut circuit = Circuit::new();
-circuit.push(Gate::H, 0);
-circuit.push(Gate::H, 0);
-circuit.cnot(0, 1);
-
-let model = CircuitCostModel {
-    cnot_gate: 10.0,
-    depth: 2.0,
-    ..CircuitCostModel::default()
-};
-let (optimized, decision) =
-    optimize_for_cost_model(&circuit, &OptimizeConfig::all(), &model)?;
-println!(
-    "selected ops {}, candidate ops {}, estimated cost {} -> {} (applied: {})",
-    optimized.operations().len(),
-    decision.optimization.optimized_ops,
-    decision.original_cost,
-    decision.candidate_cost,
-    decision.applied,
-);
-# Ok::<(), quantumforge::optimizer::CircuitCostModelError>(())
-```
-
-The profile counts logical gates and dependency depth; it does not include
-routing overhead, native gate decomposition, pulse schedules, or calibration
-data. Set weights from the target's documented costs and compare circuits
-using the same model. The optimizer remains a local rewrite pass, not a
-hardware-aware global synthesis engine. `optimize_for_cost_model` returns the
-original circuit unless the configured rewrite strictly lowers the estimated
-cost; invalid or non-finite weights are rejected.
-
-## QASM 2.0 support
-
-Import/export circuits in the standard OpenQASM 2.0 format:
-
-```rust
-use quantumforge::{qasm::parse_qasm, StateVector};
-
-let qasm = r#"
-OPENQASM 2.0;
-include "qelib1.inc";
-qreg q[2];
-creg c[2];
-h q[0];
-cx q[0], q[1];
-measure q[0] -> c[0];
-measure q[1] -> c[1];
-"#;
-
-let circuit = parse_qasm(qasm).unwrap();
-let n_qubits = quantumforge::qasm::qubit_count(qasm).unwrap(); // returns 2
-let initial = StateVector::zero(n_qubits).unwrap();
-let result = circuit.run_shots(&initial, 1000, 42).unwrap();
-```
-
-Supported features: gates (X, Y, Z, H, S, S†, T, T†, RX, RY, RZ, U1, U2, U3, CX, CZ, SWAP, CCX), parameter expressions (`pi`, `pi/2`, `2*pi`), `measure`, `barrier`, `reset`, and user-defined gates with formal parameters.
-
-## Optional features
-
-```bash
-cargo build --features llvm    # LLVM IR lowering + runtime JIT for scalar exprs
-cargo build --features cuda    # CUDA/NVRTC device-resident simulation
-cargo test --features cuda     # validated against the CPU reference
-```
-
-## Project layout
-
-```
-src/lib.rs            kernel entry, Circuit / StateVector / ParameterizedCircuit / VariationalQnn
-src/bin/qf.rs         the interactive REPL
-src/bin/main.rs       the CLI (demo/eval/simplify/shots/...)
-src/analytic.rs       exact-rational core: PauliSum, ScalarExpr, Rational
-src/gradients.rs      gradient strategies (shift / adjoint / backprop / finite-diff) + automatic selection
-src/subscore.rs       SubsCoRe: shot-aware VQE with a GP surrogate and adaptive observation cost
-src/qaoa_transfer.rs  QAOA parameter transfer + targeted-layer optimization
-src/quantum.rs        operators, observables, time-dependent evolution
-src/parser.rs         Wolfram-style circuit + scalar expression parser
-src/qtm.rs            Quantum Turing Machines (Bernstein–Vazirani unitary formulation)
-src/mbqc.rs           Measurement-Based QC (cluster states + measurement patterns)
-src/aqc.rs            Adiabatic QC (H(s) schedule driver + ground-state tracking)
-src/cuda.rs           CUDA backend (feature = cuda)
-src/llvm_backend.rs   LLVM IR + JIT (feature = llvm)
-tests/                integration tests (incl. property-based + REPL end-to-end)
-benches/core.rs       criterion benchmarks (state-vector, density, exact core)
-RUST_CAS_ROADMAP.md   design notes and progress log
-```
-
-## CI
-
-Every push and PR runs GitHub Actions (`.github/workflows/ci.yml`):
-`cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo build`,
-and `cargo test`. Reproduce locally:
-
-```bash
-cargo fmt --all -- --check
-cargo clippy --all-targets -- -D warnings
-cargo test
-```
-
-## Documentation
-
-Guides and reference material beyond this README:
-
-- [Landing page](docs/index.html) — styled overview with install and REPL demo
-- [Documentation map](docs/README.md) — where to start, API by subsystem, examples
-- [Getting started](docs/getting-started.md) — install, first circuit, REPL tour
-- [Algorithms](docs/wiki/Algorithms.md) — algorithm modules and how they fit together
-- [Architecture](docs/wiki/Architecture.md) — module layout and data flow
-- [QEC codes](docs/wiki/QEC-Codes.md) — stabilizer codes, encoders, decoders
-- [GPU acceleration](docs/wiki/GPU-Acceleration.md) — `cuda` vs `gpu` features
-- [MPS-based QAOA](docs/wiki/MPS-QAOA.md) — MaxCut on matrix product states
-- [QAOA parameter transfer](docs/wiki/QAOA-Parameter-Transfer.md) — donor-angle transfer and targeted-layer optimization
-- [SubsCoRe](docs/wiki/SubsCoRe.md) — shot-aware VQE, the shot budget as a thermostat, and which statistical-mechanics models apply
-- [Gradient strategies](docs/wiki/Gradient-Strategies.md) — the four differentiation rules, automatic selection, and how they are cross-validated
-- [Contributing](docs/wiki/Contributing.md) / [CONTRIBUTING.md](CONTRIBUTING.md)
-- [Release checklist](docs/releasing.md) — how a version is cut and published
-- [Python bindings](python/README.md) — install, quickstart, and worked scripts
-
-API reference with runnable examples: [docs.rs/quantumforge](https://docs.rs/quantumforge).
-
-## Project policies
-
-- [API stability policy](API_STABILITY.md)
-- [Roadmap](ROADMAP.md)
-- [Release checklist](docs/releasing.md)
-- [Contributing guide](CONTRIBUTING.md)
+The default build uses the CPU. Optional `gpu` and `cuda` features accelerate selected simulation paths on supported NVIDIA systems; `llvm` JIT-compiles scalar numeric expressions, not quantum circuits. See the [GPU guide](docs/wiki/GPU-Acceleration.md) for requirements and current support.
 
 ## Contributing
 
-We welcome contributions! Whether it's a bug fix, new algorithm, documentation improvement, or performance optimization — all help is appreciated.
-
-**Good first issues** (great starting points):
-- Add doc comments to public API items (run `cargo doc` to see warnings)
-- Add test coverage for edge cases
-- Improve error messages
-- Port a simple quantum algorithm (Deutsch-Jozsa, Bernstein-Vazirani are already done — try Simon's or Shor's improvements)
-- Add examples in `examples/`
-
-**How to contribute:**
-1. Fork the repo and create a feature branch
-2. Run `cargo fmt --all && cargo clippy --all-targets -- -D warnings && cargo test`
-3. Submit a PR with a clear description
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for full details. Questions? Open an issue — we respond quickly.
-
-## License
-
-Licensed under the Apache License, Version 2.0 — see [LICENSE](LICENSE).
-
-## Connection 
-Email: junshenhuangc@126.com
-
-## Contributors
-
-We welcome contributions from all hardware platforms! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
-
-- **NVIDIA GPU** — primary development platform
-- **macOS** — CI tested, contributions welcome
-- **AMD/Intel GPU** — contributions welcome (ROCm/HIP, oneAPI)
-
-### Community Circuit Benchmarks (Real MQT Bench Circuits)
-
-Measured on a single machine (debug build). Circuits downloaded from MQT Bench and transpiled to basic gates. Run `cargo run --example bench_mqt` to reproduce.
-
-| Circuit | Qubits | Gates | Time (ms) | Norm |
-|---------|--------|-------|-----------|------|
-| GHZ | 4 | 4 | 0.003 | 1.0000000000 |
-| GHZ | 8 | 8 | 0.086 | 1.0000000000 |
-| Grover | 4 | 164 | 0.046 | 1.0000000000 |
-| Bernstein-Vazirani | 4 | 10 | 0.006 | 1.0000000000 |
-| Bernstein-Vazirani | 8 | 24 | 0.095 | 1.0000000000 |
-| Deutsch-Jozsa | 4 | 15 | 0.016 | 1.0000000000 |
-| Deutsch-Jozsa | 8 | 33 | 0.141 | 1.0000000000 |
-| QFT | 4 | 76 | 0.036 | 1.0000000000 |
-| QFT | 8 | 328 | 1.150 | 1.0000000000 |
-
-All circuits from MQT Bench (munich-quantum-toolkit/bench), transpiled to basic gates. All norms verified = 1.0.
-
+QuantumForge is Apache-2.0 licensed. Contributions and issue reports are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md) and the [roadmap](ROADMAP.md).

@@ -9,7 +9,8 @@ fn main() {
     let mut session = Session::new(4);
     println!("╔══════════════════════════════════════════════════════╗");
     println!("║          Welcome to QuantumForge!                    ║");
-    println!("║   Exact, fast, local quantum simulation in Rust.     ║");
+    println!("║          A local quantum simulator and toolkit.      ║");
+    println!("║   Try: qubits 2; add H[0]; add CNOT[0,1]; draw      ║");
     println!("║   Type 'help' for commands, 'quit' to exit.          ║");
     println!("╚══════════════════════════════════════════════════════╝");
     let mut line = String::new();

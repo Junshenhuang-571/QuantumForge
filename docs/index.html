@@ -141,9 +141,6 @@
     <span class="comment"># Install from crates.io</span><br>
     cargo install quantumforge<br>
     <br>
-    <span class="comment"># Python bindings (abi3, CPU)</span><br>
-    pip install quantumforge<br>
-    <br>
     <span class="comment"># Or build from source</span><br>
     git clone https://github.com/Junshenhuang-571/QuantumForge.git<br>
     cd QuantumForge<br>
@@ -152,7 +149,7 @@
   <a class="btn" href="https://github.com/Junshenhuang-571/QuantumForge">View on GitHub</a>
   <a class="btn btn-outline" href="https://crates.io/crates/quantumforge">crates.io</a>
   <a class="btn btn-outline" href="https://docs.rs/quantumforge">docs.rs</a>
-  <a class="btn btn-outline" href="python/README.md">Python</a>
+  <a class="btn btn-outline" href="python/README.md">Build the Python bindings</a>
 </section>
 
 <section>
@@ -168,7 +165,7 @@ q1 ──────────⊕──────────
 q2 ──────────────Ry0.79─
 legend: ─ wire  • control  ⊕ target(X)  │ span  x swap  M measure</span>
 <span class="prompt">qf&gt;</span> run
-<span class="prompt">qf&gt;</span> measure</pre>
+<span class="prompt">qf&gt;</span> probs</pre>
 </section>
 
 <section>
@@ -187,12 +184,16 @@ legend: ─ wire  • control  ⊕ target(X)  │ span  x swap  M measure</span>
   <h2>Features</h2>
   <div class="features">
     <div class="feature-card">
-      <h3>Exact-Rational Core</h3>
-      <p><code>PauliSum</code> / <code>ExactComplex</code> / <code>Rational</code> do exact rational arithmetic — VQE converges to the exact ground-state energy to machine precision.</p>
+      <h3>Symbolic Algebra</h3>
+      <p><code>PauliSum</code>, <code>ExactComplex</code>, and <code>Rational</code> support exact arithmetic for supported expressions. Circuit simulation and VQE use floating-point numerics.</p>
     </div>
     <div class="feature-card">
       <h3>Interactive REPL</h3>
-      <p>Live state, <code>draw</code> renders real circuit diagrams with vertical connectors, <code>measure</code> gives seeded reproducible shots.</p>
+      <p>Build circuits incrementally, inspect the live state, draw circuit diagrams, and sample measurements with a reproducible seed.</p>
+    </div>
+    <div class="feature-card">
+      <h3>Circuit Optimization</h3>
+      <p>Run conservative or full rewrite passes, route against a line or custom undirected coupling map, verify unitary action on small circuits, and save a JSON run report. Read and write OpenQASM 2.0. See the <a href="optimizer-roadmap.md">compiler roadmap</a>.</p>
     </div>
     <div class="feature-card">
       <h3>Density Matrices</h3>
@@ -212,7 +213,7 @@ legend: ─ wire  • control  ⊕ target(X)  │ span  x swap  M measure</span>
     </div>
     <div class="feature-card">
       <h3>Python Bindings</h3>
-      <p>An abi3 wheel exposing circuits, states, QEC, tensor networks, the four gradient strategies, the exact-rational core and SubsCoRe. 45 names, reference at <code>python/API.md</code>.</p>
+      <p>An abi3 wheel exposing circuits, states, QEC, tensor networks, gradient strategies, exact-rational tools, and SubsCoRe. Browse the current surface in <code>python/API.md</code>.</p>
     </div>
     <div class="feature-card">
       <h3>LLVM JIT</h3>

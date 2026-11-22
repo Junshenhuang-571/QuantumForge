@@ -1,77 +1,96 @@
-# Getting Started with QuantumForge
+# Getting Started
 
-This guide is the fastest path to installing QuantumForge, running the REPL,
-and trying a first circuit.
+QuantumForge runs locally as a command-line REPL or as a Rust library. This guide takes you from an empty circuit to a measured Bell pair. You need the stable Rust toolchain (Rust 1.88 or newer) and Cargo.
 
-## Prerequisites
+## Option 1: Open the REPL
 
-- Rust stable toolchain
-- Cargo
-- Optional: CUDA or LLVM toolchains for accelerated backends
+Install the published Rust crate and start `qf`:
 
-## Install from source
-
-```bash
-git clone https://github.com/Junshenhuang-571/QuantumForge.git
-cd QuantumForge
-cargo build
+```sh
+cargo install quantumforge
+qf
 ```
 
-To run the REPL:
+If you already cloned the repository, start the same REPL with `cargo run --bin qf` from its root.
 
-```bash
-cargo run --bin qf
-```
-
-## First circuit
+At the `qf>` prompt, enter:
 
 ```text
-qf> qubits 2
-qf> add H[0]
-qf> add CNOT[0,1]
-qf> add Measure[0,0]
-qf> add Measure[1,1]
-qf> draw
-qf> shots 1000 42
+qubits 2
+add H[0]
+add CNOT[0,1]
+draw
+run
+probs
+add Measure[0,0]
+add Measure[1,1]
+shots 1000 42
 ```
 
-This prepares a Bell state and samples both qubits. The fixed seed makes the
-sample reproducible. Use `run` then `state` to inspect the state vector rather
-than sampling.
+`H` puts qubit 0 into a superposition and `CNOT` entangles it with qubit 1. `probs` shows the ideal probabilities (`|00>` and `|11>` each have probability 0.5). Add the two measurement operations before sampling; `shots` draws 1,000 samples and the seed `42` makes the counts repeatable. Type `help` to see the available commands and `quit` to leave the REPL.
 
-## Minimal library example
+### Run a batch without the REPL
+
+The `quantumforge` binary is useful for scripts and automation. It adds measurements of all qubits if the circuit has no `Measure` operations:
+
+```sh
+quantumforge shots 2 1000 42 'Circuit[H[0], CNOT[0,1]]'
+```
+
+From a checkout, use `cargo run --bin quantumforge -- shots 2 1000 42 'Circuit[H[0], CNOT[0,1]]'`. The REPL does not add measurements automatically, so use the explicit `add Measure[q,c]` commands shown above when sampling there.
+
+### Simplify and route a circuit
+
+Use the `optimize` command to reduce gates and report operation count, two-qubit count, and logical depth. Add `--line` to route onto a linear nearest-neighbor topology. The report is written to the terminal and optimized JSON is written to standard output, so redirect it to a file:
+
+```sh
+quantumforge optimize 3 all --line 'Circuit[H[0], H[0], CNOT[0,2]]' > optimized.json
+quantumforge optimize 3 all --input circuit.qasm --line --format qasm > optimized.qasm
+quantumforge optimize 3 all --input circuit.qasm --report compile-report.json > optimized.json
+quantumforge optimize 5 all --topology device-map.json --input circuit.qasm
+quantumforge optimize 3 all --verify 'Circuit[H[0], H[0]]'
+```
+
+Input can be a circuit expression or an OpenQASM 2.0 file. The default output is JSON; load it with `Circuit::from_json` and initialize the state with the same qubit count (`3` in this example). Use `--format qasm` for portable OpenQASM 2.0 output. `--report FILE` writes run settings, rewrite counts, before/after resource metrics, and verification status to a separate JSON file. `--verify` exhaustively compares all computational-basis inputs for unitary circuits up to 10 qubits, allowing one global phase; measurements, conditional gates, and noise channels are rejected. This checks optimizer behavior against the local simulator but is not independent cross-tool validation. `--topology FILE` accepts JSON of the form `{"num_qubits":5,"edges":[[0,1],[1,2],[1,3],[3,4]]}` for a custom undirected coupling map. Its qubit count must equal `QUBITS`; `--line` and `--topology` cannot be combined. Noise channels cannot be represented in QASM, so that output format returns an error rather than dropping them. If the coupling map cannot connect a gate's operands or the circuit references a qubit outside the map, optimization reports an error and does not emit a routed circuit. This router preserves the logical qubit mapping but does not perform global placement, directed-coupling checks, or use hardware calibration data.
+
+## Option 2: Add the Rust library
+
+In an existing Cargo project, add QuantumForge:
+
+```sh
+cargo add quantumforge
+```
+
+Then create `src/main.rs`:
 
 ```rust
-use quantumforge::{Circuit, StateVector, parse_circuit};
+use quantumforge::{Circuit, Gate, StateVector};
 
-fn main() {
-    let circuit = parse_circuit("Circuit[H[0], CNOT[0,1], Measure[0,0]]").unwrap();
-    let initial = StateVector::zero(2).unwrap();
-    let result = circuit.run_shots(&initial, 1000, 42).unwrap();
-    println!("counts: {:?}", result.counts);
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let mut circuit = Circuit::new();
+    circuit.push(Gate::H, 0);
+    circuit.cnot(0, 1);
+
+    let state = circuit.run(StateVector::zero(2)?)?;
+    println!("probabilities: {:?}", state.probabilities());
+    Ok(())
 }
 ```
 
-## Useful commands
+Run it with `cargo run`. Probabilities are floating-point values, so the printed `0.5` may appear as `0.5000000000000001`.
 
-Inside the REPL, try:
+## Option 3: Use Python
 
-- `help`
-- `qubits 3`
-- `add H[0]`
-- `draw`
-- `run`
-- `state`
-- `probs`
-- `shots 1000 42`
+Python bindings are built from the repository with [maturin](https://www.maturin.rs/). Follow the [Python setup guide](../python/README.md) to build and install the local wheel, then try the runnable scripts in `python/examples/`.
 
-## Next steps
+## Choose a next step
 
-- [Algorithms](https://github.com/Junshenhuang-571/QuantumForge/blob/main/docs/wiki/Algorithms.md)
-  and [Architecture](https://github.com/Junshenhuang-571/QuantumForge/blob/main/docs/wiki/Architecture.md)
-  explain how the modules fit together.
-- [QEC codes](https://github.com/Junshenhuang-571/QuantumForge/blob/main/docs/wiki/QEC-Codes.md)
-  and [GPU acceleration](https://github.com/Junshenhuang-571/QuantumForge/blob/main/docs/wiki/GPU-Acceleration.md)
-  go deeper on those subsystems.
-- Explore the `examples/` directory for domain-specific workflows.
-- Start with a small gate-model circuit before moving to variational or QEC tasks.
+- Import or export OpenQASM: [`examples/qasm_roundtrip.rs`](../examples/qasm_roundtrip.rs)
+- Optimize a small Hamiltonian with VQE: [`examples/vqe_exact.rs`](../examples/vqe_exact.rs)
+- Build and verify a repetition or surface code: [QEC guide](wiki/QEC-Codes.md)
+- Use matrix product states for larger 1D systems: [MPS guide](wiki/MPS-QAOA.md)
+- Find the API and all subsystem guides: [documentation map](README.md)
+
+## Know the simulator's limits
+
+State-vector memory grows exponentially as qubits are added; density matrices grow faster and are intended for small systems. The simulator is useful for learning and prototyping, but its numerical results are not independently validated scientific or production outputs. QuantumForge is a classical simulator and does not submit jobs to quantum hardware.

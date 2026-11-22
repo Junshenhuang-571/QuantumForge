@@ -2,6 +2,10 @@ use quantumforge::analytic::{
     Assumptions, ExactComplex, ExprPattern, Pauli, PauliSum, PauliWord, Rational, RewriteRule,
     ScalarExpr, Simplifier, SymbolicPauliSum,
 };
+use quantumforge::optimizer::{
+    CircuitCostProfile, CouplingMap, OptimizeConfig, optimize_circuit, try_route_to_hardware,
+    verify_unitary_equivalent,
+};
 use quantumforge::parser::parse_circuit;
 use quantumforge::parser::parse_scalar_expr;
 use quantumforge::quantum::{HilbertSpace, Ket, Observable, Operator};
@@ -20,6 +24,7 @@ fn main() {
         "eval" => run_eval(&args[1..].join(" ")),
         "simplify" => run_simplify(&args[1..].join(" ")),
         "shots" => run_shots(&args[1..]),
+        "optimize" => run_optimize(&args[1..]),
         #[cfg(feature = "llvm")]
         "llvm-ir" => run_llvm_ir(&args[1..].join(" ")),
         #[cfg(feature = "llvm")]
@@ -32,6 +37,318 @@ fn main() {
             print_help();
             std::process::exit(2);
         }
+    }
+}
+
+fn run_optimize(args: &[String]) {
+    let result = (|| {
+        if args.len() < 3 {
+            return Err(
+                "usage: quantumforge optimize QUBITS all|conservative [--line | --topology FILE] [--verify] [--input FILE] [--format json|qasm] [--report FILE] [Circuit[...]]"
+                    .to_owned(),
+            );
+        }
+        let qubits = args[0]
+            .parse::<usize>()
+            .map_err(|_| "QUBITS must be a positive integer".to_owned())?;
+        if qubits == 0 {
+            return Err("QUBITS must be a positive integer".to_owned());
+        }
+        let mode = args[1].as_str();
+        let config = match mode {
+            "all" => OptimizeConfig::all(),
+            "conservative" => OptimizeConfig::conservative(),
+            _ => return Err("mode must be 'all' or 'conservative'".to_owned()),
+        };
+        let mut use_line_topology = false;
+        let mut verify = false;
+        let mut topology_path = None;
+        let mut input_path = None;
+        let mut report_path = None;
+        let mut output_format = "json";
+        let mut circuit_parts = Vec::new();
+        let mut index = 2;
+        while index < args.len() {
+            match args[index].as_str() {
+                "--line" => use_line_topology = true,
+                "--verify" => verify = true,
+                "--topology" => {
+                    index += 1;
+                    topology_path = Some(
+                        args.get(index)
+                            .ok_or_else(|| "--topology requires a JSON file path".to_owned())?
+                            .as_str(),
+                    );
+                }
+                "--input" => {
+                    index += 1;
+                    let path = args.get(index).ok_or_else(|| {
+                        "--input requires a file path (or - for stdin)".to_owned()
+                    })?;
+                    input_path = Some(path.as_str());
+                }
+                "--report" => {
+                    index += 1;
+                    report_path = Some(
+                        args.get(index)
+                            .ok_or_else(|| "--report requires a file path".to_owned())?
+                            .as_str(),
+                    );
+                }
+                "--format" => {
+                    index += 1;
+                    output_format = args
+                        .get(index)
+                        .ok_or_else(|| "--format requires 'json' or 'qasm'".to_owned())?;
+                    if !matches!(output_format, "json" | "qasm") {
+                        return Err("output format must be 'json' or 'qasm'".to_owned());
+                    }
+                }
+                _ => circuit_parts.push(args[index].as_str()),
+            }
+            index += 1;
+        }
+        if input_path.is_some() && !circuit_parts.is_empty() {
+            return Err("provide either --input or a Circuit[...] expression, not both".to_owned());
+        }
+        let circuit_source = if let Some(path) = input_path {
+            if path == "-" {
+                use std::io::Read as _;
+                let mut source = String::new();
+                std::io::stdin()
+                    .read_to_string(&mut source)
+                    .map_err(|error| format!("could not read stdin: {error}"))?;
+                source
+            } else {
+                std::fs::read_to_string(path)
+                    .map_err(|error| format!("could not read {path}: {error}"))?
+            }
+        } else {
+            circuit_parts.join(" ")
+        };
+        if circuit_source.is_empty() {
+            return Err("provide --input FILE or a Circuit[...] expression to optimize".to_owned());
+        }
+
+        let original = if circuit_source.contains("OPENQASM") {
+            quantumforge::qasm::parse_qasm(&circuit_source).map_err(|error| error.to_string())?
+        } else {
+            parse_circuit(&circuit_source).map_err(|error| error.to_string())?
+        };
+        for operation in original.operations() {
+            let out_of_range = match operation {
+                quantumforge::CircuitOp::SingleQubit { target, .. }
+                | quantumforge::CircuitOp::Channel { target, .. }
+                | quantumforge::CircuitOp::Measure { target, .. }
+                | quantumforge::CircuitOp::ConditionalSingleQubit { target, .. } => {
+                    (*target >= qubits).then_some(*target)
+                }
+                quantumforge::CircuitOp::Cnot { control, target } => [*control, *target]
+                    .into_iter()
+                    .find(|qubit| *qubit >= qubits),
+                quantumforge::CircuitOp::Cz { first, second }
+                | quantumforge::CircuitOp::Swap { first, second } => {
+                    [*first, *second].into_iter().find(|qubit| *qubit >= qubits)
+                }
+            };
+            if let Some(qubit) = out_of_range {
+                return Err(format!(
+                    "circuit references qubit {qubit}, outside the declared {qubits}-qubit register"
+                ));
+            }
+        }
+        if use_line_topology && topology_path.is_some() {
+            return Err("choose either --line or --topology, not both".to_owned());
+        }
+        let coupling_map = if use_line_topology {
+            Some(("linear", CouplingMap::linear(qubits)))
+        } else if let Some(path) = topology_path {
+            Some(("custom", read_coupling_map(path, qubits)?))
+        } else {
+            None
+        };
+        let original_profile = CircuitCostProfile::from_circuit(&original);
+        let mut optimized = original.clone();
+        let result = optimize_circuit(&mut optimized, &config);
+        let routing_swaps = if let Some((_, coupling)) = &coupling_map {
+            Some(
+                try_route_to_hardware(&mut optimized, coupling)
+                    .map_err(|error| error.to_string())?,
+            )
+        } else {
+            None
+        };
+        let optimized_profile = CircuitCostProfile::from_circuit(&optimized);
+        let equivalence = if verify {
+            Some(
+                verify_unitary_equivalent(&original, &optimized, qubits, 1e-9)
+                    .map_err(|error| error.to_string())?,
+            )
+        } else {
+            None
+        };
+
+        if output_format == "qasm"
+            && optimized
+                .operations()
+                .iter()
+                .any(|op| matches!(op, quantumforge::CircuitOp::Channel { .. }))
+        {
+            return Err(
+                "OpenQASM 2.0 cannot represent noise-channel operations; use --format json"
+                    .to_owned(),
+            );
+        }
+
+        if let Some(path) = report_path {
+            if let Some(input_file) = input_path.filter(|input| *input != "-") {
+                if std::path::Path::new(path).exists()
+                    && std::fs::canonicalize(path).ok() == std::fs::canonicalize(input_file).ok()
+                {
+                    return Err(
+                        "report path resolves to the input file; choose a different report path"
+                            .to_owned(),
+                    );
+                }
+            }
+            let resource_summary = |profile: &CircuitCostProfile, operations: usize| {
+                serde_json::json!({
+                    "operations": operations,
+                    "single_qubit_gates": profile.single_qubit_gates,
+                    "cnot_gates": profile.cnot_gates,
+                    "cz_gates": profile.cz_gates,
+                    "swap_gates": profile.swap_gates,
+                    "t_gates": profile.t_gates,
+                    "tdg_gates": profile.tdg_gates,
+                    "two_qubit_gates": profile.cnot_gates + profile.cz_gates + profile.swap_gates,
+                    "measurements": profile.measurements,
+                    "conditional_gates": profile.conditional_gates,
+                    "noise_channels": profile.channels,
+                    "logical_depth": profile.depth,
+                    "qubits": qubits,
+                })
+            };
+            let report = serde_json::json!({
+                "schema_version": 1,
+                "tool": "quantumforge",
+                "tool_version": env!("CARGO_PKG_VERSION"),
+                "input_format": if circuit_source.contains("OPENQASM") { "openqasm2" } else { "quantumforge_expression" },
+                "declared_qubits": qubits,
+                "optimization_mode": mode,
+                "passes": {
+                    "remove_identity": config.remove_identity,
+                    "cancel_inverses": config.cancel_inverses,
+                    "fuse_rotations": config.fuse_rotations,
+                    "commute_gates": config.commute_gates,
+                },
+                "target": match &coupling_map {
+                    Some(("linear", _)) => serde_json::json!({ "kind": "linear", "qubits": qubits }),
+                    Some((_, coupling)) => serde_json::json!({
+                        "kind": "custom_undirected_coupling_map",
+                        "qubits": coupling.num_qubits,
+                        "edges": coupling.edges,
+                    }),
+                    None => serde_json::Value::Null,
+                },
+                "routing_swaps_inserted": routing_swaps,
+                "output_format": output_format,
+                "equivalence": match &equivalence {
+                    Some(result) => serde_json::json!({
+                        "status": if result.equivalent { "verified_equivalent" } else { "mismatch" },
+                        "method": "exhaustive_computational_basis_unitary_check",
+                        "tolerance": 1e-9,
+                        "basis_states_checked": result.basis_states_checked,
+                        "global_phase": [result.global_phase.0, result.global_phase.1],
+                        "max_amplitude_error": result.max_amplitude_error,
+                    }),
+                    None => serde_json::json!({ "status": "not_requested" }),
+                },
+                "cost_model": "structural_counts_only; no hardware calibration or runtime prediction",
+                "rewrites": {
+                    "inverse_pairs_cancelled": result.cancellations,
+                    "rotations_fused": result.fusions,
+                    "identities_removed": result.identities_removed,
+                },
+                "before": resource_summary(&original_profile, original.operations().len()),
+                "after": resource_summary(&optimized_profile, optimized.operations().len()),
+            });
+            let report_json = serde_json::to_vec_pretty(&report)
+                .map_err(|error| format!("could not prepare optimization report: {error}"))?;
+            std::fs::write(path, report_json)
+                .map_err(|error| format!("could not write report to {path}: {error}"))?;
+        }
+
+        eprintln!("Optimization mode: {mode}");
+        eprintln!(
+            "Operations: {} -> {} | 2-qubit gates: {} -> {} | depth: {} -> {}",
+            original_profile.total_gates(),
+            optimized_profile.total_gates(),
+            original_profile.cnot_gates + original_profile.cz_gates + original_profile.swap_gates,
+            optimized_profile.cnot_gates
+                + optimized_profile.cz_gates
+                + optimized_profile.swap_gates,
+            original_profile.depth,
+            optimized_profile.depth,
+        );
+        eprintln!(
+            "Rewrites: {} inverse pairs cancelled, {} rotations fused, {} identities removed",
+            result.cancellations, result.fusions, result.identities_removed
+        );
+        if let Some(swaps) = routing_swaps {
+            let topology = coupling_map
+                .as_ref()
+                .map(|(kind, _)| *kind)
+                .unwrap_or("unknown");
+            eprintln!("{topology} topology: {swaps} routing SWAPs inserted");
+        }
+        if let Some(result) = &equivalence {
+            eprintln!(
+                "Equivalence check: {} ({} basis states, max amplitude error {:.3e})",
+                if result.equivalent {
+                    "passed"
+                } else {
+                    "FAILED"
+                },
+                result.basis_states_checked,
+                result.max_amplitude_error,
+            );
+        }
+        if equivalence
+            .as_ref()
+            .is_some_and(|result| !result.equivalent)
+        {
+            return Err(
+                "optimized circuit failed the requested equivalence check; output was not emitted"
+                    .to_owned(),
+            );
+        }
+
+        match output_format {
+            "json" => {
+                // stdout stays machine-readable so the circuit can be saved
+                // directly and loaded with Circuit::from_json.
+                let mut serialized: serde_json::Value =
+                    serde_json::from_str(&optimized.to_json().map_err(|error| {
+                        format!("could not serialize optimized circuit: {error}")
+                    })?)
+                    .map_err(|error| {
+                        format!("could not prepare optimized circuit output: {error}")
+                    })?;
+                serialized["num_qubits"] = serde_json::Value::from(qubits);
+                serde_json::to_writer_pretty(std::io::stdout().lock(), &serialized)
+                    .map_err(|error| format!("could not write optimized circuit: {error}"))?;
+                println!();
+            }
+            "qasm" => {
+                println!("{}", quantumforge::qasm_export::export_qasm(&optimized));
+            }
+            _ => unreachable!(),
+        }
+        Ok::<(), String>(())
+    })();
+    if let Err(error) = result {
+        eprintln!("optimization error: {error}");
+        std::process::exit(2);
     }
 }
 
@@ -554,10 +871,71 @@ fn run_demo() {
     );
 }
 
+fn read_coupling_map(path: &str, expected_qubits: usize) -> Result<CouplingMap, String> {
+    let source = std::fs::read_to_string(path)
+        .map_err(|error| format!("could not read topology {path}: {error}"))?;
+    let document: serde_json::Value = serde_json::from_str(&source)
+        .map_err(|error| format!("invalid topology JSON in {path}: {error}"))?;
+    let num_qubits = document
+        .get("num_qubits")
+        .and_then(serde_json::Value::as_u64)
+        .and_then(|value| usize::try_from(value).ok())
+        .ok_or_else(|| "topology must have a nonnegative integer 'num_qubits'".to_owned())?;
+    if num_qubits != expected_qubits {
+        return Err(format!(
+            "topology declares {num_qubits} qubits but the command declares {expected_qubits}"
+        ));
+    }
+    if num_qubits > 4096 {
+        return Err("routing supports at most 4096 qubits".to_owned());
+    }
+    let edge_values = document
+        .get("edges")
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(|| {
+            "topology must have an 'edges' array of [qubit_a, qubit_b] pairs".to_owned()
+        })?;
+    let mut edges = Vec::with_capacity(edge_values.len());
+    let mut unique_edges = std::collections::HashSet::new();
+    for (index, edge) in edge_values.iter().enumerate() {
+        let pair = edge
+            .as_array()
+            .filter(|pair| pair.len() == 2)
+            .ok_or_else(|| format!("topology edge {index} must be a two-item array"))?;
+        let first = pair[0]
+            .as_u64()
+            .and_then(|value| usize::try_from(value).ok())
+            .ok_or_else(|| format!("topology edge {index} has an invalid first qubit"))?;
+        let second = pair[1]
+            .as_u64()
+            .and_then(|value| usize::try_from(value).ok())
+            .ok_or_else(|| format!("topology edge {index} has an invalid second qubit"))?;
+        if first >= num_qubits || second >= num_qubits {
+            return Err(format!(
+                "topology edge ({first}, {second}) is outside the {num_qubits}-qubit map"
+            ));
+        }
+        if first == second {
+            return Err(format!("topology edge {index} connects a qubit to itself"));
+        }
+        let normalized = (first.min(second), first.max(second));
+        if !unique_edges.insert(normalized) {
+            return Err(format!(
+                "topology contains duplicate edge ({first}, {second})"
+            ));
+        }
+        edges.push((first, second));
+    }
+    Ok(CouplingMap { num_qubits, edges })
+}
+
 fn print_help() {
-    println!("QuantumForge — quantum computation kernel prototype");
-    println!("\nUsage: quantumforge [demo|eval EXPR|simplify EXPR|help]");
+    println!("QuantumForge — local quantum simulation and symbolic tools");
+    println!("\nUsage: quantumforge [demo|eval EXPR|simplify EXPR|optimize ...|help]");
     println!("       quantumforge shots QUBITS SHOTS SEED 'Circuit[...]'");
+    println!(
+        "       quantumforge optimize QUBITS all|conservative [--line | --topology FILE] [--verify] [--input FILE] [--format json|qasm] [--report FILE] [Circuit[...]]"
+    );
     #[cfg(feature = "llvm")]
     println!("       quantumforge llvm-ir EXPR");
     #[cfg(feature = "llvm")]
@@ -568,7 +946,19 @@ fn print_help() {
         "\nThe demo runs a one-qubit CPU simulation, seeded measurement, and a tiny variational QNN training loop."
     );
     println!(
-        "\n`shots` samples every qubit when the circuit declares no Measure operations;\n\
-         otherwise it uses the circuit's own Measure[q,c] mapping."
+        "\nExamples:\n\
+         quantumforge shots 2 1000 42 'Circuit[H[0], CNOT[0,1]]'\n\
+         quantumforge optimize 3 all --line 'Circuit[H[0], H[0], CNOT[0,2]]'\n\
+         quantumforge optimize 3 all --input bell.qasm --line --format qasm\n\
+         quantumforge optimize 3 all --input bell.qasm --report compile-report.json\n\
+         quantumforge optimize 5 all --topology device-map.json --input circuit.qasm\n\
+         quantumforge optimize 3 all --verify 'Circuit[H[0], H[0]]'\n\
+         quantumforge eval '2 + 3*Pi'\n\
+         qf  # interactive REPL\n\
+         \n\
+         shots samples every qubit when the circuit declares no Measure operations;\n\
+         otherwise it uses the circuit's own Measure[q,c] mapping.\n\
+         optimize writes reusable JSON to stdout by default; use --format qasm for OpenQASM 2.0, and --report FILE for a separate JSON provenance and metrics report.\n\
+         The resource summary is written to stderr."
     );
 }

@@ -3,6 +3,10 @@
 ## [Unreleased]
 
 ### Added
+- **Batch circuit optimization CLI.** `quantumforge optimize QUBITS all|conservative` reads circuit expressions or OpenQASM 2.0, writes reusable JSON or QASM to stdout, and reports gate counts, two-qubit operations, depth, and rewrites to stderr. `--line` applies local nearest-neighbor routing on a linear coupling map.
+- **Optimization provenance report.** `--report FILE` writes a versioned JSON record of input format, selected passes, target, rewrite counts, before/after resource metrics, and equivalence-check status.
+- **Custom topology routing.** `--topology FILE` accepts a validated JSON undirected coupling map for the batch optimizer; `--line` remains a shorthand for a linear map. Both use checked shortest-path routing and preserve the input logical-qubit indexing.
+- **Bounded unitary equivalence checking.** `--verify` compares all computational-basis inputs for circuits up to 10 qubits, allows a single global phase, reports the maximum amplitude error, and refuses non-unitary operations. This uses the local simulator and is not an independent cross-tool check.
 - **Finite-temperature thermalising noise channel.** `NoiseChannel::ThermalDamping { gamma_down, beta_delta }`
   has the Gibbs fixed point `p1/p0 = exp(-beta*Delta)`; the ordinary
   `AmplitudeDamping` is its `T = 0` limit. Implemented for the dense
@@ -111,6 +115,7 @@
     0.8; mitigation recovers the exact value (`examples/readout_vqe.rs`).
 
 ### Fixed
+- **Hardware routing preserves circuit semantics.** Non-local CNOT/CZ gates now move an endpoint to an adjacent site, apply the gate, then restore the temporary placement; non-local SWAPs are decomposed into adjacent SWAPs. A new fallible `try_route_to_hardware` reports invalid and disconnected topologies without partially mutating the circuit. The legacy `route_to_hardware` API remains as a deprecated compatibility wrapper.
 - **`PauliString::commutes` returned the opposite boolean** (it reported
   anticommutation). The method was unused elsewhere, so no existing behaviour
   changed, but the new QEC noise decoder depends on the corrected sense.

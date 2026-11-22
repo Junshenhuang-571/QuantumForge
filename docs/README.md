@@ -8,6 +8,7 @@ Start here. Everything is either rendered from the source (rustdoc, on
 | I want to... | Go to |
 |---|---|
 | install and run my first circuit | [Getting started](getting-started.md) · [README](../../README.md) |
+| understand the optimizer's current scope and next steps | [Optimizer assessment and roadmap](optimizer-roadmap.md) |
 | browse the API with examples | <https://docs.rs/quantumforge> (every public item is documented) |
 | learn a subsystem in depth | the guides listed below |
 | run QAOA on hundreds of qubits | [MPS-based QAOA](wiki/MPS-QAOA.md) |
