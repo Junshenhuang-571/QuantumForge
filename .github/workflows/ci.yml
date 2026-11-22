@@ -304,3 +304,22 @@ jobs:
 
       - name: Build fuzz targets
         run: cargo fuzz build
+
+  # Module-level coverage gate. Line coverage says how much of a module is
+  # exercised; this says whether a module is exercised AT ALL. `stabilizer` had
+  # no test file referencing it and shipped seven bugs, four of them silent
+  # wrong answers. The script is a proxy (a mention is not an assertion) but it
+  # catches the zero case cheaply, and it is why tests/module_coverage.rs exists.
+  module-coverage:
+    name: module test coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Check every public module is exercised
+        run: python scripts/module_test_coverage.py --fail

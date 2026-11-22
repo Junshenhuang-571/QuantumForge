@@ -118,6 +118,15 @@
 ## [Unreleased]
 
 ### Added
+- **Module-level test-coverage gate.** `scripts/module_test_coverage.py` reports
+  which public modules nothing under `tests/`, `examples/` or `python/`
+  references, and fails CI on any zero. It immediately found three: `serialize`,
+  `hardware` and `algorithms_templates` had no test file at all. The first
+  version of the check is what exposed the Grover bugs below.
+- `tests/module_coverage.rs` covers those three modules: JSON round-trip
+  (string and bytes, plus a malformed payload), the `LocalBackend` job
+  lifecycle, and the `Grover` / `QAOABuilder` / `HEABuilder` / `QnnBuilder` /
+  `QAOAAnsatzBuilder` / `GroverAdaptive` builders.
 - **Python bindings: five more subsystems, 23 new names (68 total).**
   `StabilizerTableau`; the cost-aware optimizer (`cost_profile`,
   `circuit_depth`, `count_two_qubit`, `CircuitCostProfile`, `CircuitCostModel`,
@@ -136,6 +145,15 @@
   forgets to re-export.
 
 ### Fixed
+- **`Grover::run` returned `{[]: shots}`** — `Grover::build()` appends no
+  measurement operations, so `run_shots` produced one empty bitstring instead of
+  a per-qubit outcome. `run` now adds `measure(i, i)`; `build`'s docs state that
+  it leaves measurement to the caller. This also fixed
+  `GroverAdaptive::search`, which took the most frequent "state" from those
+  counts and indexed an empty bitstring — a panic at
+  `algorithms_templates.rs:437`. The REPL had been working around it by adding
+  the measurements itself, and the only internal Grover test asserts the circuit
+  is non-empty rather than running it.
 - **A previous entry here claimed CI compiles the `gpu` feature. It does not.**
   cudarc's build script probes for `include/cuda.h` at build time, so `gpu`
   needs the CUDA toolkit headers even though it loads the driver dynamically at

@@ -12,6 +12,7 @@ Start here. Everything is either rendered from the source (rustdoc, on
 | learn a subsystem in depth | the guides listed below |
 | run QAOA on hundreds of qubits | [MPS-based QAOA](wiki/MPS-QAOA.md) |
 | use the Python bindings | [python/README.md](../python/README.md) |
+| see what is and is not tested | [Test coverage](coverage.md) |
 | cut a release | [Release checklist](releasing.md) |
 
 ## Guides

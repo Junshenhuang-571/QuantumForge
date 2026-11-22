@@ -32,6 +32,11 @@ impl Grover {
     }
 
     /// Build the full Grover circuit.
+    ///
+    /// The result carries **no measurement operations** — add `measure(i, i)`
+    /// for each qubit before calling `run_shots`, or use [`Self::run`], which
+    /// does it for you. Without them `run_shots` returns a single empty
+    /// bitstring rather than one outcome per qubit.
     pub fn build(&self) -> Circuit {
         let mut circuit = Circuit::new();
 
@@ -91,8 +96,16 @@ impl Grover {
     }
 
     /// Run Grover search and return measurement counts.
+    ///
+    /// [`Self::build`] leaves measurement to the caller, so the per-qubit
+    /// measurements are appended here. Omitting them makes `run_shots` return
+    /// one empty bitstring — which is how `GroverAdaptive::search` used to index
+    /// an empty candidate and panic.
     pub fn run(&self, shots: usize, seed: u64) -> Result<HashMap<Vec<u8>, usize>, QuantumError> {
-        let circuit = self.build();
+        let mut circuit = self.build();
+        for i in 0..self.num_qubits {
+            circuit.measure(i, i);
+        }
         let initial = StateVector::zero(self.num_qubits)?;
         let result = circuit.run_shots(&initial, shots, seed)?;
         Ok(result.counts.into_iter().collect())
