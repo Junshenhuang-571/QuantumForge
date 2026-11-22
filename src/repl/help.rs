@@ -21,8 +21,14 @@ QuantumForge REPL — one session, live state. Type 'help' for this, 'quit' to e
   probs                show |amp|^2 (or density populations if noisy)
   ptrace Q1,Q2,...     partial trace of the density matrix to a subsystem
   mix                  replace the state with the maximally-mixed state (I/2^n)
-  channel dep|ad|pd Q P   apply a noise channel to the density matrix (needs noisy/mix)
+  channel dep|ad|pd|th Q P [BETA]
+                        apply a noise channel to the density matrix (needs noisy/mix);
+                        th = thermal damping with excitation rate exp(-BETA)*gamma_down
   purity               show trace + purity of the density matrix
+  entropy              show von Neumann entropy S = -Tr(rho ln rho)
+  thermal [ham=tfim] [beta=1.0]
+                       build the Gibbs state exp(-beta H)/Z of the named
+                       Hamiltonian and make it the live density matrix
   expect X|Y|Z Q       expectation value of X/Y/Z on qubit Q
   bloch Q              print Bloch vector (<X>, <Y>, <Z>) for qubit Q
   gradient X|Y|Z Q [method=auto|shift|adjoint|backprop|fd]
@@ -34,13 +40,17 @@ QuantumForge REPL — one session, live state. Type 'help' for this, 'quit' to e
                          heisenberg | ising | xxz | hubbard  (exact ground energy shown too)
   vqe-subscore [ham=tfim] [budget=20000] [shots=64] [strategy=center|bound]
                 [update=mean|thompson|guarded] [explore=1.0] [seed=42]
+                [entropy=off] [patience=3]
                         SubsCoRe (arXiv:2502.01704): VQE with adaptive observation
                         cost control. Optimizes one parameter axis at a time and
                         spends shots where they matter — few early, many near
                         convergence — under a total shot budget. `update` picks
                         the zero-temperature step (mean) or a finite-temperature
                         Thompson step; `guarded` refuses a kick the surrogate
-                        calls uphill.
+                        calls uphill. `entropy=T` stops once an iteration's
+                        information gain stays below T nats for `patience`
+                        consecutive iterations (off by default). The gain is
+                        `D_KL(posterior || prior)` on each observed marginal.
   train <task>         QML training on a variational circuit (Adam):
                          regression  — fit cos(x+0.7) with an angle-encoded Ry
                          classify    — binary classifier on 2 Gaussian blobs

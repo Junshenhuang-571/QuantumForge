@@ -1779,6 +1779,11 @@ impl CudaDeviceStateBatch {
                     },
                 )?;
             }
+            NoiseChannel::ThermalDamping { .. } => {
+                return Err(CudaError::Quantum(QuantumError::UnsupportedOperation(
+                    "thermal damping has no CUDA batch trajectory kernel".to_owned(),
+                )));
+            }
         }
         Ok(())
     }
@@ -2126,6 +2131,11 @@ impl CudaDeviceDensityMatrix {
             NoiseChannel::AmplitudeDamping { gamma } => (0, gamma),
             NoiseChannel::PhaseDamping { gamma } => (1, gamma),
             NoiseChannel::Depolarizing { probability } => (2, probability),
+            NoiseChannel::ThermalDamping { .. } => {
+                return Err(CudaError::Quantum(QuantumError::UnsupportedOperation(
+                    "thermal damping has no CUDA density-matrix kernel".to_owned(),
+                )));
+            }
         };
         crate::validate_probability(parameter).map_err(CudaError::Quantum)?;
         check_driver(unsafe { cuCtxSetCurrent(self.backend.context) })?;

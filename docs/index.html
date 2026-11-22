@@ -129,6 +129,7 @@
     <span class="badge">Exact-Rational</span>
     <span class="badge">CUDA</span>
     <span class="badge">LLVM JIT</span>
+    <span class="badge">Python</span>
     <span class="badge">Rigorously Tested</span>
     <span class="badge">Apache-2.0</span>
   </div>
@@ -140,6 +141,9 @@
     <span class="comment"># Install from crates.io</span><br>
     cargo install quantumforge<br>
     <br>
+    <span class="comment"># Python bindings (abi3, CPU)</span><br>
+    pip install quantumforge<br>
+    <br>
     <span class="comment"># Or build from source</span><br>
     git clone https://github.com/Junshenhuang-571/QuantumForge.git<br>
     cd QuantumForge<br>
@@ -148,6 +152,7 @@
   <a class="btn" href="https://github.com/Junshenhuang-571/QuantumForge">View on GitHub</a>
   <a class="btn btn-outline" href="https://crates.io/crates/quantumforge">crates.io</a>
   <a class="btn btn-outline" href="https://docs.rs/quantumforge">docs.rs</a>
+  <a class="btn btn-outline" href="python/README.md">Python</a>
 </section>
 
 <section>
@@ -206,6 +211,10 @@ legend: ─ wire  • control  ⊕ target(X)  │ span  x swap  M measure</span>
       <p>NVRTC device-resident state vectors, density matrices, batched shots — validated against the Rust reference.</p>
     </div>
     <div class="feature-card">
+      <h3>Python Bindings</h3>
+      <p>An abi3 wheel exposing circuits, states, QEC, tensor networks, the four gradient strategies, the exact-rational core and SubsCoRe. 45 names, reference at <code>python/API.md</code>.</p>
+    </div>
+    <div class="feature-card">
       <h3>LLVM JIT</h3>
       <p>Lower scalar expressions to LLVM IR and runtime-JIT for fast exact evaluation.</p>
     </div>
@@ -224,8 +233,20 @@ println!(<span class="output">"{:?}"</span>, result.counts);</code></pre>
 </section>
 
 <section>
+  <h2>Python</h2>
+  <p>The same kernel from Python. Full reference: <a href="python/API.md" style="color:var(--accent)">python/API.md</a> &middot; install and examples: <a href="python/README.md" style="color:var(--accent)">python/README.md</a>.</p>
+  <pre><code>from quantumforge import Circuit, StateVector
+
+circuit = Circuit()
+circuit.add_gate("H", 0)
+circuit.add_cnot(0, 1)
+print(circuit.run(StateVector.zero(2)).probabilities())
+<span class="comment"># [0.5, 0.0, 0.0, 0.5] &mdash; float: 0.5000000000000001</span></code></pre>
+</section>
+
+<section>
   <h2>CI</h2>
-  <p>Every push and PR runs GitHub Actions: <code>cargo fmt --check</code>, <code>cargo clippy --all-targets -- -D warnings</code>, <code>cargo build</code>, and <code>cargo test</code>.</p>
+  <p>Every push and PR runs GitHub Actions across Ubuntu, Windows and macOS: <code>cargo fmt --check</code>, <code>cargo clippy --all-targets -- -D warnings</code>, <code>cargo test</code>, the declared MSRV, a feature-compile matrix (<code>llvm</code>, <code>python</code>, <code>gpu</code>, the provider backends), <code>cargo audit</code>, a <code>cargo bench --no-run</code> check, <code>cargo fuzz build</code>, and a job that builds a wheel, installs it into a clean venv and runs the Python test scripts.</p>
 </section>
 
 <footer>

@@ -308,6 +308,10 @@ fn channel_to_serialized(channel: &crate::NoiseChannel) -> (String, Vec<f64>) {
         Depolarizing { probability } => ("Depolarizing".to_string(), vec![*probability]),
         AmplitudeDamping { gamma } => ("AmplitudeDamping".to_string(), vec![*gamma]),
         PhaseDamping { gamma } => ("PhaseDamping".to_string(), vec![*gamma]),
+        ThermalDamping {
+            gamma_down,
+            beta_delta,
+        } => ("ThermalDamping".to_string(), vec![*gamma_down, *beta_delta]),
     }
 }
 
@@ -351,6 +355,10 @@ fn deserialize_channel(
         },
         "PhaseDamping" => PhaseDamping {
             gamma: *params.first().unwrap_or(&0.0),
+        },
+        "ThermalDamping" => ThermalDamping {
+            gamma_down: *params.first().unwrap_or(&0.0),
+            beta_delta: *params.get(1).unwrap_or(&0.0),
         },
         _ => {
             return Err(serde_json::Error::io(std::io::Error::new(

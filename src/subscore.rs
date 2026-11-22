@@ -725,6 +725,14 @@ pub struct SubsCoReOptions {
     pub exploration: f64,
     /// Seed for the observation noise and for Thompson sampling.
     pub seed: u64,
+    /// Information-gain stopping criterion: stop once an iteration's total
+    /// information gain (the sum over the observed axis points of
+    /// `D_KL(posterior marginal || prior marginal)`) stays below this value for
+    /// [`Self::entropy_patience`] consecutive iterations. `None` (the default)
+    /// disables it, so the loop runs until the shot budget is exhausted.
+    pub entropy_tolerance: Option<f64>,
+    /// Consecutive small-entropy-production iterations required to stop.
+    pub entropy_patience: usize,
 }
 
 impl Default for SubsCoReOptions {
@@ -744,6 +752,8 @@ impl Default for SubsCoReOptions {
             update_rule: UpdateRule::Mean,
             exploration: 1.0,
             seed: 42,
+            entropy_tolerance: None,
+            entropy_patience: 3,
         }
     }
 }
@@ -763,6 +773,14 @@ pub struct SubsCoReOutcome {
     pub shots_per_iteration: Vec<usize>,
     /// Confident-region variance threshold after each iteration.
     pub core_variances: Vec<f64>,
+    /// Information gain (nats) of each iteration's observations: the sum over
+    /// the observed axis points of the KL divergence of the GP posterior
+    /// marginal from the prior marginal, `D_KL(posterior || prior)`. Empty when
+    /// the loop never completes an iteration.
+    pub entropy_history: Vec<f64>,
+    /// True when [`SubsCoReOptions::entropy_tolerance`] stopped the run before
+    /// the shot budget was exhausted.
+    pub stopped_by_entropy: bool,
 }
 
 /// Least-squares slope of `values` against their index.
@@ -832,6 +850,8 @@ where
     let mut history: Vec<f64> = vec![best_value];
     let mut shots_per_iteration = Vec::new();
     let mut core_variances = Vec::new();
+    let mut entropy_history: Vec<f64> = Vec::new();
+    let mut stopped_by_entropy = false;
     let mut iterations = 0usize;
     let mut axis = 0usize;
 
@@ -867,12 +887,14 @@ where
         };
 
         let mut spent = 0usize;
+        let mut information_gain = 0.0;
         for (offset, (point, &point_shots)) in points.iter().zip(shots.iter()).enumerate() {
             let room = remaining.saturating_sub(spent);
             if room == 0 {
                 break;
             }
             let budget = (((point_shots as f64) * scale) as usize).clamp(1, room);
+            let (prior_mean, prior_variance) = gp.posterior_mean_and_variance(point);
             let observation = observe(
                 point,
                 budget,
@@ -881,6 +903,16 @@ where
                     .wrapping_add(iterations as u64 * 7919 + offset as u64),
             );
             gp.push(point.clone(), observation.value, observation.variance);
+            let (post_mean, post_variance) = gp.posterior_mean_and_variance(point);
+            if prior_variance > 0.0 && post_variance > 0.0 {
+                // KL from the prior marginal to the posterior marginal at the
+                // observed point; the entropy production of the observation.
+                let kl = 0.5
+                    * ((prior_variance / post_variance).ln()
+                        + (post_variance + (post_mean - prior_mean).powi(2)) / prior_variance
+                        - 1.0);
+                information_gain += kl.max(0.0);
+            }
             spent += observation.shots;
         }
         if spent == 0 {
@@ -963,6 +995,23 @@ where
         }
         core_variances.push(core_variance);
 
+        // Entropy-production stopping criterion: each observation buys
+        // information, measured as D_KL(posterior || prior) on the marginal at
+        // the observed point. When an iteration's total gain stays below the
+        // tolerance for long enough, the surrogate has stopped learning and the
+        // remaining budget would be spent redundantly.
+        entropy_history.push(information_gain);
+        if let Some(tolerance) = options.entropy_tolerance {
+            let window = options.entropy_patience.max(1);
+            if entropy_history.len() > window {
+                let recent = &entropy_history[entropy_history.len() - window..];
+                if recent.iter().all(|&gain| gain < tolerance) {
+                    stopped_by_entropy = true;
+                    break;
+                }
+            }
+        }
+
         iterations += 1;
         axis = (axis + 1) % dimensions;
     }
@@ -974,6 +1023,8 @@ where
         iterations,
         shots_per_iteration,
         core_variances,
+        entropy_history,
+        stopped_by_entropy,
     }
 }
 

@@ -84,6 +84,10 @@ fn main() {
         "reversible machine: reversibility gap = {}",
         rev.reversibility_gap()
     );
+    println!(
+        "  entropy production  : {:.6} nats/step",
+        rev.entropy_production_per_step()
+    );
     let sup = rev
         .prepare_superposition(&[0, 1, 0, 0], 2)
         .expect("superposition");
@@ -99,6 +103,14 @@ fn main() {
     println!(
         "erasing machine: reversibility gap = {}",
         era.reversibility_gap()
+    );
+    println!(
+        "  entropy production  : {:.6} nats/step",
+        era.entropy_production_per_step()
+    );
+    println!(
+        "  Landauer heat @300K : {:.3e} J/step",
+        era.landauer_heat_per_step(300.0)
     );
     assert!(
         era.step_quantum(&era.prepare_superposition(&[0, 0, 0, 0], 0).unwrap())

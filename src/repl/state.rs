@@ -114,8 +114,10 @@ impl Session {
             "probs" => self.cmd_probs(),
             "ptrace" => self.cmd_ptrace(rest),
             "mix" => self.cmd_mix(),
+            "thermal" => self.cmd_thermal(rest),
             "channel" => self.cmd_channel(rest),
             "purity" => self.cmd_purity(),
+            "entropy" => self.cmd_entropy(),
             "expect" => self.cmd_expect(rest),
             "expz" => self.cmd_expect(&format!("Z {rest}")),
             "bloch" => self.cmd_bloch(rest),
@@ -339,15 +341,28 @@ impl Session {
         }
     }
 
-    /// `channel NAME Q P` — apply a noise channel directly to the live density
-    /// matrix. NAME = dep (depolarizing), ad (amplitude damping), pd (phase
-    /// damping); P is the probability/gamma. Requires a density-matrix state
-    /// (build one first with `noisy` or `mix`).
+    /// `channel NAME Q P [BETA]` — apply a noise channel directly to the live
+    /// density matrix. NAME = dep (depolarizing), ad (amplitude damping), pd
+    /// (phase damping), th (thermal damping, needs BETA = beta*Delta); P is the
+    /// probability/gamma. Requires a density-matrix state (build one first with
+    /// `noisy` or `mix`).
     fn cmd_channel(&mut self, rest: &str) {
         let mut parts = rest.split_whitespace();
-        let (name, q, p) = match (parts.next(), parts.next(), parts.next()) {
-            (Some(n), Some(q), Some(p)) => (n, q, p),
-            _ => return eprintln!("usage: channel dep|ad|pd Q P   (e.g. channel dep 0 0.1)"),
+        let name = match parts.next() {
+            Some(name) => name,
+            None => {
+                return eprintln!(
+                    "usage: channel dep|ad|pd|th Q P [BETA]   (e.g. channel dep 0 0.1, channel th 0 0.2 1.0)"
+                );
+            }
+        };
+        let q = match parts.next() {
+            Some(q) => q,
+            None => return eprintln!("usage: channel dep|ad|pd|th Q P [BETA]"),
+        };
+        let p = match parts.next() {
+            Some(p) => p,
+            None => return eprintln!("usage: channel dep|ad|pd|th Q P [BETA]"),
         };
         let qubit: usize = match q.parse() {
             Ok(v) => v,
@@ -359,6 +374,17 @@ impl Session {
             Ok(v) if (0.0..=1.0).contains(&v) => v,
             Ok(_) => return eprintln!("channel error: probability/gamma must be in [0, 1]"),
             Err(_) => return eprintln!("channel error: probability/gamma must be a number"),
+        };
+        let extra: Option<f64> = match parts.next() {
+            Some(value) => match value.parse::<f64>() {
+                Ok(v) if v.is_finite() && v >= 0.0 => Some(v),
+                _ => {
+                    return eprintln!(
+                        "channel error: beta*Delta must be a non-negative finite number"
+                    );
+                }
+            },
+            None => None,
         };
         let d = match self.density.as_mut() {
             Some(d) => d,
@@ -385,7 +411,25 @@ impl Session {
                 }
                 format!("phase-damping(γ={prob})")
             }
-            other => return eprintln!("channel error: unknown channel '{other}' (dep|ad|pd)"),
+            "th" | "thermal" => {
+                let beta_delta = match extra {
+                    Some(beta) => beta,
+                    None => {
+                        return eprintln!(
+                            "channel error: thermal damping needs beta*Delta, e.g. channel th 0 0.2 1.0"
+                        );
+                    }
+                };
+                let ch = crate::NoiseChannel::ThermalDamping {
+                    gamma_down: prob,
+                    beta_delta,
+                };
+                if let Err(e) = d.apply_channel(ch, qubit) {
+                    return eprintln!("channel error: {e}");
+                }
+                format!("thermal-damping(γ↓={prob}, βΔ={beta_delta})")
+            }
+            other => return eprintln!("channel error: unknown channel '{other}' (dep|ad|pd|th)"),
         };
         println!(
             "channel: applied {label} to q{qubit} (trace={:.6}, purity={:.6})",
@@ -406,6 +450,73 @@ impl Session {
             ),
             None => eprintln!("no density matrix — build one first with `noisy` or `mix`"),
         }
+    }
+
+    /// `entropy` — von Neumann entropy `S = -Tr(rho ln rho)` of the live density
+    /// matrix, in natural units. Requires a density-matrix state.
+    fn cmd_entropy(&self) {
+        match &self.density {
+            Some(d) => match d.von_neumann_entropy() {
+                Ok(entropy) => println!(
+                    "density: {} qubits, trace={:.6}, S={:.6}",
+                    d.qubits(),
+                    d.trace().re,
+                    entropy
+                ),
+                Err(e) => eprintln!("entropy error: {e}"),
+            },
+            None => eprintln!("no density matrix — build one first with `noisy` or `mix`"),
+        }
+    }
+
+    /// `thermal [ham=tfim] [beta=1.0]` — build the Gibbs state `exp(-beta H)/Z`
+    /// of the named Hamiltonian, print its energy, free energy, entropy and
+    /// purity, and make it the live density matrix.
+    fn cmd_thermal(&mut self, rest: &str) {
+        use crate::thermal::{expectation, free_energy, gibbs_state};
+
+        let mut name = "tfim".to_string();
+        let mut beta = 1.0f64;
+        for word in rest.split_whitespace() {
+            if let Some(value) = word.strip_prefix("ham=") {
+                name = value.to_ascii_lowercase();
+            } else if let Some(value) = word.strip_prefix("beta=") {
+                match value.parse::<f64>() {
+                    Ok(v) if v >= 0.0 && v.is_finite() => beta = v,
+                    _ => return eprintln!("thermal error: beta must be a non-negative number"),
+                }
+            }
+        }
+        let hamiltonian = match named_hamiltonian(&name, self.qubits) {
+            Some(hamiltonian) => hamiltonian,
+            None => {
+                return eprintln!(
+                    "thermal: unknown or ill-sized hamiltonian '{name}' for {} qubits",
+                    self.qubits
+                );
+            }
+        };
+        let rho = match gibbs_state(&hamiltonian, beta) {
+            Ok(rho) => rho,
+            Err(error) => return eprintln!("thermal error: {error}"),
+        };
+        println!("thermal: ham={name}, beta={beta}, {} qubits", self.qubits);
+        println!(
+            "  <H>    = {:.6}",
+            expectation(&rho, &hamiltonian).unwrap_or(f64::NAN)
+        );
+        if beta > 0.0 {
+            println!(
+                "  F      = {:.6}",
+                free_energy(&hamiltonian, beta).unwrap_or(f64::NAN)
+            );
+        }
+        println!(
+            "  S      = {:.6}",
+            rho.von_neumann_entropy().unwrap_or(f64::NAN)
+        );
+        println!("  purity = {:.6}", rho.purity());
+        self.density = Some(rho);
     }
 
     /// `expect X|Y|Z Q` — expectation value on the live state or density matrix.
@@ -1910,6 +2021,8 @@ impl Session {
         let mut update_rule = UpdateRule::Mean;
         let mut exploration = 1.0f64;
         let mut seed = 42u64;
+        let mut entropy_tolerance: Option<f64> = None;
+        let mut entropy_patience = 3usize;
 
         for word in rest.split_whitespace() {
             if let Some(value) = word.strip_prefix("ham=") {
@@ -1955,6 +2068,28 @@ impl Session {
                     Ok(v) => seed = v,
                     Err(_) => return eprintln!("vqe-subscore error: seed must be an integer"),
                 }
+            } else if let Some(value) = word.strip_prefix("entropy=") {
+                if value == "off" || value == "none" {
+                    entropy_tolerance = None;
+                } else {
+                    match value.parse::<f64>() {
+                        Ok(v) if v >= 0.0 => entropy_tolerance = Some(v),
+                        _ => {
+                            return eprintln!(
+                                "vqe-subscore error: entropy must be a non-negative number or 'off'"
+                            );
+                        }
+                    }
+                }
+            } else if let Some(value) = word.strip_prefix("patience=") {
+                match value.parse::<usize>() {
+                    Ok(v) if v > 0 => entropy_patience = v,
+                    _ => {
+                        return eprintln!(
+                            "vqe-subscore error: patience must be a positive integer"
+                        );
+                    }
+                }
             }
         }
 
@@ -1987,6 +2122,8 @@ impl Session {
             exploration,
             eta_sq: objective.single_shot_variance(),
             seed,
+            entropy_tolerance,
+            entropy_patience,
             ..SubsCoReOptions::default()
         };
         println!(
@@ -2008,6 +2145,17 @@ impl Session {
         println!("  initial energy     : {start:.6}");
         println!("  final energy       : {final_energy:.6}");
         println!("  change             : {:+.6}", final_energy - start);
+        println!(
+            "  stopped by entropy : {}",
+            if outcome.stopped_by_entropy {
+                "yes"
+            } else {
+                "no"
+            }
+        );
+        if let Some(last) = outcome.entropy_history.last() {
+            println!("  final info gain   : {last:.6} nats");
+        }
         if let (Some(first), Some(last)) = (
             outcome.shots_per_iteration.first(),
             outcome.shots_per_iteration.last(),
@@ -3230,6 +3378,10 @@ fn channel_label(channel: &crate::NoiseChannel) -> String {
         crate::NoiseChannel::Depolarizing { probability } => format!("Dep{probability:.2}"),
         crate::NoiseChannel::AmplitudeDamping { gamma } => format!("AD{gamma:.2}"),
         crate::NoiseChannel::PhaseDamping { gamma } => format!("PD{gamma:.2}"),
+        crate::NoiseChannel::ThermalDamping {
+            gamma_down,
+            beta_delta,
+        } => format!("TD{gamma_down:.2}@{beta_delta:.2}"),
     }
 }
 

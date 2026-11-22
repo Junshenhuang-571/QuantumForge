@@ -339,14 +339,7 @@ impl QuantumTuringMachine {
         let mut claimed = vec![false; dimension];
         let mut gaps = 0usize;
         for index in 0..dimension {
-            let config = self.decode(index);
-            let target = match self.step_classical(&config) {
-                Some(next) => match self.encode(&next) {
-                    Ok(t) => t,
-                    Err(_) => index,
-                },
-                None => index,
-            };
+            let target = self.step_target(index);
             if claimed[target] {
                 gaps += 1;
             } else {
@@ -354,6 +347,60 @@ impl QuantumTuringMachine {
             }
         }
         gaps
+    }
+
+    /// Entropy production of one classical step under a uniform input
+    /// distribution, in nats.
+    ///
+    /// For each target configuration `y`, let `n_y` be the number of
+    /// configurations that map to it. The uniform distribution over the
+    /// `Omega = 2^qubits` configurations has entropy `ln Omega`; after one step
+    /// it has entropy `ln Omega - sum_y (n_y / Omega) ln n_y`. The difference,
+    /// `sum_y (n_y / Omega) ln n_y`, is the entropy production. A reversible
+    /// table gives exactly `0`; an erasing table gives a positive value that
+    /// grows with the branching factor.
+    pub fn entropy_production_per_step(&self) -> f64 {
+        let dimension = 1usize << self.qubits();
+        if dimension == 0 {
+            return 0.0;
+        }
+        let mut preimages = vec![0usize; dimension];
+        for index in 0..dimension {
+            preimages[self.step_target(index)] += 1;
+        }
+        let omega = dimension as f64;
+        preimages
+            .iter()
+            .filter(|&&count| count > 0)
+            .map(|&count| {
+                let fraction = count as f64 / omega;
+                fraction * (count as f64).ln()
+            })
+            .sum()
+    }
+
+    /// Minimum heat dissipated per classical step at `temperature` kelvin, in
+    /// joules: `k_B * T *` [`Self::entropy_production_per_step`].
+    ///
+    /// This is Landauer's principle applied to the uniform input distribution:
+    /// the information a step discards must be paid for as heat. The 2026
+    /// CODATA value `k_B = 1.380649e-23 J/K` is exact by definition.
+    pub fn landauer_heat_per_step(&self, temperature: f64) -> f64 {
+        const K_B: f64 = 1.380649e-23;
+        K_B * temperature * self.entropy_production_per_step()
+    }
+
+    /// Target index of the classical step from `index`, falling back to `index`
+    /// itself when the transition is undefined or unencodable.
+    fn step_target(&self, index: usize) -> usize {
+        let config = self.decode(index);
+        match self.step_classical(&config) {
+            Some(next) => match self.encode(&next) {
+                Ok(target) => target,
+                Err(_) => index,
+            },
+            None => index,
+        }
     }
 
     /// Bennett-style ancilla augmentation: build the one-step transition map on

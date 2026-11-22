@@ -1524,6 +1524,73 @@ pub mod python_bindings {
         Ok(PySubsCoReOutcome { inner: outcome })
     }
 
+    fn thermal_error(error: crate::QuantumError) -> PyErr {
+        PyErr::new::<pyo3::exceptions::PyValueError, _>(error.to_string())
+    }
+
+    /// Gibbs state diagnostics: `(probabilities, <E>, F)` at `beta`.
+    #[pyfunction]
+    fn thermal_gibbs_py(hamiltonian: &PyPauliSum, beta: f64) -> PyResult<(Vec<f64>, f64, f64)> {
+        let inner = &hamiltonian.inner;
+        let rho = crate::thermal::gibbs_state(inner, beta).map_err(thermal_error)?;
+        let probabilities =
+            crate::thermal::gibbs_probabilities(inner, beta).map_err(thermal_error)?;
+        let energy = crate::thermal::expectation(&rho, inner).map_err(thermal_error)?;
+        let free = crate::thermal::free_energy(inner, beta).map_err(thermal_error)?;
+        Ok((probabilities, energy, free))
+    }
+
+    /// Energy standard deviation of the shot estimator at `shots` shots.
+    #[pyfunction]
+    fn shot_noise_temperature_py(hamiltonian: &PyPauliSum, shots: usize) -> PyResult<f64> {
+        crate::noisy_optimizer::shot_noise_temperature(&hamiltonian.inner, shots)
+            .map_err(thermal_error)
+    }
+
+    /// Variational quantum thermalization: `(F, F_exact, trace_distance)`.
+    #[pyfunction]
+    fn vqt_py(
+        hamiltonian: &PyPauliSum,
+        temperature: f64,
+        layers: usize,
+        steps: usize,
+    ) -> PyResult<(f64, f64, f64)> {
+        let options = crate::vqt::VqtOptions {
+            system_qubits: hamiltonian.inner.qubits(),
+            layers,
+            temperature,
+            learning_rate: 0.05,
+            steps,
+            finite_difference_step: 1e-3,
+        };
+        let outcome = crate::vqt::variational_thermalize(&hamiltonian.inner, &options)
+            .map_err(thermal_error)?;
+        Ok((
+            outcome.free_energy,
+            outcome.exact_free_energy,
+            outcome.trace_distance,
+        ))
+    }
+
+    /// Dissipative preparation of a real target amplitude vector: the fidelity.
+    #[pyfunction]
+    fn dissipative_prepare_py(target: Vec<f64>, dt: f64, steps: usize) -> PyResult<f64> {
+        if target.is_empty() || !target.len().is_power_of_two() {
+            return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                "target length must be a power of two",
+            ));
+        }
+        let amplitudes: Vec<crate::Complex64> = target
+            .iter()
+            .map(|value| crate::Complex64::new(*value, 0.0))
+            .collect();
+        let qubits = amplitudes.len().ilog2() as usize;
+        let mut rho = DensityMatrix::from_state(&StateVector::zero(qubits).map_err(thermal_error)?);
+        crate::dissipative::prepare_target_state(&mut rho, &amplitudes, dt, steps)
+            .map_err(thermal_error)?;
+        Ok(crate::dissipative::state_fidelity(&rho, &amplitudes))
+    }
+
     /// Python module definition
     #[pymodule]
     pub fn quantumforge(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
@@ -1558,6 +1625,12 @@ pub mod python_bindings {
         // SubsCoRe
         m.add_class::<PySubsCoReOutcome>()?;
         m.add_function(wrap_pyfunction!(vqe_subscore_py, m)?)?;
+
+        // Noise / thermodynamics
+        m.add_function(wrap_pyfunction!(thermal_gibbs_py, m)?)?;
+        m.add_function(wrap_pyfunction!(shot_noise_temperature_py, m)?)?;
+        m.add_function(wrap_pyfunction!(vqt_py, m)?)?;
+        m.add_function(wrap_pyfunction!(dissipative_prepare_py, m)?)?;
 
         m.add_function(wrap_pyfunction!(qft_circuit_py, m)?)?;
         m.add_function(wrap_pyfunction!(hhl_2x2_py, m)?)?;

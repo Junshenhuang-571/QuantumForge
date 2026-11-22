@@ -1,5 +1,140 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- **Finite-temperature thermalising noise channel.** `NoiseChannel::ThermalDamping { gamma_down, beta_delta }`
+  has the Gibbs fixed point `p1/p0 = exp(-beta*Delta)`; the ordinary
+  `AmplitudeDamping` is its `T = 0` limit. Implemented for the dense
+  density-matrix path and for Kraus trajectories, with a `qf` command
+  (`channel th Q GAMMA BETA`), a circuit op (`ThermalDamping[...]`), and JSON
+  (de)serialization. `examples/noise_thermo_probe.rs` measures the fixed point,
+  the `1 - gamma_up - gamma_down` rate, and the collisional partial-swap channel.
+- **`DensityMatrix::von_neumann_entropy()`** — `S = -Tr(rho ln rho)` from a
+  Hermitian eigensolver, with a `NonHermitianDensityMatrix` guard. `qf entropy`.
+- **SubsCoRe entropy-production stopping.** `SubsCoReOptions::entropy_tolerance`
+  and `::entropy_patience` stop the run when an iteration's information gain
+  (the KL from the prior to the posterior marginal at each observed point)
+  stays below the tolerance; `SubsCoReOutcome::{entropy_history,
+  stopped_by_entropy}` report it. `qf vqe-subscore entropy=T patience=N`.
+  Measured on the canonical campaign: the rule is a diagnostic, not a win — the
+  instance is information-limited, the gain for the seed-1 trace stays at
+  1.3-11.5 nats, and a tolerance large enough to fire costs energy
+  (`examples/subscore_entropy.rs`).
+- **Readout confusion-matrix mitigation.** `readout::ConfusionMatrix` (forward,
+  inverse, iterative Bayesian unfolding), `readout::mitigate_distribution`, and
+  `ShotResult::mitigate_readout`.
+- **QEC noise and thresholds.** `qec::noise` simulates Pauli data noise plus
+  syndrome readout errors with an exact minimum-weight decoder (a BFS over the
+  syndrome states), and `qec::noise::threshold_crossing` estimates the threshold
+  from a code family. Validated on the bit-flip repetition family `d = 3,5,7,9`,
+  whose exact threshold `p = 1/2` is recovered to within 0.015; the rotated
+  `d = 3` surface-code curve is in `examples/qec_threshold.rs`.
+- **Landauer accounting for quantum Turing machines.**
+  `QuantumTuringMachine::entropy_production_per_step()` and
+  `::landauer_heat_per_step(temperature)`: an erasing table that discards one
+  bit per step produces exactly `ln 2` nats and `k_B T ln 2` of heat.
+- **Noise put to work: seven useful capabilities.**
+  - `thermal` — exact Gibbs states `exp(-beta H)/Z` by diagonalisation, free
+    energy, finite-temperature observables, and a Gibbs sampler
+    (`examples/thermal_states.rs`, `qf thermal ham=... beta=...`). The single
+    qubit Gibbs state matches the `ThermalDamping` fixed point exactly.
+  - `noisy_optimizer` — annealed Langevin dynamics with the
+    fluctuation-dissipation kick `sigma = sqrt(2 lr T)`. On an asymmetric
+    double well, plain gradient descent is trapped in the shallow well
+    (0/400) while the annealed kick reaches the deep well 345/400
+    (`examples/langevin_double_well.rs`). Barrier-limited only.
+  - `dissipative` — jump-operator (`L = |t><t_perp|`) Lindblad preparation of a
+    target pure state, Trotter step with renormalization; fidelity reaches
+    `1 - 1e-9` for `|1>` and `|+>` (`examples/dissipative_prep.rs`). The
+    many-qubit form prepares an entangled target (GHZ/W/random) with the same
+    machinery and the same fidelity; the system entropy rises to a peak
+    (`0.69` nats for `W_3`) and returns to zero, so the channel is a
+    refrigerator that purifies by dumping heat (`examples/dissipative_entangled.rs`).
+  - **Autonomous dissipative QEC.** `dissipative::code_jumps` builds one jump
+    per stabilizer, `L_i = A_i P_-^{(i)}` with `A_i` anticommuting with `S_i`
+    and commuting with the rest; `prepare_code_space` pumps any input into the
+    code space (population `0 -> 1 - 1e-9`, monotone, stabilizers pinned to +1,
+    `examples/dissipative_qec.rs`). A bare projector jump `(I - S_i)/2` only
+    dephases and does NOT pump — the off-diagonal jump is the point.
+  - **Variational quantum thermalization.** `vqt::variational_thermalize`
+    purifies the Gibbs state with a system+ancilla ansatz and minimizes
+    `F = <H> - T S`. On a 2-qubit interacting Hamiltonian it reaches the exact
+    free energy and trace distance `1e-6` (`examples/vqt.rs`).
+  - **Noise-driven VQE.** `noisy_optimizer::annealed_langevin_vqe` with the
+    exact parameter-shift gradient plus the thermal kick, versus
+    `gradient_descent_vqe`. On a frustrated 3-qubit TFIM, plain GD is trapped
+    in the shallow minimum in 5/12 seeds and Langevin in 2/12; the mean
+    improvement is within one paired sd, so it is an escape mechanism, not a
+    free lunch (`examples/langevin_vqe.rs`).
+- **Hardening and completeness pass.**
+  - **Pauli-native dissipative step.** `dissipative::lindblad_step_code` applies
+    `L = A P_-` with `A, S` Paulis in `O(jumps * 2^n)` instead of the dense
+    `O(jumps * 8^n)`. The surface code (n = 9) now runs: code-space population
+    `0 -> 0.8+` in 100 steps, where the dense step was intractable.
+  - **Logical-state selection.** `dissipative::logical_jump` /
+    `prepare_logical_state` add `L = X_L (I -+ Z_L)/2`, which selects `|0_L>`
+    or `|1_L>` (measured `<Z_L> = +1` / `-1`). A diagonal field cannot do
+    this: it only moves coherences, which the channel damps.
+  - **Collisional thermalization module.** `collisional::collisional_channel`
+    / `thermalize_collisions`, the exactly solvable partial-swap channel,
+    promoted out of the probe example. Rate `cos^2(phi)` verified to 1e-12.
+  - **Exact thermal weights.** `thermal::exact_gibbs_weights` /
+    `exact_energy_expectation`: exact rational `Z` and probabilities for a
+    rational Boltzmann base, with `sum p_i = 1` and `<E>` exact. A general
+    irrational-`beta` state cannot be exact (`exp` and `ln` are
+    transcendental) — documented, not faked.
+  - **Entropy production.** `dissipative::entropy_production` /
+    `heat_absorbed`: `Sigma = Delta S - Q/T`, `Q = Delta E`. Verified
+    non-negative for `ThermalDamping` (detailed balance) and negative for
+    amplitude damping (a driven refrigerator).
+  - **Fluctuation-dissipation check.** `noisy_optimizer::langevin_samples`
+    runs at fixed `T`; the double-well population ratio matches
+    `exp(Delta f / T)` within 25%.
+  - **Shot-noise temperature.** `noisy_optimizer::shot_noise_temperature`
+    gives the energy sd of the shot estimator, `sqrt(sum_w |c_w|^2 / shots)`,
+    as the principled Langevin energy scale (not the dimensionally wrong
+    `T = eta^2 / N`).
+  - **Readout-mitigated VQE.** `readout::mitigated_parity_expectation` is the
+    correct pipeline: sample, corrupt, mitigate, estimate. Recovers `<Z>` to
+    0.02 on 200k shots with 10% symmetric readout.
+  - `LangevinVqeOutcome::exact_energy` is now filled from the sparse
+    eigensolver instead of always `None`.
+  - `code_jumps` documents that its weight <= 2 search is a heuristic.
+  - **Not done, deliberately:** the CUDA backend still returns
+    `UnsupportedOperation` for `ThermalDamping` and the dissipative steps.
+    A real kernel needs nvrtc and a GPU, neither of which is verifiable in
+    this environment, so no untested kernel was written.
+  - `readout::apply_readout_error` — inject independent per-qubit readout
+    errors into shot counts, paired with the existing `mitigate_readout` /
+    `ConfusionMatrix::mitigate`. A 10% symmetric readout on `<Z>` scales it by
+    0.8; mitigation recovers the exact value (`examples/readout_vqe.rs`).
+
+### Fixed
+- **`PauliString::commutes` returned the opposite boolean** (it reported
+  anticommutation). The method was unused elsewhere, so no existing behaviour
+  changed, but the new QEC noise decoder depends on the corrected sense.
+
+## [Unreleased]
+
+### Added
+- CI compiles the `gpu` feature. cudarc loads the driver at runtime and needs
+  no toolkit, so unlike `cuda` it builds on a GPU-less runner.
+- The GitHub Pages landing page (`docs/index.html`) now covers the Python
+  bindings: install path, a feature card, a worked example, and links to
+  `python/README.md` and `python/API.md`.
+
+### Fixed
+- `python/README.md`'s quickstart showed `[0.5, 0.0, 0.0, 0.5]` for
+  `probabilities()`; the actual value is `0.5000000000000001` for the two
+  non-zero entries (1/sqrt(2) squared in binary floating point).
+
+### Documentation
+- `docs/wiki/GPU-Acceleration.md` now states that the `cuda` feature is not
+  compiled in CI and could be broken on `main` without anyone noticing; `gpu`
+  is the supported path anywhere.
+- `API_STABILITY.md` reflects that 0.2.9 is published.
+
 ## [0.2.9] - 2026-11-19
 
 ### Added

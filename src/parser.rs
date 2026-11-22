@@ -251,6 +251,21 @@ impl CircuitParser<'_> {
                 };
                 circuit.channel(target, channel);
             }
+            "ThermalDamping" => {
+                let target = self.read_index()?;
+                self.comma()?;
+                let gamma_down = self.read_real()?;
+                self.comma()?;
+                let beta_delta = self.read_real()?;
+                self.close_operation()?;
+                circuit.channel(
+                    target,
+                    NoiseChannel::ThermalDamping {
+                        gamma_down,
+                        beta_delta,
+                    },
+                );
+            }
             _ => {
                 return Err(ParseError::new(
                     head.offset,

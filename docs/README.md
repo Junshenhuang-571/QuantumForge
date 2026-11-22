@@ -23,6 +23,7 @@ Start here. Everything is either rendered from the source (rustdoc, on
 - [MPS-based QAOA](wiki/MPS-QAOA.md) — matrix-product-state simulation for MaxCut
 - [QAOA parameter transfer](wiki/QAOA-Parameter-Transfer.md) — TQA init, transferred angles, targeted-single-layer optimization
 - [SubsCoRe](wiki/SubsCoRe.md) — adaptive observation cost control for VQE (arXiv:2502.01704); the confident region and the paper's inverted shot search
+- [Noise and statistical mechanics](wiki/Noise-and-Statistical-Mechanics.md) — thermalising channels, entropy production, readout mitigation, QEC thresholds, and Landauer accounting
 - [Gradient strategies](wiki/Gradient-Strategies.md) — parameter shift / adjoint / backprop / finite difference, automatic selection, and how they are cross-validated
 - [Contributing](wiki/Contributing.md) · [CONTRIBUTING.md](../../CONTRIBUTING.md)
 
@@ -43,6 +44,12 @@ Rustdoc anchors (substitute the version you depend on):
 | Shot-aware VQE (SubsCoRe) | [`subscore`](https://docs.rs/quantumforge/latest/quantumforge/subscore/) |
 | Variational gradients | [`gradients`](https://docs.rs/quantumforge/latest/quantumforge/gradients/) |
 | Quantum error correction | [`qec`](https://docs.rs/quantumforge/latest/quantumforge/qec/) |
+| Readout error mitigation | [`readout`](https://docs.rs/quantumforge/latest/quantumforge/readout/) |
+| Finite-temperature states | [`thermal`](https://docs.rs/quantumforge/latest/quantumforge/thermal/) |
+| Noise-driven optimization | [`noisy_optimizer`](https://docs.rs/quantumforge/latest/quantumforge/noisy_optimizer/) |
+| Dissipative state preparation | [`dissipative`](https://docs.rs/quantumforge/latest/quantumforge/dissipative/) |
+| Collisional thermalization | [`collisional`](https://docs.rs/quantumforge/latest/quantumforge/collisional/) |
+| Variational thermalization | [`vqt`](https://docs.rs/quantumforge/latest/quantumforge/vqt/) |
 | Stabilizer formalism | [`stabilizer`](https://docs.rs/quantumforge/latest/quantumforge/stabilizer/) |
 | Adiabatic quantum computing | [`aqc`](https://docs.rs/quantumforge/latest/quantumforge/aqc/) |
 | Measurement-based QC | [`mbqc`](https://docs.rs/quantumforge/latest/quantumforge/mbqc/) |
@@ -71,6 +78,17 @@ Every example is runnable (`cargo run --example <name>`); the ones marked
 - `qaoa_transfer` *(release)* — parameter transfer + targeted-layer optimization
 - `qaoa_transfer_families` *(release)* — the same across 3r / er / ba / weighted families
 - `subscore` *(release)* — fixed-shot NFT vs SubsCoRe-Bound vs SubsCoRe-Center under one shot budget
+- `subscore_entropy` *(release)* — the entropy-production stopping rule on the canonical campaign
+- `noise_thermo_probe` — entropy production of the built-in channels, collisional thermalisation, and the `ThermalDamping` Gibbs fixed point
+- `qec_threshold` *(release)* — Pauli/readout noise, the exact minimum-weight decoder, and a threshold crossing on the repetition family
+- `thermal_states` *(release)* — exact Gibbs states, free energy, and Gibbs sampling
+- `langevin_double_well` — annealed Langevin versus plain gradient descent on a barrier-limited objective
+- `dissipative_prep` — jump-operator preparation of a target pure state
+- `dissipative_entangled` — dissipative preparation of GHZ/W entangled targets, with the entropy trajectory
+- `dissipative_qec` *(release)* — autonomous QEC: pumping a register into a code space with one jump per stabilizer
+- `vqt` *(release)* — variational quantum thermalization against the exact Gibbs state
+- `langevin_vqe` *(release)* — annealed Langevin versus plain gradient descent on a frustrated VQE
+- `readout_vqe` *(release)* — readout-error injection and confusion-matrix mitigation
 - `cost_aware_optimization` — rewrite against a weighted cost model
 - `qtm_probe` — quantum Turing machine exploration
 - `gpu_bench` — GPU benchmark entry point

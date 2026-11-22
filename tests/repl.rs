@@ -648,3 +648,57 @@ fn anneal_named_schedule_and_errors() {
     let bad_edge = run_qf(&["mbqc edges=0-9 qubits=3", "quit"]);
     assert!(bad_edge.contains("bad edge"), "bad edge:\\n{bad_edge}");
 }
+
+#[test]
+fn thermal_damping_channel_and_entropy() {
+    let out = run_qf(&[
+        "qubits 1",
+        "add X[0]",
+        "noisy",
+        "channel th 0 0.2 1.0",
+        "entropy",
+        "quit",
+    ]);
+    // gamma_up = 0.2 e^{-1}, so p1 -> 0.8 and purity = 0.8^2 + 0.2^2 = 0.68.
+    assert!(
+        out.contains("purity=0.680000"),
+        "after thermal damping:\n{out}"
+    );
+    assert!(
+        out.contains("S=0.500402"),
+        "entropy after thermal damping:\n{out}"
+    );
+}
+
+#[test]
+fn entropy_of_maximally_mixed_state() {
+    let out = run_qf(&["qubits 1", "mix", "entropy", "quit"]);
+    assert!(out.contains("S=0.693147"), "ln2 entropy:\n{out}");
+}
+
+#[test]
+fn thermal_damping_circuit_op_parses() {
+    let out = run_qf(&[
+        "qubits 1",
+        "add X[0]",
+        "add ThermalDamping[0,0.2,1.0]",
+        "circuit",
+        "quit",
+    ]);
+    assert!(
+        out.contains("ThermalDamping[0,0.2,1.0]"),
+        "circuit source:\n{out}"
+    );
+}
+
+#[test]
+fn thermal_gibbs_command() {
+    let out = run_qf(&["qubits 2", "thermal ham=tfim beta=1.0", "entropy", "quit"]);
+    assert!(
+        out.contains("thermal: ham=tfim, beta=1, 2 qubits"),
+        "thermal header:\n{out}"
+    );
+    assert!(out.contains("  <H>    ="), "energy line:\n{out}");
+    assert!(out.contains("  F      ="), "free energy line:\n{out}");
+    assert!(out.contains("  S      ="), "entropy line:\n{out}");
+}

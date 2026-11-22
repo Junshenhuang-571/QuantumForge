@@ -33,7 +33,7 @@ circuit.add_gate("H", 0)
 circuit.add_cnot(0, 1)
 
 state = circuit.run(StateVector.zero(2))
-print(state.probabilities())      # [0.5, 0.0, 0.0, 0.5]
+print(state.probabilities())      # [0.5, 0.0, 0.0, 0.5] (float: 0.5000000000000001)
 ```
 
 Seeded sampling with reproducible counts:
@@ -80,6 +80,7 @@ python python/examples/bell.py
 | Gradients | `gradient_strategies`, `GradientResult`, `CircuitProfile` |
 | Exact-rational core | `Rational`, `ExactComplex`, `PauliSum` |
 | Shot-aware VQE | `vqe_subscore`, `SubsCoReOutcome` |
+| Noise / thermodynamics | `thermal_gibbs`, `shot_noise_temperature`, `vqt`, `dissipative_prepare` |
 | Algorithms | `Grover`, `QAOABuilder`, `QAOAAnsatzBuilder`, `HEABuilder`, `qft_circuit_py`, `hhl_*`, `shor_*` |
 | Tensor networks | `MPS`, `Tensor`, `TEBD`, `DMRG` |
 

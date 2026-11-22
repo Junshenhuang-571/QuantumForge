@@ -101,6 +101,18 @@ end-to-end behavior.
   `S = 1/2 ln(2 pi e var)`) is worse and less stable. Available as a library call,
   `cargo run --release --example subscore`, and the `qf` command
   `vqe-subscore`. See the [SubsCoRe guide](docs/wiki/SubsCoRe.md).
+- **Quantum noise as statistical mechanics** — `NoiseChannel::ThermalDamping`
+  is a finite-temperature channel whose fixed point is the Gibbs state
+  (`p1/p0 = exp(-beta*Delta)`), `DensityMatrix::von_neumann_entropy` measures the
+  entropy, and the ordinary amplitude-damping channel is the `T = 0` limit.
+  SubsCoRe can stop on an information-gain criterion; `readout::ConfusionMatrix`
+  mitigates readout error by the inverse matrix or iterative Bayesian unfolding;
+  `qec::noise` simulates Pauli/readout noise with an exact minimum-weight
+  decoder and estimates a threshold by finite-size scaling (the bit-flip
+  repetition family recovers its exact `p = 1/2` threshold to 0.015); and a
+  quantum Turing machine step is priced at `k_B T` times its entropy production
+  (`ln 2` per erased bit). See the
+  [noise and statistical mechanics guide](docs/wiki/Noise-and-Statistical-Mechanics.md).
 - **Correctness in the shot-based paths** — `ShotHamiltonian::observe` now takes
   a total shot budget (it previously took shots *per Pauli word*, so both the
   spend and the GP's noise model were off by the word count) and reports the

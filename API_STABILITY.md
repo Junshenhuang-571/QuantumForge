@@ -1,8 +1,7 @@
 # API Stability Policy
 
-QuantumForge is published on crates.io up to version `0.2.8`; `0.2.9` is
-prepared and not yet published. The Rust crate is pre-1.0, so its public API is
-not yet declared stable. This policy describes
+QuantumForge is published on crates.io up to version `0.2.9`. The Rust crate is
+pre-1.0, so its public API is not yet declared stable. This policy describes
 how changes are communicated and how stability will be introduced; it does not
 promise that every current public item will remain unchanged.
 

@@ -7,10 +7,12 @@
 //! - [`surface`]: planar/rotated surface codes and search utilities
 //! - [`gf2`]: GF(2) linear algebra for logical-operator extraction
 //! - [`mwpm`]: minimum-weight perfect matching decoder utilities
+//! - [`noise`]: Pauli/readout noise simulation and threshold estimation
 
 pub mod codes;
 pub mod gf2;
 pub mod mwpm;
+pub mod noise;
 pub mod surface;
 mod tests;
 
@@ -19,6 +21,11 @@ pub use codes::{
     repetition_code_phaseflip, shor_code, steane_code,
 };
 pub use mwpm::{blossom_match, mwpm_decode};
+pub use noise::{
+    Decoder, DecodingTable, NoiseModel, PauliNoise, ThresholdCampaign, bitflip_sweep,
+    depolarizing_sweep, depolarizing_sweep_with_measurement, is_logical_error, logical_error_rate,
+    multiply_pauli_strings, syndrome_of, threshold_crossing,
+};
 pub use surface::{
     surface_code_planar, surface_code_rotated, surface_code_rotated_search,
     verify_single_error_syndromes,
@@ -94,7 +101,7 @@ impl PauliString {
                 }
             }
         }
-        !anticommute_count.is_multiple_of(2)
+        anticommute_count.is_multiple_of(2)
     }
 }
 

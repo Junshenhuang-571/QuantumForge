@@ -204,6 +204,22 @@
 //!
 //! The same pipeline is available interactively as `vqe-subscore`.
 //!
+//! # Quantum noise and statistical mechanics
+//!
+//! The gate-noise channels are open-system dynamics, not just black boxes.
+//! [`NoiseChannel::ThermalDamping`] is a finite-temperature amplitude-damping
+//! channel whose fixed point is the Gibbs state with
+//! `p1/p0 = exp(-beta*Delta)`, so a noise channel plus a bath is a thermostat;
+//! [`DensityMatrix::von_neumann_entropy`] measures the entropy, and the
+//! ordinary amplitude-damping channel is its `T = 0` limit. The shot budget is
+//! a thermostat on the estimator (`T = eta/sqrt(N)`), and SubsCoRe can stop on
+//! an information-gain (entropy-production) criterion. Readout error is a
+//! classical channel: [`readout::ConfusionMatrix`] mitigates it by the inverse
+//! matrix or by iterative Bayesian unfolding. For codes, [`qec::noise`]
+//! simulates Pauli/readout noise and estimates a threshold by finite-size
+//! scaling, and [`qtm::QuantumTuringMachine::landauer_heat_per_step`] prices an
+//! irreversible classical step at `k_B T` times its entropy production.
+//!
 //! # Gradient strategies
 //!
 //! [`gradients`] offers the four differentiation rules a production variational
@@ -323,12 +339,15 @@
 
 pub mod analytic;
 pub mod aqc;
+pub mod collisional;
 #[cfg(feature = "cuda")]
 pub mod cuda;
+pub mod dissipative;
 #[cfg(feature = "llvm")]
 pub mod llvm_backend;
 pub mod mbqc;
 pub mod mps_qaoa;
+pub mod noisy_optimizer;
 pub mod numeric_ir;
 pub mod parser;
 pub use parser::parse_circuit;
@@ -345,11 +364,14 @@ pub mod qasm_export;
 pub mod qec;
 pub mod qtm;
 pub mod quantum;
+pub mod readout;
 pub mod repl;
 pub mod serialize;
 pub mod stabilizer;
 pub mod subscore;
 pub mod tensor_network;
+pub mod thermal;
+pub mod vqt;
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -455,6 +477,8 @@ pub enum QuantumError {
     InvalidSubsystemSelection,
     /// The operation requires a density-matrix state.
     OperationRequiresDensityMatrix,
+    /// A density matrix is not Hermitian within the supplied tolerance.
+    NonHermitianDensityMatrix,
     /// The operation requires shot execution.
     OperationRequiresShotExecution,
     /// The shot count is zero.
@@ -516,6 +540,9 @@ impl fmt::Display for QuantumError {
                 f,
                 "this circuit operation requires density-matrix simulation"
             ),
+            Self::NonHermitianDensityMatrix => {
+                write!(f, "density matrix is not Hermitian within tolerance")
+            }
             Self::OperationRequiresShotExecution => write!(
                 f,
                 "measurement and classically conditioned circuit operations require shot execution"
@@ -1282,6 +1309,7 @@ impl StateVector {
                                     self.amplitudes[excited] = value;
                                 }
                                 NoiseChannel::Depolarizing { .. } => unreachable!(),
+                                NoiseChannel::ThermalDamping { .. } => unreachable!(),
                             }
                         }
                     }
@@ -1294,6 +1322,73 @@ impl StateVector {
                             } else {
                                 excited_scale
                             };
+                    }
+                }
+            }
+            NoiseChannel::ThermalDamping { .. } => {
+                let (gamma_up, gamma_down) =
+                    channel.thermal_rates()?.expect("matched thermal channel");
+                let norm = self.norm_sqr();
+                if !norm.is_finite() || norm <= f64::EPSILON {
+                    return Err(QuantumError::InvalidProbability(norm));
+                }
+                let mask = 1usize << qubit;
+                let probability_one: f64 = self
+                    .amplitudes
+                    .iter()
+                    .enumerate()
+                    .filter(|(index, _)| index & mask != 0)
+                    .map(|(_, amplitude)| amplitude.norm_sqr())
+                    .sum();
+                let p1 = (probability_one / norm).clamp(0.0, 1.0);
+                let p0 = 1.0 - p1;
+                let down = p1 * gamma_down;
+                let up = p0 * gamma_up;
+                let stay = p0 * (1.0 - gamma_up) + p1 * (1.0 - gamma_down);
+                let sample = rng.next_f64();
+                let (branch_norm, branch) = if sample < down {
+                    (down, 1u8)
+                } else if sample < down + up {
+                    (up, 2u8)
+                } else {
+                    (stay, 0u8)
+                };
+                if !branch_norm.is_finite() || branch_norm <= f64::EPSILON {
+                    return Err(QuantumError::InvalidProbability(branch_norm));
+                }
+                let inverse_norm = branch_norm.sqrt().recip();
+                match branch {
+                    1 => {
+                        let scale = gamma_down.sqrt() * inverse_norm;
+                        for base in 0..self.amplitudes.len() {
+                            if base & mask == 0 {
+                                let value = self.amplitudes[base | mask] * scale;
+                                self.amplitudes[base] = value;
+                                self.amplitudes[base | mask] = Complex64::ZERO;
+                            }
+                        }
+                    }
+                    2 => {
+                        let scale = gamma_up.sqrt() * inverse_norm;
+                        for base in 0..self.amplitudes.len() {
+                            if base & mask == 0 {
+                                let value = self.amplitudes[base] * scale;
+                                self.amplitudes[base | mask] = value;
+                                self.amplitudes[base] = Complex64::ZERO;
+                            }
+                        }
+                    }
+                    _ => {
+                        let ground_scale = (1.0 - gamma_up).sqrt() * inverse_norm;
+                        let excited_scale = (1.0 - gamma_down).sqrt() * inverse_norm;
+                        for (index, amplitude) in self.amplitudes.iter_mut().enumerate() {
+                            *amplitude = *amplitude
+                                * if index & mask == 0 {
+                                    ground_scale
+                                } else {
+                                    excited_scale
+                                };
+                        }
                     }
                 }
             }
@@ -1368,14 +1463,53 @@ pub enum NoiseChannel {
         /// Damping rate in `[0, 1]`.
         gamma: f64,
     },
+    /// Finite-temperature (thermalizing) amplitude-damping channel.
+    ///
+    /// `gamma_down` is the relaxation rate `|1> -> |0>`; `beta_delta` is
+    /// `beta * Delta`, where `Delta = E_1 - E_0` is the energy gap from `|0>` to
+    /// `|1>` (so the qubit Hamiltonian is `H = -(Delta/2) Z` in the computational
+    /// basis). The excitation rate is
+    /// `gamma_up = gamma_down * exp(-beta_delta)`, so the fixed point is the
+    /// Gibbs state with `p1/p0 = exp(-beta_delta)`. Sending
+    /// `beta_delta -> infinity` recovers [`NoiseChannel::AmplitudeDamping`].
+    ThermalDamping {
+        /// Relaxation rate in `[0, 1]`.
+        gamma_down: f64,
+        /// `beta * Delta`; must be non-negative.
+        beta_delta: f64,
+    },
 }
 
 impl NoiseChannel {
-    /// Returns the channel parameters as a one-element vector.
+    /// Returns the channel parameters as a vector: one element for the
+    /// three-parameter channels, two for [`NoiseChannel::ThermalDamping`].
     pub fn params(&self) -> Vec<f64> {
         match self {
             Self::Depolarizing { probability } => vec![*probability],
             Self::AmplitudeDamping { gamma } | Self::PhaseDamping { gamma } => vec![*gamma],
+            Self::ThermalDamping {
+                gamma_down,
+                beta_delta,
+            } => vec![*gamma_down, *beta_delta],
+        }
+    }
+
+    /// `(gamma_up, gamma_down)` for a [`NoiseChannel::ThermalDamping`], or `None`
+    /// for the other channels. Validates the parameters.
+    pub(crate) fn thermal_rates(&self) -> Result<Option<(f64, f64)>, QuantumError> {
+        match self {
+            Self::ThermalDamping {
+                gamma_down,
+                beta_delta,
+            } => {
+                validate_probability(*gamma_down)?;
+                if !beta_delta.is_finite() || *beta_delta < 0.0 {
+                    return Err(QuantumError::InvalidProbability(*beta_delta));
+                }
+                let gamma_up = gamma_down * (-beta_delta).exp();
+                Ok(Some((gamma_up, *gamma_down)))
+            }
+            _ => Ok(None),
         }
     }
 }
@@ -1462,6 +1596,56 @@ impl DensityMatrix {
     pub fn purity(&self) -> f64 {
         // For Hermitian rho, Tr(rho^2) = sum_ij |rho_ij|^2.
         self.entries.iter().map(|x| x.norm_sqr()).sum()
+    }
+
+    /// Von Neumann entropy `S = -Tr(rho ln rho)` in natural units.
+    ///
+    /// The eigenvalues are computed with a Hermitian eigensolver; eigenvalues at
+    /// or below zero contribute nothing (`0 ln 0 = 0`). Returns
+    /// [`QuantumError::NonHermitianDensityMatrix`] when `rho` departs from
+    /// Hermiticity by more than `tolerance`.
+    pub fn von_neumann_entropy(&self) -> Result<f64, QuantumError> {
+        const TOLERANCE: f64 = 1e-9;
+        let n = self.dimension;
+        for row in 0..n {
+            for col in 0..n {
+                let difference = self.entries[row * n + col] - self.entries[col * n + row].conj();
+                if difference.norm_sqr().sqrt() > TOLERANCE {
+                    return Err(QuantumError::NonHermitianDensityMatrix);
+                }
+            }
+        }
+        use faer::c64;
+        use faer::diag::Diag;
+        use faer::dyn_stack::{MemBuffer, MemStack};
+        use faer::linalg::evd::{ComputeEigenvectors, self_adjoint_evd, self_adjoint_evd_scratch};
+        use faer::{Mat, Par};
+        let matrix = Mat::from_fn(n, n, |i, j| {
+            let entry = self.entries[i * n + j];
+            c64::new(entry.re, entry.im)
+        });
+        let par = Par::Seq;
+        let params = Default::default();
+        let mut eigenvalues = Diag::<c64>::zeros(n);
+        let scratch = self_adjoint_evd_scratch::<c64>(n, ComputeEigenvectors::No, par, params);
+        let mut memory = MemBuffer::new(scratch);
+        let stack = MemStack::new(&mut memory);
+        let _ = self_adjoint_evd(
+            matrix.as_ref(),
+            eigenvalues.as_mut(),
+            None,
+            par,
+            stack,
+            params,
+        );
+        let mut entropy = 0.0;
+        for index in 0..n {
+            let lambda = eigenvalues[index].re.max(0.0);
+            if lambda > 1e-15 {
+                entropy -= lambda * lambda.ln();
+            }
+        }
+        Ok(entropy)
     }
 
     /// Apply a unitary operator to both sides of the density matrix:
@@ -1774,6 +1958,29 @@ impl DensityMatrix {
                     Complex64::new(gamma.sqrt(), 0.0),
                 );
                 self.apply_kraus(&[k0, k1], qubit);
+            }
+            NoiseChannel::ThermalDamping { .. } => {
+                let (gamma_up, gamma_down) =
+                    channel.thermal_rates()?.expect("matched thermal channel");
+                let k0 = (
+                    Complex64::new((1.0 - gamma_up).sqrt(), 0.0),
+                    Complex64::ZERO,
+                    Complex64::ZERO,
+                    Complex64::new((1.0 - gamma_down).sqrt(), 0.0),
+                );
+                let k1 = (
+                    Complex64::ZERO,
+                    Complex64::new(gamma_down.sqrt(), 0.0),
+                    Complex64::ZERO,
+                    Complex64::ZERO,
+                );
+                let k2 = (
+                    Complex64::ZERO,
+                    Complex64::ZERO,
+                    Complex64::new(gamma_up.sqrt(), 0.0),
+                    Complex64::ZERO,
+                );
+                self.apply_kraus(&[k0, k1, k2], qubit);
             }
         }
         Ok(())
@@ -2114,6 +2321,28 @@ impl ShotResult {
         let successes = self.counts.get(outcome).copied().unwrap_or(0);
         let p = successes as f64 / self.shots as f64;
         (p, wilson_ci(successes, self.shots, 0.95))
+    }
+
+    /// Mitigate readout error on the measured counts.
+    ///
+    /// Builds the computational-basis distribution from the counts, applies the
+    /// inverse of each qubit's confusion matrix (see
+    /// [`crate::readout::mitigate_distribution`]), and returns the mitigated
+    /// distribution. `matrices[q]` is the readout error on qubit `q`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::readout::ReadoutError::Singular`] when a confusion
+    /// matrix cannot be inverted.
+    pub fn mitigate_readout(
+        &self,
+        matrices: &[crate::readout::ConfusionMatrix],
+    ) -> Result<Vec<f64>, crate::readout::ReadoutError> {
+        let qubits = matrices.len();
+        let mut distribution =
+            crate::readout::distribution_from_counts(&self.counts, qubits, self.shots);
+        crate::readout::mitigate_distribution(&mut distribution, matrices)?;
+        Ok(distribution)
     }
 }
 

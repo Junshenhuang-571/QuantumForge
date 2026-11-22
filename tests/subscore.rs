@@ -615,3 +615,124 @@ fn acquisition_rules_track_the_quench() {
     );
     assert!(mean(&free) < start, "the free-energy rule must descend");
 }
+
+#[test]
+fn gaussian_kl_formula_matches_numerical_integration() {
+    // D_KL(N(post) || N(prior)) by numerical integration, checked against the
+    // closed form used in run_subscore.
+    let cases: [([f64; 2], [f64; 2]); 3] = [
+        ([0.0, 1.0], [0.3, 0.7]),
+        ([-1.0, 2.0], [0.5, 0.5]),
+        ([0.0, 0.5], [0.0, 0.5]), // identical: KL = 0
+    ];
+    for (prior, post) in cases {
+        let analytic = 0.5
+            * ((prior[1] / post[1]).ln() + (post[1] + (post[0] - prior[0]).powi(2)) / prior[1]
+                - 1.0);
+        let mut numeric = 0.0;
+        let step = 1e-4;
+        let mut x = -30.0;
+        while x < 30.0 {
+            let p_post = (-0.5 * ((x - post[0]) / post[1].sqrt()).powi(2)).exp()
+                / (post[1].sqrt() * (2.0 * std::f64::consts::PI).sqrt());
+            let p_prior = (-0.5 * ((x - prior[0]) / prior[1].sqrt()).powi(2)).exp()
+                / (prior[1].sqrt() * (2.0 * std::f64::consts::PI).sqrt());
+            if p_post > 1e-300 && p_prior > 1e-300 {
+                numeric += p_post * (p_post / p_prior).ln() * step;
+            }
+            x += step;
+        }
+        assert!(
+            (analytic - numeric).abs() < 1e-5,
+            "analytic {analytic} vs numeric {numeric}"
+        );
+    }
+}
+
+#[test]
+fn entropy_production_stopping_criterion_fires_and_reports() {
+    let qubits = 3;
+    let (circuit, params) = ansatz(1, qubits);
+    let objective = ShotHamiltonian::new(circuit, tfim(qubits), qubits);
+    let counts = objective.parameter_counts();
+
+    let base = SubsCoReOptions {
+        total_shot_budget: 100_000,
+        initial_shots: 128,
+        strategy: ReadoutStrategy::Center,
+        eta_sq: objective.single_shot_variance(),
+        seed: 3,
+        ..SubsCoReOptions::default()
+    };
+    let off = run_subscore(
+        |point, shots, seed| objective.observe(point, shots, seed),
+        &params,
+        &counts,
+        &base,
+    );
+    assert!(!off.stopped_by_entropy);
+    assert!(off.entropy_history.iter().all(|&gain| gain >= 0.0));
+    assert_eq!(off.entropy_history.len(), off.iterations);
+
+    let mut options = base.clone();
+    options.entropy_tolerance = Some(1e9);
+    options.entropy_patience = 3;
+    let on = run_subscore(
+        |point, shots, seed| objective.observe(point, shots, seed),
+        &params,
+        &counts,
+        &options,
+    );
+    assert!(
+        on.stopped_by_entropy,
+        "history {:?} iterations {}",
+        on.entropy_history, on.iterations
+    );
+    assert!(
+        on.iterations <= 4,
+        "a tolerance above every gain should stop after `patience` iterations, got {}",
+        on.iterations
+    );
+    assert!(on.shots_used < off.shots_used);
+}
+
+#[test]
+fn readout_error_injection_and_mitigation_round_trip() {
+    use quantumforge::readout::apply_readout_error;
+    use quantumforge::{Circuit, Gate, ShotResult, StateVector};
+
+    // Ry(0.7)|0> measured in the Z basis: <Z> = cos(0.7).
+    let mut circuit = Circuit::new();
+    circuit.push(Gate::Ry(0.7), 0);
+    circuit.measure(0, 0);
+    let exact = 0.7f64.cos();
+    let shots = 200_000;
+    let ideal = circuit
+        .run_shots(&StateVector::zero(1).unwrap(), shots, 5)
+        .unwrap();
+    let expectation_of_z = |counts: &std::collections::BTreeMap<Vec<u8>, usize>| {
+        let ones: usize = counts.get(&vec![1u8]).copied().unwrap_or(0);
+        1.0 - 2.0 * ones as f64 / shots as f64
+    };
+    assert!((expectation_of_z(&ideal.counts) - exact).abs() < 0.01);
+
+    // Inject a symmetric 10% readout error: <Z> scales by (1 - 2 epsilon).
+    let matrix = quantumforge::readout::ConfusionMatrix::symmetric(0.10).unwrap();
+    let mut rng = quantumforge::SmallRng::seeded(11);
+    let noisy = apply_readout_error(&ideal.counts, &[matrix], &mut rng);
+    let noisy_z = expectation_of_z(&noisy);
+    assert!((noisy_z - 0.8 * exact).abs() < 0.02, "noisy {noisy_z}");
+
+    // Mitigate the noisy counts and recover the exact expectation.
+    let mitigated = ShotResult {
+        shots,
+        counts: noisy,
+    }
+    .mitigate_readout(&[matrix])
+    .unwrap();
+    let mitigated_z = 1.0 - 2.0 * mitigated[1];
+    assert!(
+        (mitigated_z - exact).abs() < 0.02,
+        "mitigated {mitigated_z}"
+    );
+}

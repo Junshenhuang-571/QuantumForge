@@ -2,10 +2,16 @@
 
 ## Feature Flags
 
-| Flag | Backend | Use Case |
-|------|---------|----------|
-| `--features gpu` | cudarc (CUDA 12) | Sparse Lanczos, batched circuits |
-| `--features cuda` | Native CUDA driver | Batched circuit execution |
+| Flag | Backend | Use Case | Compiled in CI |
+|------|---------|----------|----------------|
+| `--features gpu` | cudarc (CUDA 12) | Sparse Lanczos, batched circuits | yes |
+| `--features cuda` | Native CUDA driver | Batched circuit execution | **no** |
+
+**`cuda` is not covered by CI.** It links `libcuda` at build time, so it cannot
+compile on a GPU-less runner, and a broken `cuda` build would not be caught by
+any push or PR. The `gpu` feature is the supported path anywhere: cudarc loads
+the driver dynamically at runtime and needs no toolkit. Compile `cuda` locally
+with `cargo check --features cuda` before relying on it.
 
 ## GPU Paths
 
