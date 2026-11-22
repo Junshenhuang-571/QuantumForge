@@ -113,6 +113,7 @@ impl AnnealPath {
 /// An adiabatic interpolation between a driver Hamiltonian `H₀` and a problem
 /// Hamiltonian `H₁`, both given as dense f64 matrices (row-major, dimension
 /// `2^n`). Built once; `hamiltonian_at(s)` returns the interpolated operator.
+#[derive(Clone)]
 pub struct AdiabaticSchedule {
     qubits: usize,
     dimension: usize,

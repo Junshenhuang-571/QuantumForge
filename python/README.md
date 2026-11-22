@@ -80,6 +80,11 @@ python python/examples/bell.py
 | Gradients | `gradient_strategies`, `GradientResult`, `CircuitProfile` |
 | Exact-rational core | `Rational`, `ExactComplex`, `PauliSum` |
 | Shot-aware VQE | `vqe_subscore`, `SubsCoReOutcome` |
+| Stabilizer formalism | `StabilizerTableau` |
+| Cost-aware optimization | `cost_profile`, `circuit_depth`, `count_two_qubit`, `CircuitCostProfile`, `CircuitCostModel`, `CostAwareOptimizeResult`, `optimize_for_cost_model` |
+| QAOA transfer | `MaxCutProblem`, `TransferOptions`, `TransferOutcome`, `run_parameter_transfer` |
+| Adiabatic QC | `AnnealPath`, `AdiabaticSchedule`, `AdiabaticResult`, `run_adiabatic` |
+| Quantum Turing machines | `QtmTransition`, `QtmConfiguration`, `QuantumTuringMachine` |
 | Noise / thermodynamics | `thermal_gibbs`, `shot_noise_temperature`, `vqt`, `dissipative_prepare` |
 | Algorithms | `Grover`, `QAOABuilder`, `QAOAAnsatzBuilder`, `HEABuilder`, `qft_circuit_py`, `hhl_*`, `shor_*` |
 | Tensor networks | `MPS`, `Tensor`, `TEBD`, `DMRG` |
@@ -94,7 +99,7 @@ Three scripts run against an installed wheel:
 
 ```bash
 python python/smoke_test.py     # imports and exercises the surface
-python python/test_api.py       # gradients, exact rationals, SubsCoRe
+python python/test_api.py       # gradients, exact rationals, SubsCoRe, and the rest
 python python/test_exports.py   # binding surface matches API.md
 ```
 

@@ -416,6 +416,153 @@ the operation count removed.
 
 ---
 
+## Stabilizer formalism
+
+```python
+>>> tableau = qf.StabilizerTableau(2)
+>>> tableau.h(0)
+>>> tableau.cnot(0, 1)
+>>> tableau.measure(0)
+(False, 0.5)
+>>> tableau.equivalent(qf.StabilizerTableau(2))
+False
+```
+
+`StabilizerTableau` tracks a Clifford state symbolically (Gottesman-Knill), so
+it avoids the exponential cost of state-vector simulation. `measure(q)` returns
+`(outcome, probability)`; the probability is `0.5` when the outcome is random
+and `1.0` when it is determined. `h`, `s`, `x`, `z`, `cnot` apply Clifford
+gates, `num_qubits()` reports the width, and `equivalent(other)` compares
+stabilizer groups — it is a real comparison, not a width check.
+
+## Cost-aware circuit optimization
+
+```python
+>>> circuit = qf.Circuit()
+>>> circuit.add_gate("H", 0)
+>>> circuit.add_gate("H", 0)
+>>> circuit.add_cnot(0, 1)
+>>> profile = qf.cost_profile(circuit)
+>>> profile.total_gates(), profile.depth, profile.qubits
+(3, 3, 2)
+>>> model = qf.CircuitCostModel(cnot_gate=10.0)
+>>> model.estimate(profile)
+12.0
+>>> optimized, result = qf.optimize_for_cost_model(circuit, qf.OptimizeConfig.all(), model)
+>>> result.applied, result.original_cost, result.candidate_cost
+(True, 12.0, 10.0)
+```
+
+| name | meaning |
+| --- | --- |
+| `cost_profile(circuit)` | `CircuitCostProfile`: gate counts, depth, width |
+| `circuit_depth(circuit)` | logical depth from qubit and classical dependencies |
+| `count_two_qubit(circuit)` | two-qubit gate count |
+| `CircuitCostModel(...)` | 11 weights (`single_qubit_gate`, `cnot_gate`, `cz_gate`, `swap_gate`, `t_gate`, `tdg_gate`, `measurement`, `conditional_gate`, `channel`, `depth`, `qubit`); `estimate(profile)` prices a profile |
+| `optimize_for_cost_model(circuit, config, model)` | `(circuit, CostAwareOptimizeResult)`; the input is never mutated and the rewrite is kept only when it strictly lowers cost |
+| `CostAwareOptimizeResult` | `original_profile`, `candidate_profile`, `original_cost`, `candidate_cost`, `applied` |
+
+## QAOA parameter transfer
+
+```python
+>>> donor = qf.MaxCutProblem.random_3_regular(8, 1)
+>>> acceptor = qf.MaxCutProblem.random_3_regular(12, 2)
+>>> outcome = qf.run_parameter_transfer(donor, acceptor, qf.TransferOptions(depth=4, donor_iterations=30))
+>>> round(outcome.approximation_ratio, 4), round(outcome.transferred_ratio, 4)
+(0.8812, 0.6797)
+```
+
+`MaxCutProblem` is built with `MaxCutProblem(vertices, edges)`, or the
+generators `random_3_regular(n, seed)`, `random_er(n, p, seed)`,
+`random_ba(n, m, seed)`; `with_random_weights(seed, lo, hi)` reweights a copy.
+
+`run_parameter_transfer(donor, acceptor, options)` runs TQA initialization,
+Adagrad on the donor, angle transfer, target-layer selection and a
+ridge-regularized optimization of that layer.
+
+| name | meaning |
+| --- | --- |
+| `TransferOptions(...)` | `depth`, `tqa_dt`, `donor_learning_rate` (default `0.05`; the paper's `0.1` stalls under finite-difference gradients), `donor_epsilon`, `donor_iterations`, `compare_full_optimization` |
+| `TransferOutcome` | `donor_gammas`/`donor_betas`, `optimized_gammas`/`optimized_betas`, `target_layer`, `refinement_energies`, `energy`, `approximation_ratio` (`r_s`), `transferred_ratio` (`r_n`), `full_optimization_ratio` |
+
+## Adiabatic quantum computing
+
+```python
+>>> h0 = [0.0, -1.0, -1.0, 0.0]   # -X
+>>> h1 = [1.0, 0.0, 0.0, -1.0]    # +Z
+>>> schedule = qf.AdiabaticSchedule.from_dense(1, h0, h1)
+>>> schedule.problem_ground_energy()
+-0.9999999999999998
+>>> circuit = qf.Circuit(); circuit.add_gate("H", 0)
+>>> plus = circuit.run(qf.StateVector.zero(1))
+>>> result = qf.run_adiabatic(schedule, plus, 100.0)
+>>> round(result.final_energy, 6)
+-0.999987
+```
+
+| name | meaning |
+| --- | --- |
+| `AdiabaticSchedule.from_dense(qubits, h0, h1)` | row-major dense `2^n × 2^n` driver and problem Hamiltonians |
+| `schedule.with_path(path)`, `schedule.path()`, `schedule.s_at(tau)`, `schedule.problem_ground_energy()`, `schedule.qubits()` | path and spectrum accessors |
+| `AnnealPath.linear()`, `.fast_start(a)`, `.polynomial(p)`, `.at(tau)`, `.label()` | the annealing path `s(t)` |
+| `run_adiabatic(schedule, initial, total_time, tolerance=1e-8, max_steps=100000)` | `AdiabaticResult` |
+| `AdiabaticResult` | `final_state`, `initial_energy`, `final_energy`, `exact_ground_energy`, `total_time` |
+
+Longer anneals land closer to `exact_ground_energy`: at `total_time = 10` the
+example above reaches `-0.994533`, at `100` it reaches `-0.999987`.
+
+## Quantum Turing machines
+
+```python
+>>> transitions = [
+...     [qf.QtmTransition(1, 0, "stay"), qf.QtmTransition(1, 1, "stay")],
+...     [qf.QtmTransition(0, 0, "stay"), qf.QtmTransition(0, 1, "stay")],
+... ]
+>>> machine = qf.QuantumTuringMachine(2, 2, 4, 4, transitions, 0)
+>>> machine.qubits(), machine.reversibility_gap()
+(7, 0)
+>>> machine.step_classical(qf.QtmConfiguration([0, 0, 0, 0], 0, 0))
+QtmConfiguration(head=0, state=1, tape=[0, 0, 0, 0])
+```
+
+| name | meaning |
+| --- | --- |
+| `QtmTransition(next_state, write, direction)` | one table entry; `direction` is `left`, `right` or `stay` |
+| `QtmConfiguration(tape, head, state)` | a classical configuration |
+| `QuantumTuringMachine(states, alphabet, tape_cells, head_cells, transitions, initial_state)` | `transitions[state][read]` is a `QtmTransition` or `None`; sizes must be powers of two |
+| `machine.is_buildable()` | `None` when the table is a reversible bijection |
+| `machine.reversibility_gap()` | reachable configurations the table does not match |
+| `machine.entropy_production_per_step()`, `machine.landauer_heat_per_step(temperature)` | thermodynamics per step |
+| `machine.step_classical(config)`, `machine.run_classical(config, max_steps)` | classical evolution; `step` returns `None` at halt |
+
+## Noise and thermodynamics
+
+```python
+>>> h = qf.PauliSum(2)
+>>> h.add_term("ZZ", -1, 1)
+>>> h.add_term("XI", -1, 1)
+>>> h.add_term("IX", -1, 1)
+>>> probabilities, energy, free_energy = qf.thermal_gibbs(h, 1.0)
+>>> [round(p, 6) for p in probabilities]
+[0.379227, 0.120773, 0.120773, 0.379227]
+>>> round(free_energy, 6)
+-2.529681
+>>> round(qf.shot_noise_temperature(h, 1024), 6)
+0.054127
+>>> round(qf.shot_noise_temperature(h, 65536), 6)
+0.006766
+```
+
+`shot_noise_temperature` scales as `1/sqrt(shots)`: 64x the shots gives 8x
+smaller noise, which is the identity behind SubsCoRe's thermostat.
+
+| name | meaning |
+| --- | --- |
+| `thermal_gibbs(hamiltonian, beta)` | `(probabilities, <E>, F)` of the Gibbs state |
+| `shot_noise_temperature(hamiltonian, shots)` | energy standard deviation of the shot estimator |
+| `vqt(hamiltonian, temperature, layers, steps)` | `(F, F_exact, trace_distance)` from variational quantum thermalization |
+| `dissipative_prepare(target, dt, steps)` | fidelity of jump-operator preparation of a real target vector |
+
 ## Parsing
 
 `parse_circuit_py(expr)` parses the circuit DSL, `parse_qasm_py(qasm)` parses

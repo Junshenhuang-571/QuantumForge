@@ -194,12 +194,192 @@ def test_subscore():
         check("unknown update rule rejected", True)
 
 
+def test_stabilizer():
+    print("StabilizerTableau")
+    tableau = qf.StabilizerTableau(1)
+    tableau.x(0)
+    check("X|0> measures |1> deterministically", tableau.measure(0) == (True, 1.0),
+          tableau.measure(0))
+
+    bell = qf.StabilizerTableau(2)
+    bell.h(0)
+    bell.cnot(0, 1)
+    first, probability = bell.measure(0)
+    check("Bell qubit is random", probability == 0.5, probability)
+    second, collapsed = bell.measure(1)
+    check("measuring collapses", collapsed == 1.0, collapsed)
+    check("Bell qubits agree", first == second)
+
+    a = qf.StabilizerTableau(2)
+    a.h(0)
+    a.cnot(0, 1)
+    b = qf.StabilizerTableau(2)
+    b.h(0)
+    b.cnot(0, 1)
+    check("same state is equivalent", a.equivalent(b))
+    check("different state is not", not a.equivalent(qf.StabilizerTableau(2)))
+    check("repr", repr(a) == "StabilizerTableau(2 qubits)", repr(a))
+
+
+def test_cost_model():
+    print("Cost-aware optimization")
+    circuit = qf.Circuit()
+    circuit.add_gate("H", 0)
+    circuit.add_gate("H", 0)
+    circuit.add_cnot(0, 1)
+    profile = qf.cost_profile(circuit)
+    check("profile counts", (profile.total_gates(), profile.depth, profile.qubits) == (3, 3, 2),
+          (profile.total_gates(), profile.depth, profile.qubits))
+    check("depth", qf.circuit_depth(circuit) == 3, qf.circuit_depth(circuit))
+    check("two-qubit count", qf.count_two_qubit(circuit) == 1)
+
+    model = qf.CircuitCostModel(cnot_gate=10.0)
+    cost = model.estimate(profile)
+    check("weighted estimate", abs(cost - 12.0) < 1e-12, cost)
+
+    optimized, result = qf.optimize_for_cost_model(circuit, qf.OptimizeConfig.all(), model)
+    check("rewrite applied", result.applied, repr(result))
+    check("cost drops", result.candidate_cost < result.original_cost,
+          (result.original_cost, result.candidate_cost))
+    check("inverse pair removed",
+          result.original_profile.total_gates() - result.candidate_profile.total_gates() == 2,
+          (result.original_profile.total_gates(), result.candidate_profile.total_gates()))
+    check("input not mutated", qf.cost_profile(circuit).total_gates() == 3)
+
+
+def test_qaoa_transfer():
+    print("QAOA parameter transfer")
+    donor = qf.MaxCutProblem.random_3_regular(8, 1)
+    acceptor = qf.MaxCutProblem.random_3_regular(12, 2)
+    check("3-regular donor", (donor.num_qubits, len(donor.edges)) == (8, 12),
+          (donor.num_qubits, len(donor.edges)))
+    check("3-regular acceptor", (acceptor.num_qubits, len(acceptor.edges)) == (12, 18),
+          (acceptor.num_qubits, len(acceptor.edges)))
+    check("erdos-renyi", len(qf.MaxCutProblem.random_er(6, 0.5, 3).edges) == 8)
+    check("barabasi-albert", len(qf.MaxCutProblem.random_ba(6, 2, 4).edges) == 9)
+    check("reweighted copy", len(donor.with_random_weights(5, 0.5, 1.5).edges) == 12)
+
+    options = qf.TransferOptions(depth=4, donor_iterations=30)
+    check("defaults", (options.depth, options.donor_learning_rate) == (4, 0.05),
+          (options.depth, options.donor_learning_rate))
+    outcome = qf.run_parameter_transfer(donor, acceptor, options)
+    check("r_s in range", 0.8 < outcome.approximation_ratio < 1.0, outcome.approximation_ratio)
+    check("targeted beats transfer", outcome.approximation_ratio > outcome.transferred_ratio,
+          (outcome.transferred_ratio, outcome.approximation_ratio))
+    check("target layer", outcome.target_layer == 1, outcome.target_layer)
+    check("sweeps recorded", len(outcome.refinement_energies) == 2,
+          len(outcome.refinement_energies))
+    check("repr", repr(outcome).startswith("TransferOutcome("), repr(outcome))
+
+    try:
+        qf.MaxCutProblem.random_3_regular(5, 1)
+        check("odd 3-regular rejected", False)
+    except ValueError:
+        check("odd 3-regular rejected", True)
+
+
+def test_adiabatic():
+    print("Adiabatic QC")
+    h0 = [0.0, -1.0, -1.0, 0.0]  # -X
+    h1 = [1.0, 0.0, 0.0, -1.0]   # +Z
+    schedule = qf.AdiabaticSchedule.from_dense(1, h0, h1)
+    check("qubits", schedule.qubits() == 1)
+    check("ground energy", abs(schedule.problem_ground_energy() + 1.0) < 1e-12,
+          schedule.problem_ground_energy())
+    check("linear path", schedule.s_at(0.5) == 0.5, schedule.s_at(0.5))
+    check("path label", qf.AnnealPath.fast_start(0.3).label() == "fast-start(a=0.3)",
+          qf.AnnealPath.fast_start(0.3).label())
+    polynomial = schedule.with_path(qf.AnnealPath.polynomial(2.0))
+    check("with_path", "poly(p=2)" in repr(polynomial), repr(polynomial))
+
+    circuit = qf.Circuit()
+    circuit.add_gate("H", 0)
+    plus = circuit.run(qf.StateVector.zero(1))
+    short = qf.run_adiabatic(schedule, plus, 10.0)
+    long = qf.run_adiabatic(schedule, plus, 100.0)
+    check("longer anneal is lower", long.final_energy < short.final_energy,
+          (short.final_energy, long.final_energy))
+    check("approaches the ground state",
+          abs(long.final_energy - long.exact_ground_energy) < 1e-3,
+          (long.final_energy, long.exact_ground_energy))
+    check("repr", repr(long).startswith("AdiabaticResult("), repr(long))
+
+
+def test_qtm():
+    print("Quantum Turing machine")
+    transitions = [
+        [qf.QtmTransition(1, 0, "stay"), qf.QtmTransition(1, 1, "stay")],
+        [qf.QtmTransition(0, 0, "stay"), qf.QtmTransition(0, 1, "stay")],
+    ]
+    machine = qf.QuantumTuringMachine(2, 2, 4, 4, transitions, 0)
+    check("qubits", machine.qubits() == 7, machine.qubits())
+    check("buildable", machine.is_buildable() is None)
+    check("reversible", machine.reversibility_gap() == 0, machine.reversibility_gap())
+    check("involution produces no entropy", machine.entropy_production_per_step() == 0.0,
+          machine.entropy_production_per_step())
+    check("no Landauer heat", machine.landauer_heat_per_step(1.0) == 0.0)
+
+    config = qf.QtmConfiguration([0, 0, 0, 0], 0, 0)
+    stepped = machine.step_classical(config)
+    check("one step toggles the state", stepped.state == 1, stepped.state)
+    ran = machine.run_classical(config, 5)
+    check("odd step count leaves state 1", ran.state == 1, ran.state)
+    check("transition repr", "direction=left" in repr(qf.QtmTransition(1, 0, "left")),
+          repr(qf.QtmTransition(1, 0, "left")))
+    check("config repr", repr(config).startswith("QtmConfiguration("), repr(config))
+
+    try:
+        qf.QuantumTuringMachine(2, 2, 4, 4, transitions, 5)
+        check("out-of-range initial state rejected", False)
+    except ValueError:
+        check("out-of-range initial state rejected", True)
+    try:
+        qf.QtmTransition(1, 0, "sideways")
+        check("unknown direction rejected", False)
+    except ValueError:
+        check("unknown direction rejected", True)
+
+
+def test_thermodynamics():
+    print("Noise and thermodynamics")
+    h = qf.PauliSum(2)
+    h.add_term("ZZ", -1, 1)
+    h.add_term("XI", -1, 1)
+    h.add_term("IX", -1, 1)
+
+    probabilities, energy, free_energy = qf.thermal_gibbs(h, 1.0)
+    check("gibbs normalised", abs(sum(probabilities) - 1.0) < 1e-12, sum(probabilities))
+    check("gibbs symmetric", abs(probabilities[1] - probabilities[2]) < 1e-12)
+    check("gibbs ground favoured", probabilities[0] > probabilities[1])
+    check("gibbs free energy", abs(free_energy - (-2.529681)) < 1e-5, free_energy)
+    check("gibbs mean energy", abs(energy - (-1.83538)) < 1e-5, energy)
+
+    coarse = qf.shot_noise_temperature(h, 1024)
+    fine = qf.shot_noise_temperature(h, 65536)
+    check("noise falls with shots", fine < coarse, (coarse, fine))
+    check("noise scales as 1/sqrt(N)", abs(coarse / fine - 8.0) < 1e-9, coarse / fine)
+
+    free, exact, distance = qf.vqt(h, 1.0, 2, 50)
+    check("vqt free energy", abs(free - (-2.0)) < 1e-9, free)
+    check("vqt exact free energy", abs(exact - free_energy) < 1e-9, (exact, free_energy))
+    check("vqt trace distance", 0.0 < distance < 1.0, distance)
+
+    fidelity = qf.dissipative_prepare([1.0, 0.0, 0.0, 0.0], 0.05, 50)
+    check("dissipative preparation", abs(fidelity - 1.0) < 1e-9, fidelity)
+
+
 def main():
     test_rational()
     test_exact_complex()
     test_pauli_sum()
     test_gradients()
     test_subscore()
+    test_stabilizer()
+    test_cost_model()
+    test_qaoa_transfer()
+    test_adiabatic()
+    test_qtm()
+    test_thermodynamics()
     if failures:
         print(f"\n{len(failures)} FAILED: {failures}")
         return 1

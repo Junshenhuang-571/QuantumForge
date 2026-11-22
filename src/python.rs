@@ -1591,6 +1591,883 @@ pub mod python_bindings {
         Ok(crate::dissipative::state_fidelity(&rho, &amplitudes))
     }
 
+    // ------------------------------------------------------------------
+    // Stabilizer formalism
+    // ------------------------------------------------------------------
+
+    /// A stabilizer tableau: Clifford-group state tracking (Gottesman-Knill).
+    ///
+    /// Applies Clifford gates symbolically, so it avoids the exponential cost of
+    /// state-vector simulation. See `quantumforge::stabilizer`.
+    #[pyclass]
+    struct PyStabilizerTableau {
+        inner: crate::stabilizer::StabilizerTableau,
+    }
+
+    #[pymethods]
+    impl PyStabilizerTableau {
+        #[new]
+        fn new(n: usize) -> Self {
+            Self {
+                inner: crate::stabilizer::StabilizerTableau::new(n),
+            }
+        }
+
+        fn h(&mut self, q: usize) {
+            self.inner.h(q);
+        }
+
+        fn s(&mut self, q: usize) {
+            self.inner.s(q);
+        }
+
+        fn cnot(&mut self, c: usize, t: usize) {
+            self.inner.cnot(c, t);
+        }
+
+        fn x(&mut self, q: usize) {
+            self.inner.x(q);
+        }
+
+        fn z(&mut self, q: usize) {
+            self.inner.z(q);
+        }
+
+        /// Measures qubit `q`; returns `(outcome, probability)`.
+        fn measure(&mut self, q: usize) -> (bool, f64) {
+            self.inner.measure(q)
+        }
+
+        /// Whether two tableaux describe the same stabilizer state.
+        fn equivalent(&self, other: &PyStabilizerTableau) -> bool {
+            self.inner.equivalent(&other.inner)
+        }
+
+        fn num_qubits(&self) -> usize {
+            self.inner.num_qubits()
+        }
+
+        fn __repr__(&self) -> String {
+            format!("StabilizerTableau({} qubits)", self.inner.num_qubits())
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Cost-aware circuit optimization
+    // ------------------------------------------------------------------
+
+    /// Logical resource counts for a circuit. T and Tdg are counted separately
+    /// so a cost model can price them differently from other single-qubit gates.
+    #[pyclass]
+    struct PyCircuitCostProfile {
+        inner: crate::optimizer::CircuitCostProfile,
+    }
+
+    #[pymethods]
+    impl PyCircuitCostProfile {
+        #[getter]
+        fn single_qubit_gates(&self) -> usize {
+            self.inner.single_qubit_gates
+        }
+
+        #[getter]
+        fn cnot_gates(&self) -> usize {
+            self.inner.cnot_gates
+        }
+
+        #[getter]
+        fn cz_gates(&self) -> usize {
+            self.inner.cz_gates
+        }
+
+        #[getter]
+        fn swap_gates(&self) -> usize {
+            self.inner.swap_gates
+        }
+
+        #[getter]
+        fn t_gates(&self) -> usize {
+            self.inner.t_gates
+        }
+
+        #[getter]
+        fn tdg_gates(&self) -> usize {
+            self.inner.tdg_gates
+        }
+
+        #[getter]
+        fn measurements(&self) -> usize {
+            self.inner.measurements
+        }
+
+        #[getter]
+        fn conditional_gates(&self) -> usize {
+            self.inner.conditional_gates
+        }
+
+        #[getter]
+        fn channels(&self) -> usize {
+            self.inner.channels
+        }
+
+        #[getter]
+        fn depth(&self) -> usize {
+            self.inner.depth
+        }
+
+        #[getter]
+        fn qubits(&self) -> usize {
+            self.inner.qubits
+        }
+
+        fn total_gates(&self) -> usize {
+            self.inner.total_gates()
+        }
+
+        fn __repr__(&self) -> String {
+            format!(
+                "CircuitCostProfile(gates={}, depth={}, qubits={})",
+                self.inner.total_gates(),
+                self.inner.depth,
+                self.inner.qubits
+            )
+        }
+    }
+
+    /// A weighted cost model over a `CircuitCostProfile`. Weights are not
+    /// normalised; only comparisons made with the same model are meaningful.
+    #[pyclass]
+    struct PyCircuitCostModel {
+        inner: crate::optimizer::CircuitCostModel,
+    }
+
+    #[pymethods]
+    impl PyCircuitCostModel {
+        #[new]
+        #[pyo3(signature = (single_qubit_gate = 1.0, cnot_gate = 1.0, cz_gate = 1.0,
+                            swap_gate = 1.0, t_gate = 1.0, tdg_gate = 1.0,
+                            measurement = 1.0, conditional_gate = 1.0, channel = 1.0,
+                            depth = 0.0, qubit = 0.0))]
+        #[allow(clippy::too_many_arguments)]
+        fn new(
+            single_qubit_gate: f64,
+            cnot_gate: f64,
+            cz_gate: f64,
+            swap_gate: f64,
+            t_gate: f64,
+            tdg_gate: f64,
+            measurement: f64,
+            conditional_gate: f64,
+            channel: f64,
+            depth: f64,
+            qubit: f64,
+        ) -> Self {
+            Self {
+                inner: crate::optimizer::CircuitCostModel {
+                    single_qubit_gate,
+                    cnot_gate,
+                    cz_gate,
+                    swap_gate,
+                    t_gate,
+                    tdg_gate,
+                    measurement,
+                    conditional_gate,
+                    channel,
+                    depth,
+                    qubit,
+                },
+            }
+        }
+
+        /// Relative cost of a profile under this model.
+        fn estimate(&self, profile: &PyCircuitCostProfile) -> PyResult<f64> {
+            self.inner
+                .estimate(&profile.inner)
+                .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))
+        }
+
+        fn __repr__(&self) -> String {
+            format!(
+                "CircuitCostModel(cnot={}, swap={}, t={})",
+                self.inner.cnot_gate, self.inner.swap_gate, self.inner.t_gate
+            )
+        }
+    }
+
+    /// Result of a cost-aware optimization: profiles before and after, modeled
+    /// costs, and whether the rewrite was kept.
+    #[pyclass]
+    struct PyCostAwareOptimizeResult {
+        inner: crate::optimizer::CostAwareOptimizeResult,
+    }
+
+    #[pymethods]
+    impl PyCostAwareOptimizeResult {
+        #[getter]
+        fn original_profile(&self) -> PyCircuitCostProfile {
+            PyCircuitCostProfile {
+                inner: self.inner.original_profile.clone(),
+            }
+        }
+
+        #[getter]
+        fn candidate_profile(&self) -> PyCircuitCostProfile {
+            PyCircuitCostProfile {
+                inner: self.inner.candidate_profile.clone(),
+            }
+        }
+
+        #[getter]
+        fn original_cost(&self) -> f64 {
+            self.inner.original_cost
+        }
+
+        #[getter]
+        fn candidate_cost(&self) -> f64 {
+            self.inner.candidate_cost
+        }
+
+        #[getter]
+        fn applied(&self) -> bool {
+            self.inner.applied
+        }
+
+        fn __repr__(&self) -> String {
+            format!(
+                "CostAwareOptimizeResult(original_cost={}, candidate_cost={}, applied={})",
+                self.inner.original_cost, self.inner.candidate_cost, self.inner.applied
+            )
+        }
+    }
+
+    /// Resource counts for a circuit.
+    #[pyfunction]
+    fn cost_profile_py(circuit: &PyCircuit) -> PyCircuitCostProfile {
+        PyCircuitCostProfile {
+            inner: crate::optimizer::CircuitCostProfile::from_circuit(&circuit.inner),
+        }
+    }
+
+    /// Logical depth from qubit and classical-register dependencies.
+    #[pyfunction]
+    fn circuit_depth_py(circuit: &PyCircuit) -> usize {
+        crate::optimizer::circuit_depth(&circuit.inner)
+    }
+
+    /// Two-qubit gate count.
+    #[pyfunction]
+    fn count_two_qubit_py(circuit: &PyCircuit) -> usize {
+        crate::optimizer::count_two_qubit(&circuit.inner)
+    }
+
+    /// Optimize a copy and keep the rewrite only when it strictly lowers the
+    /// modeled cost. Returns `(circuit, result)`; the input is not mutated.
+    #[pyfunction]
+    fn optimize_for_cost_model_py(
+        circuit: &PyCircuit,
+        config: &PyOptimizeConfig,
+        model: &PyCircuitCostModel,
+    ) -> PyResult<(PyCircuit, PyCostAwareOptimizeResult)> {
+        let (selected, result) =
+            crate::optimizer::optimize_for_cost_model(&circuit.inner, &config.inner, &model.inner)
+                .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?;
+        Ok((
+            PyCircuit { inner: selected },
+            PyCostAwareOptimizeResult { inner: result },
+        ))
+    }
+
+    // ------------------------------------------------------------------
+    // QAOA parameter transfer
+    // ------------------------------------------------------------------
+
+    /// A MaxCut instance: `num_qubits` vertices and weighted `edges`.
+    #[pyclass]
+    struct PyMaxCutProblem {
+        inner: crate::mps_qaoa::MaxCutProblem,
+    }
+
+    #[pymethods]
+    impl PyMaxCutProblem {
+        #[new]
+        fn new(num_qubits: usize, edges: Vec<(usize, usize, f64)>) -> Self {
+            Self {
+                inner: crate::mps_qaoa::MaxCutProblem::new(num_qubits, edges),
+            }
+        }
+
+        /// Random 3-regular graph (configuration model); deterministic per seed.
+        #[staticmethod]
+        fn random_3_regular(num_qubits: usize, seed: u64) -> PyResult<Self> {
+            if num_qubits < 4 || !num_qubits.is_multiple_of(2) {
+                return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                    "3-regular graphs need an even number of vertices >= 4",
+                ));
+            }
+            Ok(Self {
+                inner: crate::mps_qaoa::MaxCutProblem::random_3_regular(num_qubits, seed),
+            })
+        }
+
+        /// Erdős–Rényi graph with edge probability `probability`.
+        #[staticmethod]
+        fn random_er(num_qubits: usize, probability: f64, seed: u64) -> Self {
+            Self {
+                inner: crate::mps_qaoa::MaxCutProblem::random_er(num_qubits, probability, seed),
+            }
+        }
+
+        /// Barabási–Albert preferential-attachment graph.
+        #[staticmethod]
+        fn random_ba(num_qubits: usize, edges_per_node: usize, seed: u64) -> PyResult<Self> {
+            if edges_per_node == 0 {
+                return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                    "edges_per_node must be positive",
+                ));
+            }
+            Ok(Self {
+                inner: crate::mps_qaoa::MaxCutProblem::random_ba(num_qubits, edges_per_node, seed),
+            })
+        }
+
+        /// Copy of this graph with fresh uniform weights in `[min_weight, max_weight)`.
+        fn with_random_weights(&self, seed: u64, min_weight: f64, max_weight: f64) -> Self {
+            Self {
+                inner: self.inner.with_random_weights(seed, min_weight, max_weight),
+            }
+        }
+
+        #[getter]
+        fn num_qubits(&self) -> usize {
+            self.inner.num_qubits
+        }
+
+        #[getter]
+        fn edges(&self) -> Vec<(usize, usize, f64)> {
+            self.inner.edges.clone()
+        }
+
+        fn __repr__(&self) -> String {
+            format!(
+                "MaxCutProblem(vertices={}, edges={})",
+                self.inner.num_qubits,
+                self.inner.edges.len()
+            )
+        }
+    }
+
+    /// Settings for `run_parameter_transfer`. The defaults match the Rust
+    /// module: `depth = 15`, `tqa_dt = 0.75`, and `donor_learning_rate = 0.05`
+    /// (the paper's 0.1 stalls under finite-difference gradients).
+    #[pyclass]
+    struct PyTransferOptions {
+        inner: crate::qaoa_transfer::TransferOptions,
+    }
+
+    #[pymethods]
+    impl PyTransferOptions {
+        #[new]
+        #[pyo3(signature = (depth = 15, tqa_dt = 0.75, donor_learning_rate = 0.05,
+                            donor_epsilon = 1e-8, donor_iterations = 100,
+                            compare_full_optimization = false))]
+        #[allow(clippy::too_many_arguments)]
+        fn new(
+            depth: usize,
+            tqa_dt: f64,
+            donor_learning_rate: f64,
+            donor_epsilon: f64,
+            donor_iterations: usize,
+            compare_full_optimization: bool,
+        ) -> Self {
+            Self {
+                inner: crate::qaoa_transfer::TransferOptions {
+                    depth,
+                    tqa_dt,
+                    donor_learning_rate,
+                    donor_epsilon,
+                    donor_iterations,
+                    compare_full_optimization,
+                    ..crate::qaoa_transfer::TransferOptions::default()
+                },
+            }
+        }
+
+        #[getter]
+        fn depth(&self) -> usize {
+            self.inner.depth
+        }
+
+        #[getter]
+        fn donor_learning_rate(&self) -> f64 {
+            self.inner.donor_learning_rate
+        }
+
+        #[getter]
+        fn compare_full_optimization(&self) -> bool {
+            self.inner.compare_full_optimization
+        }
+
+        fn __repr__(&self) -> String {
+            format!(
+                "TransferOptions(depth={}, lr={}, compare_full={})",
+                self.inner.depth,
+                self.inner.donor_learning_rate,
+                self.inner.compare_full_optimization
+            )
+        }
+    }
+
+    /// Outcome of the transfer pipeline: donor and acceptor angles, the targeted
+    /// layer, and the paper's ratios `r_n` and `r_s`.
+    #[pyclass]
+    struct PyTransferOutcome {
+        inner: crate::qaoa_transfer::TransferOutcome,
+    }
+
+    #[pymethods]
+    impl PyTransferOutcome {
+        #[getter]
+        fn donor_gammas(&self) -> Vec<f64> {
+            self.inner.donor_parameters.gammas.clone()
+        }
+
+        #[getter]
+        fn donor_betas(&self) -> Vec<f64> {
+            self.inner.donor_parameters.betas.clone()
+        }
+
+        #[getter]
+        fn optimized_gammas(&self) -> Vec<f64> {
+            self.inner.optimized.gammas.clone()
+        }
+
+        #[getter]
+        fn optimized_betas(&self) -> Vec<f64> {
+            self.inner.optimized.betas.clone()
+        }
+
+        #[getter]
+        fn target_layer(&self) -> usize {
+            self.inner.target_layer
+        }
+
+        #[getter]
+        fn refinement_energies(&self) -> Vec<f64> {
+            self.inner.refinement_energies.clone()
+        }
+
+        /// Acceptor cut expectation after the targeted step.
+        #[getter]
+        fn energy(&self) -> f64 {
+            self.inner.energy
+        }
+
+        /// `energy / reference` — the paper's `r_s`.
+        #[getter]
+        fn approximation_ratio(&self) -> f64 {
+            self.inner.approximation_ratio
+        }
+
+        /// Cut expectation of the transferred angles before acceptor optimization.
+        #[getter]
+        fn transferred_ratio(&self) -> f64 {
+            self.inner.transferred_ratio
+        }
+
+        /// Ratio of a full `2p`-angle acceptor optimization, if requested.
+        #[getter]
+        fn full_optimization_ratio(&self) -> Option<f64> {
+            self.inner.full_optimization_ratio
+        }
+
+        fn __repr__(&self) -> String {
+            format!(
+                "TransferOutcome(r_s={}, r_n={}, energy={})",
+                self.inner.approximation_ratio, self.inner.transferred_ratio, self.inner.energy
+            )
+        }
+    }
+
+    /// Run parameter transfer plus targeted-layer optimization from a donor
+    /// graph to a larger acceptor of the same family. Raises `ValueError` when
+    /// the donor is larger than the acceptor or the acceptor has no edges.
+    #[pyfunction]
+    fn run_parameter_transfer_py(
+        donor: &PyMaxCutProblem,
+        acceptor: &PyMaxCutProblem,
+        options: &PyTransferOptions,
+    ) -> PyResult<PyTransferOutcome> {
+        let outcome = crate::qaoa_transfer::run_parameter_transfer(
+            &donor.inner,
+            &acceptor.inner,
+            &options.inner,
+        )
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?;
+        Ok(PyTransferOutcome { inner: outcome })
+    }
+
+    // ------------------------------------------------------------------
+    // Adiabatic quantum computing
+    // ------------------------------------------------------------------
+
+    /// The annealing path `s(t)`.
+    #[pyclass]
+    #[derive(Clone)]
+    struct PyAnnealPath {
+        inner: crate::aqc::AnnealPath,
+    }
+
+    #[pymethods]
+    impl PyAnnealPath {
+        /// `s = tau`, the standard linear interpolation.
+        #[staticmethod]
+        fn linear() -> Self {
+            Self {
+                inner: crate::aqc::AnnealPath::Linear,
+            }
+        }
+
+        /// Roland–Cerf "fast start": `s = tau / (tau + a (1 - tau))`.
+        #[staticmethod]
+        fn fast_start(a: f64) -> Self {
+            Self {
+                inner: crate::aqc::AnnealPath::FastStart(a),
+            }
+        }
+
+        /// Polynomial path `s = tau^p`.
+        #[staticmethod]
+        fn polynomial(p: f64) -> Self {
+            Self {
+                inner: crate::aqc::AnnealPath::Polynomial(p),
+            }
+        }
+
+        /// Evaluate the path at normalized time `tau` in `[0, 1]`.
+        fn at(&self, tau: f64) -> f64 {
+            self.inner.at(tau)
+        }
+
+        fn label(&self) -> String {
+            self.inner.label()
+        }
+
+        fn __repr__(&self) -> String {
+            format!("AnnealPath({})", self.inner.label())
+        }
+    }
+
+    /// An adiabatic interpolation between a dense driver `H0` and problem `H1`.
+    #[pyclass]
+    struct PyAdiabaticSchedule {
+        inner: crate::aqc::AdiabaticSchedule,
+    }
+
+    #[pymethods]
+    impl PyAdiabaticSchedule {
+        /// Build from row-major dense matrices of dimension `2^qubits`.
+        #[staticmethod]
+        fn from_dense(qubits: usize, h0: Vec<f64>, h1: Vec<f64>) -> PyResult<Self> {
+            Ok(Self {
+                inner: crate::aqc::AdiabaticSchedule::from_dense(qubits, h0, h1)
+                    .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?,
+            })
+        }
+
+        /// Return a copy using a different annealing path.
+        fn with_path(&self, path: &PyAnnealPath) -> Self {
+            Self {
+                inner: self.inner.clone().with_path(path.inner),
+            }
+        }
+
+        fn path(&self) -> PyAnnealPath {
+            PyAnnealPath {
+                inner: self.inner.path(),
+            }
+        }
+
+        /// The annealing parameter at normalized time `tau`.
+        fn s_at(&self, tau: f64) -> f64 {
+            self.inner.s_at(tau)
+        }
+
+        /// Exact ground-state energy of `H1`.
+        fn problem_ground_energy(&self) -> PyResult<f64> {
+            self.inner
+                .problem_ground_energy()
+                .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))
+        }
+
+        fn qubits(&self) -> usize {
+            self.inner.qubits()
+        }
+
+        fn __repr__(&self) -> String {
+            format!(
+                "AdiabaticSchedule(qubits={}, path={})",
+                self.inner.qubits(),
+                self.inner.path().label()
+            )
+        }
+    }
+
+    /// Result of an adiabatic run. `final_energy` close to `exact_ground_energy`
+    /// means the state tracked the ground state.
+    #[pyclass]
+    struct PyAdiabaticResult {
+        inner: crate::aqc::AdiabaticResult,
+    }
+
+    #[pymethods]
+    impl PyAdiabaticResult {
+        #[getter]
+        fn final_state(&self) -> Vec<(f64, f64)> {
+            self.inner
+                .final_state
+                .iter()
+                .map(|c| (c.re, c.im))
+                .collect()
+        }
+
+        #[getter]
+        fn initial_energy(&self) -> f64 {
+            self.inner.initial_energy
+        }
+
+        #[getter]
+        fn final_energy(&self) -> f64 {
+            self.inner.final_energy
+        }
+
+        #[getter]
+        fn exact_ground_energy(&self) -> f64 {
+            self.inner.exact_ground_energy
+        }
+
+        #[getter]
+        fn total_time(&self) -> f64 {
+            self.inner.total_time
+        }
+
+        fn __repr__(&self) -> String {
+            format!(
+                "AdiabaticResult(final_energy={}, exact_ground_energy={})",
+                self.inner.final_energy, self.inner.exact_ground_energy
+            )
+        }
+    }
+
+    /// Run the adiabatic interpolation from `s = 0` to `s = 1` over
+    /// `total_time`, starting from `initial` (typically the `H0` ground state
+    /// `|+...+>`). `tolerance` and `max_steps` control the adaptive integrator.
+    #[pyfunction]
+    #[pyo3(signature = (schedule, initial, total_time, tolerance = 1e-8, max_steps = 100_000))]
+    fn run_adiabatic_py(
+        schedule: &PyAdiabaticSchedule,
+        initial: &PyStateVector,
+        total_time: f64,
+        tolerance: f64,
+        max_steps: usize,
+    ) -> PyResult<PyAdiabaticResult> {
+        let result = crate::aqc::run_adiabatic(
+            &schedule.inner,
+            &initial.inner,
+            total_time,
+            tolerance,
+            max_steps,
+        )
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?;
+        Ok(PyAdiabaticResult { inner: result })
+    }
+
+    // ------------------------------------------------------------------
+    // Quantum Turing machines
+    // ------------------------------------------------------------------
+
+    /// One entry of a QTM transition table: the state entered, the symbol
+    /// written, and the head movement.
+    #[pyclass]
+    #[derive(Clone)]
+    struct PyQtmTransition {
+        inner: crate::qtm::Transition,
+    }
+
+    #[pymethods]
+    impl PyQtmTransition {
+        #[new]
+        fn new(next_state: usize, write: u8, direction: &str) -> PyResult<Self> {
+            let direction = match direction {
+                "left" | "L" => crate::qtm::Direction::Left,
+                "right" | "R" => crate::qtm::Direction::Right,
+                "stay" | "S" => crate::qtm::Direction::Stay,
+                other => {
+                    return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+                        "unknown direction '{other}'; expected left, right or stay"
+                    )));
+                }
+            };
+            Ok(Self {
+                inner: crate::qtm::Transition {
+                    next_state,
+                    write,
+                    direction,
+                },
+            })
+        }
+
+        #[getter]
+        fn next_state(&self) -> usize {
+            self.inner.next_state
+        }
+
+        #[getter]
+        fn write(&self) -> u8 {
+            self.inner.write
+        }
+
+        fn direction(&self) -> &'static str {
+            match self.inner.direction {
+                crate::qtm::Direction::Left => "left",
+                crate::qtm::Direction::Right => "right",
+                crate::qtm::Direction::Stay => "stay",
+            }
+        }
+
+        fn __repr__(&self) -> String {
+            format!(
+                "QtmTransition(next_state={}, write={}, direction={})",
+                self.inner.next_state,
+                self.inner.write,
+                self.direction()
+            )
+        }
+    }
+
+    /// A classical QTM configuration: tape contents, head position, state.
+    #[pyclass]
+    #[derive(Clone)]
+    struct PyQtmConfiguration {
+        inner: crate::qtm::Configuration,
+    }
+
+    #[pymethods]
+    impl PyQtmConfiguration {
+        #[new]
+        fn new(tape: Vec<u8>, head: usize, state: usize) -> Self {
+            Self {
+                inner: crate::qtm::Configuration { tape, head, state },
+            }
+        }
+
+        #[getter]
+        fn tape(&self) -> Vec<u8> {
+            self.inner.tape.clone()
+        }
+
+        #[getter]
+        fn head(&self) -> usize {
+            self.inner.head
+        }
+
+        #[getter]
+        fn state(&self) -> usize {
+            self.inner.state
+        }
+
+        fn __repr__(&self) -> String {
+            format!(
+                "QtmConfiguration(head={}, state={}, tape={:?})",
+                self.inner.head, self.inner.state, self.inner.tape
+            )
+        }
+    }
+
+    /// A declarative quantum Turing machine over a finite tape. The transition
+    /// table must be a bijection, or the unitary synthesis is rejected.
+    #[pyclass]
+    struct PyQuantumTuringMachine {
+        inner: crate::qtm::QuantumTuringMachine,
+    }
+
+    #[pymethods]
+    impl PyQuantumTuringMachine {
+        /// `transitions[state][read]` is `QtmTransition` or `None`.
+        #[new]
+        fn new(
+            states: usize,
+            alphabet: usize,
+            tape_cells: usize,
+            head_cells: usize,
+            transitions: Vec<Vec<Option<PyQtmTransition>>>,
+            initial_state: usize,
+        ) -> PyResult<Self> {
+            let transitions = transitions
+                .into_iter()
+                .map(|row| row.into_iter().map(|t| t.map(|t| t.inner)).collect())
+                .collect();
+            Ok(Self {
+                inner: crate::qtm::QuantumTuringMachine::new(
+                    states,
+                    alphabet,
+                    tape_cells,
+                    head_cells,
+                    transitions,
+                    initial_state,
+                )
+                .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?,
+            })
+        }
+
+        fn qubits(&self) -> usize {
+            self.inner.qubits()
+        }
+
+        /// Whether the transition table is a reversible bijection.
+        fn is_buildable(&self) -> PyResult<()> {
+            self.inner
+                .is_buildable()
+                .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))
+        }
+
+        /// Number of reachable configurations the table fails to match.
+        fn reversibility_gap(&self) -> usize {
+            self.inner.reversibility_gap()
+        }
+
+        /// Entropy produced per step, in nats.
+        fn entropy_production_per_step(&self) -> f64 {
+            self.inner.entropy_production_per_step()
+        }
+
+        /// Landauer heat dissipated per step at `temperature` (in kT units).
+        fn landauer_heat_per_step(&self, temperature: f64) -> f64 {
+            self.inner.landauer_heat_per_step(temperature)
+        }
+
+        /// One classical step; `None` when the machine halts.
+        fn step_classical(&self, config: &PyQtmConfiguration) -> Option<PyQtmConfiguration> {
+            self.inner
+                .step_classical(&config.inner)
+                .map(|inner| PyQtmConfiguration { inner })
+        }
+
+        /// Run classically for at most `max_steps`.
+        fn run_classical(
+            &self,
+            initial: &PyQtmConfiguration,
+            max_steps: usize,
+        ) -> PyQtmConfiguration {
+            PyQtmConfiguration {
+                inner: self.inner.run_classical(&initial.inner, max_steps),
+            }
+        }
+
+        fn __repr__(&self) -> String {
+            format!("QuantumTuringMachine({} qubits)", self.inner.qubits())
+        }
+    }
+
     /// Python module definition
     #[pymodule]
     pub fn quantumforge(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
@@ -1625,6 +2502,35 @@ pub mod python_bindings {
         // SubsCoRe
         m.add_class::<PySubsCoReOutcome>()?;
         m.add_function(wrap_pyfunction!(vqe_subscore_py, m)?)?;
+
+        // Stabilizer formalism
+        m.add_class::<PyStabilizerTableau>()?;
+
+        // Cost-aware optimization
+        m.add_class::<PyCircuitCostProfile>()?;
+        m.add_class::<PyCircuitCostModel>()?;
+        m.add_class::<PyCostAwareOptimizeResult>()?;
+        m.add_function(wrap_pyfunction!(cost_profile_py, m)?)?;
+        m.add_function(wrap_pyfunction!(circuit_depth_py, m)?)?;
+        m.add_function(wrap_pyfunction!(count_two_qubit_py, m)?)?;
+        m.add_function(wrap_pyfunction!(optimize_for_cost_model_py, m)?)?;
+
+        // QAOA parameter transfer
+        m.add_class::<PyMaxCutProblem>()?;
+        m.add_class::<PyTransferOptions>()?;
+        m.add_class::<PyTransferOutcome>()?;
+        m.add_function(wrap_pyfunction!(run_parameter_transfer_py, m)?)?;
+
+        // Adiabatic quantum computing
+        m.add_class::<PyAnnealPath>()?;
+        m.add_class::<PyAdiabaticSchedule>()?;
+        m.add_class::<PyAdiabaticResult>()?;
+        m.add_function(wrap_pyfunction!(run_adiabatic_py, m)?)?;
+
+        // Quantum Turing machines
+        m.add_class::<PyQtmTransition>()?;
+        m.add_class::<PyQtmConfiguration>()?;
+        m.add_class::<PyQuantumTuringMachine>()?;
 
         // Noise / thermodynamics
         m.add_function(wrap_pyfunction!(thermal_gibbs_py, m)?)?;

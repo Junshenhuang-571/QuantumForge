@@ -118,16 +118,47 @@
 ## [Unreleased]
 
 ### Added
+- **Python bindings: five more subsystems, 23 new names (68 total).**
+  `StabilizerTableau`; the cost-aware optimizer (`cost_profile`,
+  `circuit_depth`, `count_two_qubit`, `CircuitCostProfile`, `CircuitCostModel`,
+  `CostAwareOptimizeResult`, `optimize_for_cost_model`); QAOA parameter transfer
+  (`MaxCutProblem`, `TransferOptions`, `TransferOutcome`,
+  `run_parameter_transfer`); adiabatic QC (`AnnealPath`, `AdiabaticSchedule`,
+  `AdiabaticResult`, `run_adiabatic`); and quantum Turing machines
+  (`QtmTransition`, `QtmConfiguration`, `QuantumTuringMachine`).
 - CI compiles the `gpu` feature. cudarc loads the driver at runtime and needs
   no toolkit, so unlike `cuda` it builds on a GPU-less runner.
 - The GitHub Pages landing page (`docs/index.html`) now covers the Python
   bindings: install path, a feature card, a worked example, and links to
   `python/README.md` and `python/API.md`.
+- `python/API.md` documents all 68 names; `python/test_api.py` grew to 104
+  checks, and `test_exports.py` now also catches extension functions the shim
+  forgets to re-export.
 
 ### Fixed
 - `python/README.md`'s quickstart showed `[0.5, 0.0, 0.0, 0.5]` for
   `probabilities()`; the actual value is `0.5000000000000001` for the two
   non-zero entries (1/sqrt(2) squared in binary floating point).
+- **The stabilizer tableau was wrong in six ways**, all found by the new Python
+  binding and all now covered by `tests/stabilizer.rs` (the module previously
+  had no tests at all):
+  - `measure` searched all `2n` rows, so when the first row anticommuting with
+    `Z_q` was a *destabilizer* the code indexed `r + n` out of bounds and
+    panicked. It now searches the `n` stabilizer rows.
+  - `measure` overwrote stabilizer row `r` with `±Z_q` before copying it to the
+    destabilizer row, so the copy read the new row.
+  - `cnot` applied `X_c -> X_c X_t` and `Z_t -> Z_c Z_t` with the operands
+    swapped, giving the stabilizer group of a different state.
+  - `h` multiplied a Y row by `i`; `H Y H = -Y` requires `-1`.
+  - `s` dropped the factor of `i` on the `Y -> -X` path.
+  - `equivalent` was a stub returning `self.n == other.n`, so it called any two
+    same-width tableaux equal. It now compares stabilizer groups by reducing
+    each to row echelon form with phases.
+- **Four extension functions were registered but never re-exported**, so
+  `import quantumforge` could not reach them: `thermal_gibbs`,
+  `shot_noise_temperature`, `vqt`, `dissipative_prepare`.
+- `StabilizerTableau::num_qubits` and `Clone` on `AdiabaticSchedule` added;
+  both were needed by the bindings and are generally useful.
 
 ### Documentation
 - `docs/performance.md` gains a **recorded baseline**: one `cargo bench --bench
