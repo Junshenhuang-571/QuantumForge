@@ -130,6 +130,10 @@
   non-zero entries (1/sqrt(2) squared in binary floating point).
 
 ### Documentation
+- `docs/performance.md` gains a **recorded baseline**: one `cargo bench --bench
+  core` run (2026-11-20, i9-11950H, rustc 1.88.0, default features) with the
+  state-vector, density-matrix, exact-rational and optimizer numbers. A single
+  run, so differences below ~2x are noise.
 - `docs/wiki/GPU-Acceleration.md` now states that the `cuda` feature is not
   compiled in CI and could be broken on `main` without anyone noticing; `gpu`
   is the supported path anywhere.

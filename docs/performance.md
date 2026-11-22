@@ -97,6 +97,59 @@ Focus on the areas most likely to affect real usage:
 - measurement and shot generation throughput
 - GPU offload benefit at larger qubit counts
 
+## Recorded baseline
+
+One `cargo bench --bench core` run, 2026-11-20. These are a reference point, not
+a guarantee: a single run on one machine, so treat differences below ~2x as
+noise. Criterion reports the mean of its sample distribution.
+
+- Machine: 11th Gen Intel Core i9-11950H (Windows), release profile
+- Toolchain: rustc 1.88.0 (6b00bc388 2025-06-23)
+- Command: `cargo bench --bench core`
+- Features: default (`rayon`)
+
+### State vector
+
+| benchmark | 8 qubits | 12 qubits | 16 qubits |
+|---|---|---|---|
+| `apply_all_h` | 150.25 µs | 475.71 µs | 10.594 ms |
+| `cnot_chain` | 2.860 µs | 287.41 µs | 9.875 ms |
+
+The jump from 12 to 16 qubits is the expected 16x state-vector growth (4096 to
+65536 amplitudes) plus allocation, not a cliff in the gate loop.
+
+### Density matrix
+
+| benchmark | 4 qubits | 6 qubits | 8 qubits |
+|---|---|---|---|
+| `cnot` | 289.25 ns | 4.892 µs | 331.11 µs |
+| `from_state` | 273.73 ns | 3.525 µs | 280.72 µs |
+
+### Exact-rational analytic core
+
+| benchmark | time |
+|---|---|
+| `rational_add_chain` | 10.343 µs |
+| `rational_mul_reduce` | 5.485 µs |
+| `exact_complex_add_chain` | 14.109 µs |
+| `pauli_sum_build_add` | 3.465 µs |
+
+### Measurement and optimization
+
+| benchmark | time |
+|---|---|
+| `measure_12q` | 8.105 µs |
+| `circuit_optimization/cancel_inverse_pairs/128` | 7.386 µs |
+| `circuit_optimization/cancel_inverse_pairs/512` | 29.347 µs |
+| `circuit_optimization/cancel_inverse_pairs/2048` | 116.24 µs |
+| `circuit_optimization/run_redundant_512_pairs` | 38.108 ms |
+| `circuit_optimization/run_preoptimized_512_pairs` | 8.368 ns |
+| `circuit_optimization/optimize_then_run_512_pairs` | 30.673 µs |
+
+`run_preoptimized` at 8 ns against 38 ms for the redundant circuit is the
+clearest number here: optimizing once and reusing the result is roughly six
+orders of magnitude cheaper than re-running the unoptimized circuit.
+
 ## Reporting performance changes
 
 When submitting a benchmark-related change, include:
