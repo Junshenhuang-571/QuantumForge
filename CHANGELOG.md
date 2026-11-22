@@ -178,6 +178,10 @@
   both were needed by the bindings and are generally useful.
 
 ### Documentation
+- `docs/README.md` lists every example. `bench_gpu_lanczos` was removed: it
+  duplicated `bench_dmrg` and printed `gpu` as the backend label while running
+  the plain CPU `DMRG`, so its output claimed a backend it never used. It was
+  referenced nowhere.
 - `docs/performance.md` gains a **recorded baseline**: one `cargo bench --bench
   core` run (2026-11-20, i9-11950H, rustc 1.88.0, default features) with the
   state-vector, density-matrix, exact-rational and optimizer numbers. A single

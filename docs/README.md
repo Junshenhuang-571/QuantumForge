@@ -92,6 +92,15 @@ Every example is runnable (`cargo run --example <name>`); the ones marked
 - `cost_aware_optimization` — rewrite against a weighted cost model
 - `qtm_probe` — quantum Turing machine exploration
 - `gpu_bench` — GPU benchmark entry point
+- `exact_identities` — exact verification of polynomial identities, and the hard
+  gate on non-polynomial input
+- `bench_community` — QFT / GHZ / Grover / Bernstein-Vazirani / Deutsch-Jozsa at
+  4 and 8 qubits, with the corpus each circuit comes from
+- `bench_dmrg` — DMRG on the TFIM chain at 6, 8, 10, 12 sites
+- `bench_mqt` — QASM circuits under `tests/mqt_circuits/`, parsed and re-simulated
+- `gpu_matmul` — cuBLAS matmul via cudarc. Prints a "requires the 'gpu'
+  feature" notice when run without it; use
+  `cargo run --example gpu_matmul --features gpu`
 
 ## Conventions used throughout
 
