@@ -150,6 +150,11 @@
   forgets to re-export.
 
 ### Fixed
+- **`url` 2.5.8 -> 2.5.9**, which closes RUSTSEC-2026-0592 (stack overflow in
+  `Url::origin()` on nested `blob:` URLs). `url` arrives transitively through
+  `reqwest`; `form_urlencoded` moved 1.2.2 -> 1.2.3 with it. `cargo audit` is
+  green again — the only remaining entry is RUSTSEC-2024-0436, an unmaintained
+  `paste`, which is explicitly ignored.
 - **`quantumforge shots` printed `": 200"`** for a circuit with no `Measure`
   operations — one empty bitstring carrying every shot, because
   `Circuit::run_shots` reports whatever classical bits the circuit writes and
