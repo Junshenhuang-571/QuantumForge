@@ -118,6 +118,11 @@
 ## [Unreleased]
 
 ### Added
+- `Circuit::has_measurements()`, so a caller can tell whether `run_shots` will
+  report real classical bits or a single empty one.
+- `tests/numeric_ir.rs` (7 tests) and `tests/cli_main.rs` (11 tests), covering
+  the two lowest-coverage targets from `docs/coverage.md`: `numeric_ir` was at
+  3/183 lines and `src/bin/main.rs` at 0/259.
 - **Module-level test-coverage gate.** `scripts/module_test_coverage.py` reports
   which public modules nothing under `tests/`, `examples/` or `python/`
   references, and fails CI on any zero. It immediately found three: `serialize`,
@@ -145,6 +150,23 @@
   forgets to re-export.
 
 ### Fixed
+- **`quantumforge shots` printed `": 200"`** for a circuit with no `Measure`
+  operations — one empty bitstring carrying every shot, because
+  `Circuit::run_shots` reports whatever classical bits the circuit writes and
+  the CLI added none. The CLI now samples every qubit when the circuit declares
+  no measurements and uses the circuit's own `Measure[q,c]` mapping otherwise.
+  Added `Circuit::has_measurements()` so callers can check; the usage text
+  documents the behaviour.
+- **`quantumforge demo` panicked at the end.** The final data-encoded QNN
+  section reused the four-element `initial_weights` from the earlier
+  four-parameter `VariationalQnn` on a one-parameter `ParameterizedCircuit`,
+  so `mse_loss_and_gradient` returned `InvalidParameterCount { expected: 1,
+  actual: 4 }` and `.expect("QNN batch")` aborted. The demo now trains from a
+  one-element start and reaches loss 0.190254 -> 0.000000. This had been
+  invisible because the demo's own output ends cleanly several lines earlier and
+  no test ran it to completion.
+- **`quantumforge demo` printed a hard-coded `QuantumForge 0.1` banner** on a
+  0.2.9 crate. It now uses `CARGO_PKG_VERSION`.
 - **`Grover::run` returned `{[]: shots}`** — `Grover::build()` appends no
   measurement operations, so `run_shots` produced one empty bitstring instead of
   a per-qubit outcome. `run` now adds `measure(i, i)`; `build`'s docs state that

@@ -87,6 +87,12 @@ pub enum NumericIrError {
     /// The expression is complex-valued and cannot be lowered to real IR.
     ComplexValueUnsupported,
     /// The scalar expression uses operations outside the real-valued subset.
+    ///
+    /// Currently **unreachable**: `ScalarExpr` is a closed enum of thirteen
+    /// variants and `lower_scalar` matches all thirteen exhaustively, so no
+    /// expression can produce this. It is kept so that adding a fourteenth
+    /// variant forces a decision here rather than a silent `unreachable!()`.
+    /// Do not write a test asserting this variant — there is nothing to call.
     UnsupportedScalarExpression,
     /// An input or computed value was not finite.
     NonFiniteValue,

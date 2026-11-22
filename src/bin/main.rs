@@ -50,6 +50,15 @@ fn run_shots(args: &[String]) {
             .parse::<u64>()
             .map_err(|_| "SEED must be a nonnegative integer".to_owned())?;
         let circuit = parse_circuit(&args[3..].join(" ")).map_err(|error| error.to_string())?;
+        // A circuit with no Measure operations would report one empty bitstring
+        // carrying every shot. Sample all qubits instead, which is what a caller
+        // asking for shots means.
+        let mut circuit = circuit;
+        if !circuit.has_measurements() {
+            for qubit in 0..qubits {
+                circuit.measure(qubit, qubit);
+            }
+        }
         let initial = StateVector::zero(qubits).map_err(|error| error.to_string())?;
         let result = circuit
             .run_shots(&initial, shots, seed)
@@ -239,7 +248,10 @@ fn run_cuda_demo() {
 }
 
 fn run_demo() {
-    println!("QuantumForge 0.1 — CPU quantum kernel and QNN demo");
+    println!(
+        "QuantumForge {} — CPU quantum kernel and QNN demo",
+        env!("CARGO_PKG_VERSION")
+    );
 
     let x = ScalarExpr::symbol("x");
     let scalar = ScalarExpr::add([
@@ -499,10 +511,15 @@ fn run_demo() {
     qnn_model.encode_rotation(RotationAxis::Y, 0, 0);
     qnn_model.rotation(RotationAxis::Y, 0, 0);
     let qnn_data: Vec<(Vec<f64>, f64)> = data.iter().map(|(x, y)| (vec![*x], *y)).collect();
+    // This model has exactly one parameter: `encode_rotation(Y, 0, 0)` binds
+    // input 0 to parameter 0 and `rotation(Y, 0, 0)` reuses it. The four-element
+    // `initial_weights` above belong to the earlier four-parameter `VariationalQnn`
+    // and would be rejected as `InvalidParameterCount`.
+    let qnn_initial = vec![0.0];
     let (general_initial_loss, _) = qnn_model
         .mse_loss_and_gradient(
             &qnn_data,
-            &initial_weights,
+            &qnn_initial,
             1,
             quantumforge::SingleQubitObservable::Z,
             0,
@@ -511,7 +528,7 @@ fn run_demo() {
     let trained_weights = qnn_model
         .train_regression_adam(
             &qnn_data,
-            &initial_weights,
+            &qnn_initial,
             1,
             quantumforge::SingleQubitObservable::Z,
             0,
@@ -549,5 +566,9 @@ fn print_help() {
     println!("       quantumforge cuda-demo");
     println!(
         "\nThe demo runs a one-qubit CPU simulation, seeded measurement, and a tiny variational QNN training loop."
+    );
+    println!(
+        "\n`shots` samples every qubit when the circuit declares no Measure operations;\n\
+         otherwise it uses the circuit's own Measure[q,c] mapping."
     );
 }

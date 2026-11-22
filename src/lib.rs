@@ -2409,6 +2409,18 @@ impl Circuit {
             classical_bit,
         });
     }
+    /// True when the circuit contains at least one measurement.
+    ///
+    /// This matters because [`Circuit::run_shots`] reports whatever classical
+    /// bits the circuit actually writes: a circuit with no `Measure` operations
+    /// yields a single empty bitstring carrying every shot, which is almost
+    /// never what the caller meant. Callers that sample outcomes should check
+    /// this and add `measure(i, i)` when it is false.
+    pub fn has_measurements(&self) -> bool {
+        self.operations
+            .iter()
+            .any(|op| matches!(op, CircuitOp::Measure { .. }))
+    }
     /// Apply a one-qubit gate only when a classical bit has the requested value.
     pub fn if_classical_bit(&mut self, classical_bit: usize, value: u8, gate: Gate, target: usize) {
         self.operations.push(CircuitOp::ConditionalSingleQubit {
