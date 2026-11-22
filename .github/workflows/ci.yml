@@ -102,10 +102,10 @@ jobs:
           - llvm
           - python
           - rayon
-          # cudarc loads the driver at runtime and needs no toolkit, so it
-          # compiles on a GPU-less runner. `cuda` cannot: it links libcuda at
-          # build time and is therefore not covered here.
-          - gpu
+          # Neither CUDA feature is covered here: cudarc's build script probes
+          # for `include/cuda.h` at build time, so `gpu` needs the toolkit
+          # headers even though it loads the driver dynamically at runtime.
+          # `cuda` additionally links libcuda. Both must be compiled locally.
           - ibm
           - ionq
           - rigetti

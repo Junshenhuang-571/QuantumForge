@@ -126,8 +126,8 @@
   `run_parameter_transfer`); adiabatic QC (`AnnealPath`, `AdiabaticSchedule`,
   `AdiabaticResult`, `run_adiabatic`); and quantum Turing machines
   (`QtmTransition`, `QtmConfiguration`, `QuantumTuringMachine`).
-- CI compiles the `gpu` feature. cudarc loads the driver at runtime and needs
-  no toolkit, so unlike `cuda` it builds on a GPU-less runner.
+- CI does **not** compile either CUDA feature, and the docs now say so: see
+  the correction below.
 - The GitHub Pages landing page (`docs/index.html`) now covers the Python
   bindings: install path, a feature card, a worked example, and links to
   `python/README.md` and `python/API.md`.
@@ -136,6 +136,14 @@
   forgets to re-export.
 
 ### Fixed
+- **A previous entry here claimed CI compiles the `gpu` feature. It does not.**
+  cudarc's build script probes for `include/cuda.h` at build time, so `gpu`
+  needs the CUDA toolkit headers even though it loads the driver dynamically at
+  runtime. It compiled on this machine only because CUDA is installed here; on a
+  GPU-less runner it fails with "Unable to find `include/cuda.h`". The matrix
+  entry has been removed and `docs/wiki/GPU-Acceleration.md` now states that
+  neither CUDA feature is CI-covered. Verifying `gpu` needs
+  `cargo check --features gpu` on a machine with the toolkit.
 - `python/README.md`'s quickstart showed `[0.5, 0.0, 0.0, 0.5]` for
   `probabilities()`; the actual value is `0.5000000000000001` for the two
   non-zero entries (1/sqrt(2) squared in binary floating point).

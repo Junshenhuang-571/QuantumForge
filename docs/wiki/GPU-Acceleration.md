@@ -4,14 +4,23 @@
 
 | Flag | Backend | Use Case | Compiled in CI |
 |------|---------|----------|----------------|
-| `--features gpu` | cudarc (CUDA 12) | Sparse Lanczos, batched circuits | yes |
+| `--features gpu` | cudarc (CUDA 12) | Sparse Lanczos, batched circuits | **no** |
 | `--features cuda` | Native CUDA driver | Batched circuit execution | **no** |
 
-**`cuda` is not covered by CI.** It links `libcuda` at build time, so it cannot
-compile on a GPU-less runner, and a broken `cuda` build would not be caught by
-any push or PR. The `gpu` feature is the supported path anywhere: cudarc loads
-the driver dynamically at runtime and needs no toolkit. Compile `cuda` locally
-with `cargo check --features cuda` before relying on it.
+**Neither CUDA feature is covered by CI.** cudarc's build script probes for
+`include/cuda.h` at build time, so `--features gpu` needs the toolkit headers
+even though it loads the driver dynamically at runtime; `cuda` additionally
+links `libcuda`. A broken build of either would not be caught by any push or
+PR, and a local `CUDA_PATH` makes it compile on a developer machine while CI
+fails. Compile both locally before relying on them:
+
+```bash
+cargo check --features gpu
+cargo check --features cuda   # needs a CUDA toolkit and a driver
+```
+
+The non-CUDA paths are unaffected: everything else in the crate builds and is
+tested without a GPU.
 
 ## GPU Paths
 
