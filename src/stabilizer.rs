@@ -4,6 +4,8 @@
 //! O(n²) time per gate, avoiding the exponential 2^n cost of state vectors.
 //! This is the standard Aaronson-Gottesman algorithm.
 
+use crate::SmallRng;
+
 /// A stabilizer tableau for n qubits.
 /// Stores n stabilizer rows and n destabilizer rows, each a Pauli string
 /// with a phase (±1 or ±i).
@@ -95,9 +97,36 @@ impl StabilizerTableau {
         }
     }
 
-    /// Measure qubit q in Z basis. Returns (outcome, probability).
-    /// For Clifford states, probability is 0, 1, or 1/2.
+    /// Measure qubit q in Z basis. Returns `(outcome, probability)`.
+    ///
+    /// For Clifford states the probability is 0, 1, or 1/2. When the outcome is
+    /// random this returns a fixed `false`; use [`Self::measure_seeded`] for a
+    /// reproducible draw or [`Self::measure_with_rng`] to supply a generator.
     pub fn measure(&mut self, q: usize) -> (bool, f64) {
+        self.measure_inner(q, false)
+    }
+
+    /// Measure qubit `q`, drawing a random outcome when the stabilizer group
+    /// does not determine one.
+    ///
+    /// The draw happens only when it matters, so a deterministic qubit does not
+    /// consume generator state.
+    pub fn measure_with_rng(&mut self, q: usize, rng: &mut SmallRng) -> (bool, f64) {
+        self.measure_inner(q, rng.next_f64() < 0.5)
+    }
+
+    /// Measure qubit `q` with an outcome drawn from `seed`.
+    ///
+    /// Deterministic for a given `(state, q, seed)` triple, so a run can be
+    /// reproduced exactly.
+    pub fn measure_seeded(&mut self, q: usize, seed: u64) -> (bool, f64) {
+        let mut rng = SmallRng::seeded(seed);
+        self.measure_with_rng(q, &mut rng)
+    }
+
+    /// Shared measurement body. `random_outcome` is the result to report on the
+    /// random branch; on the deterministic branch it is ignored.
+    fn measure_inner(&mut self, q: usize, random_outcome: bool) -> (bool, f64) {
         // Find a *stabilizer* row r (rows 0..n) with X_r[q] = 1, meaning it
         // anticommutes with Z_q. Only stabilizers decide whether the outcome is
         // random; a destabilizer anticommuting is expected and says nothing.
@@ -112,8 +141,7 @@ impl StabilizerTableau {
         }
 
         if let Some(r) = r {
-            // Random outcome (probability 1/2)
-            let outcome = false; // deterministic for testing; real impl uses RNG
+            let outcome = random_outcome;
             // Update tableau: new stabilizer is ±Z_q (depending on outcome)
             // Destabilizer becomes old stabilizer r
             for i in 0..2 * self.n {
@@ -137,17 +165,40 @@ impl StabilizerTableau {
             self.phase[r] = if outcome { 2 } else { 0 };
             (outcome, 0.5)
         } else {
-            // Deterministic outcome
-            // Find product of stabilizers with Z_q
-            let mut phase = 0u8;
-            for i in 0..self.n {
-                if self.z[i][q] {
-                    // Check if row i has X on q (it doesn't, by assumption)
-                    // phase accumulates
-                    phase = (phase + self.phase[i]) % 4;
+            // Deterministic. `Z_q` commutes with every stabilizer, so by
+            // maximality it is in the stabilizer group up to sign. Find the
+            // combination by projecting onto the destabilizer dual basis:
+            // if `v = (0 | e_q)` then the coefficient of stabilizer `j` in
+            // `v = sum c_j s_j` is `c_j = <v, d_j> = x[n+j][q]`. Summing the
+            // phases of whichever rows have `Z` on `q` is *not* equivalent and
+            // gives the wrong answer whenever those rows carry X support.
+            let mut product_x = vec![false; self.n];
+            let mut product_z = vec![false; self.n];
+            let mut product_phase = 0u8;
+            for j in 0..self.n {
+                if !self.x[self.n + j][q] {
+                    continue;
                 }
+                // product *= stabilizer row j, with the same phase rule as
+                // `row_mul`.
+                let comm = (0..self.n)
+                    .filter(|&k| (product_x[k] && self.z[j][k]) || (product_z[k] && self.x[j][k]))
+                    .count() as u8;
+                let mut phase = product_phase + self.phase[j];
+                if comm % 2 == 1 {
+                    phase += 2;
+                }
+                for k in 0..self.n {
+                    product_x[k] ^= self.x[j][k];
+                    product_z[k] ^= self.z[j][k];
+                }
+                product_phase = phase % 4;
             }
-            let outcome = phase == 2 || phase == 3; // -1 or -i
+            let expected_z: Vec<bool> = (0..self.n).map(|k| k == q).collect();
+            debug_assert_eq!(product_x, vec![false; self.n], "product should carry no X");
+            debug_assert_eq!(product_z, expected_z, "product should be Z_q");
+            // The product is `i^phase Z_q`: phase 0 is +Z_q, phase 2 is -Z_q.
+            let outcome = product_phase == 2 || product_phase == 3;
             (outcome, 1.0)
         }
     }

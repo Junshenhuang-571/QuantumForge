@@ -1638,6 +1638,14 @@ pub mod python_bindings {
             self.inner.measure(q)
         }
 
+        /// Measures qubit `q`, drawing the random outcome from `seed`.
+        ///
+        /// Reproducible for a given `(state, q, seed)`; use this rather than
+        /// `measure` when the sample distribution matters.
+        fn measure_seeded(&mut self, q: usize, seed: u64) -> (bool, f64) {
+            self.inner.measure_seeded(q, seed)
+        }
+
         /// Whether two tableaux describe the same stabilizer state.
         fn equivalent(&self, other: &PyStabilizerTableau) -> bool {
             self.inner.equivalent(&other.inner)

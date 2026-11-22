@@ -162,6 +162,15 @@
   - `equivalent` was a stub returning `self.n == other.n`, so it called any two
     same-width tableaux equal. It now compares stabilizer groups by reducing
     each to row echelon form with phases.
+  - the deterministic branch of `measure` summed the phases of whichever
+    stabilizers had `Z` on the measured qubit. That is only right when those rows
+    carry no `X` support; otherwise it returns the wrong outcome (a Bell state
+    measured on one qubit, then the other, disagreed). It now projects onto the
+    destabilizer dual basis to find the combination equal to `±Z_q`.
+- **`measure` returned a fixed `false` on the random branch**, with a comment
+  saying "real impl uses RNG". `measure_seeded(q, seed)` and
+  `measure_with_rng(q, rng)` now draw a real, reproducible outcome; `measure`
+  keeps its fixed result and says so.
 - **Four extension functions were registered but never re-exported**, so
   `import quantumforge` could not reach them: `thermal_gibbs`,
   `shot_noise_temperature`, `vqt`, `dissipative_prepare`.

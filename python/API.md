@@ -435,6 +435,21 @@ and `1.0` when it is determined. `h`, `s`, `x`, `z`, `cnot` apply Clifford
 gates, `num_qubits()` reports the width, and `equivalent(other)` compares
 stabilizer groups — it is a real comparison, not a width check.
 
+`measure` reports a fixed `false` when the outcome is genuinely random. Use
+`measure_seeded(q, seed)` when the sample distribution matters: it draws a real
+outcome and reproduces exactly for a given `(state, q, seed)`.
+
+```python
+>>> ones = 0
+>>> for seed in range(200):
+...     t = qf.StabilizerTableau(2)
+...     t.h(0); t.cnot(0, 1)
+...     outcome, _ = t.measure_seeded(0, seed)
+...     ones += outcome
+>>> 40 < ones < 160
+True
+```
+
 ## Cost-aware circuit optimization
 
 ```python

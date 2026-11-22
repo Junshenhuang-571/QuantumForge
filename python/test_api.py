@@ -220,6 +220,39 @@ def test_stabilizer():
     check("different state is not", not a.equivalent(qf.StabilizerTableau(2)))
     check("repr", repr(a) == "StabilizerTableau(2 qubits)", repr(a))
 
+    # measure_seeded draws a real outcome and reproduces from the seed.
+    plus = qf.StabilizerTableau(1)
+    plus.h(0)
+    _, probability = plus.measure_seeded(0, 1)
+    check("seeded measurement is random on |+>", probability == 0.5, probability)
+
+    def draw(seed):
+        tableau = qf.StabilizerTableau(1)
+        tableau.h(0)
+        return tableau.measure_seeded(0, seed)
+
+    check("same seed reproduces", draw(42) == draw(42), (draw(42), draw(42)))
+    ones = sum(draw(seed)[0] for seed in range(200))
+    check("both outcomes occur", 40 < ones < 160, ones)
+
+    fixed = qf.StabilizerTableau(1)
+    check("deterministic qubit ignores the seed",
+          [fixed.measure_seeded(0, seed) for seed in (0, 7, 99)]
+          == [(False, 1.0), (False, 1.0), (False, 1.0)])
+
+    # With real draws the Bell qubits must agree.
+    bell_ones = 0
+    for seed in range(100):
+        tableau = qf.StabilizerTableau(2)
+        tableau.h(0)
+        tableau.cnot(0, 1)
+        first, _ = tableau.measure_seeded(0, seed)
+        second, collapsed = tableau.measure_seeded(1, seed)
+        check(f"Bell qubits agree (seed {seed})", first == second and collapsed == 1.0,
+              (first, second, collapsed))
+        bell_ones += first
+    check("Bell outcomes balanced", 20 < bell_ones < 80, bell_ones)
+
 
 def test_cost_model():
     print("Cost-aware optimization")

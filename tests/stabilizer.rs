@@ -14,6 +14,13 @@
 //! * `s` skipped the factor of `i` on the `Y -> -X` path.
 //! * [`StabilizerTableau::equivalent`] was a stub that only compared `n`, so
 //!   it reported any two same-width tableaux as equal.
+//! * The deterministic branch of `measure` summed the phases of whichever
+//!   stabilizers had `Z` on the measured qubit. That is only correct when those
+//!   rows carry no `X` support; in general it returns the wrong outcome. It now
+//!   projects onto the destabilizer dual basis to find the combination equal to
+//!   `±Z_q`.
+//! * `measure` returned a fixed `false` on the random branch. `measure_seeded`
+//!   and `measure_with_rng` now draw a real, reproducible outcome.
 
 use quantumforge::stabilizer::StabilizerTableau;
 use quantumforge::{CircuitOp, Gate, StateVector, parse_circuit};
@@ -150,6 +157,69 @@ fn ghz_state_measurements_are_correlated() {
     assert_eq!(probability, 1.0);
     assert_eq!(first, second);
     assert_eq!(second, third);
+}
+
+/// `measure_seeded` must actually sample both outcomes and be reproducible.
+#[test]
+fn seeded_measurement_samples_and_reproduces() {
+    let trials = 400;
+    let mut ones = 0;
+    for seed in 0..trials {
+        let mut tableau = StabilizerTableau::new(1);
+        tableau.h(0);
+        let (outcome, probability) = tableau.measure_seeded(0, seed);
+        assert_eq!(probability, 0.5);
+        if outcome {
+            ones += 1;
+        }
+    }
+    assert!(
+        (100..300).contains(&ones),
+        "400 fair draws should be near half ones, got {ones}"
+    );
+
+    let mut a = StabilizerTableau::new(1);
+    a.h(0);
+    let mut b = StabilizerTableau::new(1);
+    b.h(0);
+    assert_eq!(
+        a.measure_seeded(0, 42),
+        b.measure_seeded(0, 42),
+        "the same seed must reproduce the same outcome"
+    );
+}
+
+/// A deterministic qubit must not depend on the seed.
+#[test]
+fn deterministic_measurement_ignores_the_seed() {
+    for seed in [0, 1, 7, 123_456] {
+        let mut tableau = StabilizerTableau::new(1);
+        assert_eq!(tableau.measure_seeded(0, seed), (false, 1.0));
+    }
+}
+
+/// With real draws the Bell state's two qubits must agree, and the first
+/// measurement must come out both ways across seeds.
+#[test]
+fn bell_correlations_hold_under_seeded_measurement() {
+    let mut ones = 0;
+    for seed in 0..200u64 {
+        let mut tableau = StabilizerTableau::new(2);
+        tableau.h(0);
+        tableau.cnot(0, 1);
+        let (first, probability) = tableau.measure_seeded(0, seed);
+        assert_eq!(probability, 0.5);
+        let (second, collapsed) = tableau.measure_seeded(1, seed.wrapping_add(1));
+        assert_eq!(collapsed, 1.0, "the collapse must be deterministic");
+        assert_eq!(first, second, "Bell qubits must agree (seed {seed})");
+        if first {
+            ones += 1;
+        }
+    }
+    assert!(
+        (40..160).contains(&ones),
+        "200 fair draws should be near half ones, got {ones}"
+    );
 }
 
 #[test]
