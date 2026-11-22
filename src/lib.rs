@@ -347,6 +347,7 @@ pub mod dissipative;
 pub mod llvm_backend;
 pub mod mbqc;
 pub mod mps_qaoa;
+pub mod noise_model;
 pub mod noisy_optimizer;
 pub mod numeric_ir;
 pub mod parser;

@@ -87,7 +87,8 @@ The simulator uses floating point. Exact rational arithmetic is available in the
 | Goal | Starting point |
 |---|---|
 | Learn gates, states, and measurement | The `qf` REPL and [getting-started guide](docs/getting-started.md) |
-| Simulate noisy circuits or inspect density matrices | `DensityMatrix`, noise channels, and the [noise guide](docs/wiki/Noise-and-Statistical-Mechanics.md) |
+| Simulate noisy circuits or inspect density matrices | `DensityMatrix`, `ThermalGateNoiseModel`, noise channels, and the [noise guide](docs/wiki/Noise-and-Statistical-Mechanics.md) |
+| Cross-check optimizer output independently | Optional [Qiskit validation tool](tools/validate_optimizer_qiskit.py) |
 | Experiment with VQE, QML gradients, or QAOA | [algorithm guides](docs/wiki/Algorithms.md) and runnable examples in `examples/` |
 | Explore tensor networks beyond small state vectors | MPS, TEBD, DMRG, and [MPS QAOA](docs/wiki/MPS-QAOA.md) |
 | Build or verify quantum error-correcting codes | `qec` module and [QEC guide](docs/wiki/QEC-Codes.md) |

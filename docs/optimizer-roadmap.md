@@ -32,9 +32,11 @@ These references suggest that the key product boundary is a target-aware, inspec
 ### P0 — Make results trustworthy and easy to reproduce
 
 1. The first `--report FILE` artifact now records tool version, input format, selected mode and passes, target choice, rewrite counts, before/after resources, and the fact that equivalence was not independently checked. Next, add normalized input/output digests and richer warning details while keeping circuit output independently consumable by scripts.
-2. The `--verify` option now exhaustively checks unitary action on all computational-basis states up to ten qubits, allowing a single global phase and rejecting non-unitary operations. It uses QuantumForge's own simulator, so next cross-check a representative corpus against an independent simulator or compiler and document tolerance and supported gates.
+2. The `--verify` option exhaustively checks unitary action on all computational-basis states up to ten qubits. `tools/validate_optimizer_qiskit.py` adds a separate Qiskit operator comparison suite. Run it with the optional dependencies before release and keep its tested Qiskit version and results in CI; the local environment used for this change could not download the Qiskit wheel reliably.
+   Install `tools/requirements-validation.txt`, build `quantumforge`, then pass the executable path to the script. It checks rewrite and linear-routing examples without making Qiskit a runtime dependency.
 3. Publish stable CLI examples and ensure the generated API documentation builds for each release. At the time of this assessment, the [docs.rs page for 0.2.9](https://docs.rs/crate/quantumforge/0.2.9) reports a failed documentation build and points users to 0.2.8 as the last successful build; inspect the build log and restore the published docs before calling the workflow release-ready.
 4. Add benchmark fixtures with reproducible seeds and report compile time alongside two-qubit count, depth, and routing overhead. Never present a logical cost estimate as hardware fidelity or runtime.
+5. `noise_model::ThermalGateNoiseModel` now converts `T1`, `T2`, `beta*Delta`, and gate durations into per-gate thermal and dephasing channels. Extend it with scheduled idle intervals and per-qubit/per-gate calibration data before using it as a backend model.
 
 ### P1 — Compile to an explicit device target
 

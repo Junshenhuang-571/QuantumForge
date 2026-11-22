@@ -7,6 +7,8 @@
 - **Optimization provenance report.** `--report FILE` writes a versioned JSON record of input format, selected passes, target, rewrite counts, before/after resource metrics, and equivalence-check status.
 - **Custom topology routing.** `--topology FILE` accepts a validated JSON undirected coupling map for the batch optimizer; `--line` remains a shorthand for a linear map. Both use checked shortest-path routing and preserve the input logical-qubit indexing.
 - **Bounded unitary equivalence checking.** `--verify` compares all computational-basis inputs for circuits up to 10 qubits, allows a single global phase, reports the maximum amplitude error, and refuses non-unitary operations. This uses the local simulator and is not an independent cross-tool check.
+- **Optional Qiskit cross-check.** `tools/validate_optimizer_qiskit.py` compares a small QASM circuit corpus before and after optimization using Qiskit's operator equivalence; Qiskit remains an optional validation dependency.
+- **Thermal gate-noise model.** `noise_model::ThermalGateNoiseModel` derives per-gate thermal relaxation and pure dephasing from `T1`, `T2`, `beta*Delta`, and one-/two-qubit gate durations, then inserts explicit channels into a circuit copy.
 - **Finite-temperature thermalising noise channel.** `NoiseChannel::ThermalDamping { gamma_down, beta_delta }`
   has the Gibbs fixed point `p1/p0 = exp(-beta*Delta)`; the ordinary
   `AmplitudeDamping` is its `T = 0` limit. Implemented for the dense

@@ -52,6 +52,37 @@ at rate `1 - gamma_up - gamma_down` per application. `examples/noise_thermo_prob
 measures `p1(t)` against the prediction to nine decimals and the entropy
 against the binary entropy of the Gibbs weight.
 
+### Turn coherence times into noisy circuits
+
+`noise_model::ThermalGateNoiseModel` applies the same bath physics to a whole
+circuit. Configure `T1`, `T2`, dimensionless `beta_delta = beta * Delta`, and
+single- and two-qubit gate durations (all times must use the same unit):
+
+```rust
+use quantumforge::{Circuit, Gate};
+use quantumforge::noise_model::ThermalGateNoiseModel;
+
+let mut ideal = Circuit::new();
+ideal.push(Gate::H, 0);
+ideal.cnot(0, 1);
+let model = ThermalGateNoiseModel::new(30.0, 20.0, 1.0, 0.02, 0.2)?;
+let noisy = model.apply(&ideal);
+assert!(noisy.summary.thermal_channels > 0);
+let rho = noisy.circuit.run_density(quantumforge::DensityMatrix::from_state(
+    &quantumforge::StateVector::zero(2)?,
+))?;
+```
+
+For an operation duration `dt`, the total energy-relaxation probability is
+`1 - exp(-dt/T1)`. It is split into upward and downward transitions using
+detailed balance, so the stationary excited-state ratio is `exp(-beta*Delta)`.
+An additional phase-damping channel matches the configured `T2` after
+relaxation. The constructor enforces `T2 <= 2*T1`, the Markovian two-level
+bound. This is a local Markovian model: it does not schedule idle noise, model
+correlated errors or leakage, or add readout error. Use the separate readout
+model for measurement noise. It is a reproducible simulation assumption, not a
+calibration report for any real device.
+
 The collisional model is the same physics from the bath side: a partial swap
 `V = cos(phi) I - i sin(phi) S` against a bath in `tau` gives
 
