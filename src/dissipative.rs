@@ -453,10 +453,8 @@ fn pauli_basis_action(paulis: &[u8], dimension: usize) -> (Vec<usize>, Vec<Compl
                     row ^= 1 << qubit;
                     factor = factor * Complex64::new(0.0, if bit == 0 { 1.0 } else { -1.0 });
                 }
-                3 => {
-                    if bit == 1 {
-                        factor = factor * Complex64::new(-1.0, 0.0);
-                    }
+                3 if bit == 1 => {
+                    factor = factor * Complex64::new(-1.0, 0.0);
                 }
                 _ => {}
             }
@@ -652,10 +650,8 @@ pub fn pauli_expectation(rho: &DensityMatrix, paulis: &[u8]) -> f64 {
                     row ^= 1 << qubit;
                     phase = phase * Complex64::new(0.0, if bit == 0 { 1.0 } else { -1.0 });
                 }
-                3 => {
-                    if bit == 1 {
-                        phase = phase * Complex64::new(-1.0, 0.0);
-                    }
+                3 if bit == 1 => {
+                    phase = phase * Complex64::new(-1.0, 0.0);
                 }
                 _ => {}
             }
