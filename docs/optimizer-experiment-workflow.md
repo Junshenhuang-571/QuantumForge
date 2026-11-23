@@ -1,0 +1,58 @@
+# Reproducible optimizer experiment
+
+This workflow compares the two built-in rewrite modes against the same circuit
+and target, checks both outputs for unitary equivalence, and writes a JSON
+artifact containing the input and candidate circuits alongside the metrics.
+It is a local simulation workflow; it does not submit jobs to a device.
+
+## Run a comparison
+
+From the repository root, replace the sample expression with your circuit. The
+thermal parameters must use one consistent time unit. The values below are an
+example model, not a hardware calibration.
+
+```sh
+cargo run --release --bin quantumforge -- optimize 2 all --compare --verify --thermal 30 20 1 0.02 0.2 --report experiment.json "Circuit[H[0], CNOT[0,1], H[0], H[0]]"
+```
+
+The command writes the selected circuit to standard output and saves
+`experiment.json` separately. `--compare` requires `--verify`, so a failed
+equivalence check prevents a comparison report from being written. The report
+includes the normalized input circuit, selected output circuit, and both
+candidate circuits, so the circuits used in the comparison travel with the
+measurements.
+
+To compile a file instead, use `--input circuit.qasm` (OpenQASM 2 is supported)
+or a file containing a QuantumForge `Circuit[...]` expression. For a target
+topology, add `--line` or `--topology target.json`; both candidates use the
+same target.
+
+## Read the report
+
+- `experiment_artifacts` stores the normalized input and selected output.
+- `circuit_fingerprints` identifies normalized circuit JSON with an explicitly
+  non-cryptographic FNV-1a fingerprint. It is useful for matching artifacts,
+  not for tamper detection or security.
+- `candidate_comparison.selected` and `.alternate` contain each candidate's
+  circuit, equivalence result, rewrite counts, resource counts, and optional
+  thermal analysis.
+- `before` and `after` report structural counts. They do not predict device
+  runtime or hardware fidelity.
+- `thermal_noise_analysis` is an exact density-matrix simulation from the
+  all-zero initial state. The CLI path is limited to unitary circuits of at
+  most eight qubits. Its independent Markovian relaxation and dephasing model
+  uses the parameters in the report; it does not include readout noise,
+  correlated noise, or parameter uncertainty.
+
+The schema is versioned. Consumers should check `schema_version` and tolerate
+new fields before using reports in a long-lived pipeline.
+
+## Move from a model to hardware evidence
+
+QuantumForge currently has no calibration ingestion, general layout search,
+native-basis translation, or hardware execution path. Before comparing
+hardware outcomes, use the same circuit set, topology, native gates, objective,
+and random-seed policy in established transpilers; publish compile time,
+equivalence, two-qubit count, depth, and noise assumptions together. The
+[product comparison and roadmap](product-positioning.md) describe the scope and
+the research benchmarks that remain.

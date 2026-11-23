@@ -308,6 +308,7 @@ fn run_optimize(args: &[String]) {
                 "selected_mode": mode,
                 "selected": {
                     "mode": mode,
+                    "circuit": canonical_circuit(&optimized, qubits)?,
                     "operations": optimized.operations().len(),
                     "two_qubit_gates": optimized_profile.cnot_gates + optimized_profile.cz_gates + optimized_profile.swap_gates,
                     "logical_depth": optimized_profile.depth,
@@ -324,6 +325,7 @@ fn run_optimize(args: &[String]) {
                 },
                 "alternate": {
                     "mode": alternate_mode,
+                    "circuit": canonical_circuit(&alternate, qubits)?,
                     "operations": alternate.operations().len(),
                     "two_qubit_gates": alternate_profile.cnot_gates + alternate_profile.cz_gates + alternate_profile.swap_gates,
                     "logical_depth": alternate_profile.depth,
@@ -389,9 +391,15 @@ fn run_optimize(args: &[String]) {
                 })
             };
             let report = serde_json::json!({
-                "schema_version": 1,
+                "schema_version": 2,
                 "tool": "quantumforge",
                 "tool_version": env!("CARGO_PKG_VERSION"),
+                "experiment_artifacts": {
+                    "format": "quantumforge_optimizer_experiment",
+                    "canonicalization": "Circuit JSON with the declared register size; deterministic serde JSON encoding",
+                    "input_circuit": canonical_circuit(&original, qubits)?,
+                    "selected_output_circuit": canonical_circuit(&optimized, qubits)?,
+                },
                 "circuit_fingerprints": {
                     "algorithm": "fnv1a64_noncryptographic",
                     "normalized_input": circuit_fingerprint(&original, qubits)?,
@@ -1068,18 +1076,23 @@ fn run_demo() {
 }
 
 fn circuit_fingerprint(circuit: &Circuit, qubits: usize) -> Result<String, String> {
-    let serialized = circuit
-        .to_json()
-        .map_err(|error| format!("could not serialize circuit for fingerprint: {error}"))?;
-    let mut normalized: serde_json::Value = serde_json::from_str(&serialized)
-        .map_err(|error| format!("could not normalize circuit for fingerprint: {error}"))?;
-    normalized["num_qubits"] = serde_json::Value::from(qubits);
+    let normalized = canonical_circuit(circuit, qubits)?;
     let bytes = serde_json::to_vec(&normalized)
         .map_err(|error| format!("could not encode circuit fingerprint input: {error}"))?;
     let hash = bytes.iter().fold(0xcbf29ce484222325_u64, |hash, byte| {
         (hash ^ u64::from(*byte)).wrapping_mul(0x100000001b3)
     });
     Ok(format!("fnv1a64:{hash:016x}"))
+}
+
+fn canonical_circuit(circuit: &Circuit, qubits: usize) -> Result<serde_json::Value, String> {
+    let serialized = circuit
+        .to_json()
+        .map_err(|error| format!("could not serialize circuit artifact: {error}"))?;
+    let mut normalized: serde_json::Value = serde_json::from_str(&serialized)
+        .map_err(|error| format!("could not normalize circuit artifact: {error}"))?;
+    normalized["num_qubits"] = serde_json::Value::from(qubits);
+    Ok(normalized)
 }
 
 fn analyze_thermal_effect(

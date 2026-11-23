@@ -70,6 +70,12 @@
   .pipeline-step small { display:block;color:var(--muted);font-size:.73rem; }
   .step-status { color:var(--accent);font-size:.7rem;letter-spacing:.04em; }
   .visual-note { color:var(--muted);font-size:.74rem;padding-top:.85rem; }
+  .experiment-panel { display:grid;grid-template-columns:1.1fr .9fr;gap:1rem;align-items:stretch; }
+  .experiment-panel > div { border:1px solid var(--border);border-radius:14px;padding:1.2rem;background:linear-gradient(160deg,rgba(16,29,44,.95),rgba(11,23,36,.92)); }
+  .experiment-panel h3 { color:var(--accent);font-size:1rem;margin-bottom:.55rem; }
+  .experiment-panel p,.experiment-panel li { color:var(--muted);font-size:.88rem; }
+  .experiment-panel ul { padding-left:1.15rem;margin:.55rem 0 0; }
+  .experiment-panel pre { margin:0;background:rgba(8,17,29,.75); }
   section { margin: 2.5rem 0; }
   h2 {
     font-size: 1.5rem;
@@ -152,6 +158,7 @@
     .nav-links a { font-size:.78rem; }
     header { grid-template-columns:1fr;gap:1.5rem;padding:3rem 0 2.5rem; }
     .truth-panel { grid-template-columns:1fr; }
+    .experiment-panel { grid-template-columns:1fr; }
   }
   @media (prefers-reduced-motion: reduce) { html { scroll-behavior:auto; } }
 </style>
@@ -164,6 +171,7 @@
   <a class="brand" href="#top">QuantumForge</a>
   <div class="nav-links">
     <a href="#workflow">Workflow</a>
+    <a href="#experiment">Experiment reports</a>
     <a href="#research">Research tools</a>
     <a href="product-positioning.md">Platform comparison</a>
     <a href="https://github.com/Junshenhuang-571/QuantumForge">GitHub ↗</a>
@@ -229,6 +237,29 @@ q2 ──────────────Ry0.79─
 legend: ─ wire  • control  ⊕ target(X)  │ span  x swap  M measure</span>
 <span class="prompt">qf&gt;</span> run
 <span class="prompt">qf&gt;</span> probs</pre>
+</section>
+
+<section id="experiment">
+  <h2>From circuit to a shareable experiment record</h2>
+  <p class="section-intro">Run two rewrite strategies on the same input, check both outputs for equivalence, and keep the circuits and assumptions beside the measurements.</p>
+  <div class="experiment-panel">
+    <div>
+      <h3>Run it locally</h3>
+      <pre><code>cargo run --release --bin quantumforge -- optimize 2 all --compare --verify --thermal 30 20 1 0.02 0.2 --report experiment.json "Circuit[H[0], CNOT[0,1], H[0], H[0]]"</code></pre>
+      <p style="margin-top:.65rem">The noise values are example model parameters in consistent units, not device calibration.</p>
+    </div>
+    <div>
+      <h3>What travels with the result</h3>
+      <ul>
+        <li>Input and optimized circuit artifacts</li>
+        <li>Both candidates, with rewrite and resource counts</li>
+        <li>Equivalence status and declared target constraints</li>
+        <li>Optional density-matrix noise results and assumptions</li>
+      </ul>
+      <p style="margin-top:.65rem">The thermal CLI analysis is limited to unitary circuits of at most eight qubits. It is a model-based estimate, not measured hardware fidelity.</p>
+      <p style="margin-top:.65rem"><a href="optimizer-experiment-workflow.md">Read the reproducible workflow and report guide →</a></p>
+    </div>
+  </div>
 </section>
 
 <section>
