@@ -37,7 +37,7 @@ These references suggest that the key product boundary is a target-aware, inspec
    To run it locally, install `tools/requirements-validation.txt`, build `quantumforge`, then pass the executable path to the script.
 3. Publish stable CLI examples and ensure the generated API documentation builds for each release. The [docs.rs page for 0.2.9](https://docs.rs/crate/quantumforge/0.2.9) currently reports a failed build; its docs.rs feature list included `gpu`, while the repository CI notes that cudarc's build requires CUDA toolkit headers. The docs.rs feature list now excludes `gpu`; confirm the next published release builds and inspect its logs if it still fails.
 4. Add benchmark fixtures with reproducible seeds and report compile time alongside two-qubit count, depth, and routing overhead. Never present a logical cost estimate as hardware fidelity or runtime.
-5. `noise_model::ThermalGateNoiseModel` now converts `T1`, `T2`, `beta*Delta`, and gate durations into per-gate thermal and dephasing channels. Extend it with scheduled idle intervals and per-qubit/per-gate calibration data before using it as a backend model.
+5. `noise_model::ThermalGateNoiseModel` converts `T1`, `T2`, `beta*Delta`, and gate durations into per-gate and scheduled idle thermal/dephasing channels. Next add per-qubit/per-gate calibration data, readout integration, and schedule provenance before treating it as a backend model.
 
 ### P1 — Compile to an explicit device target
 

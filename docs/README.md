@@ -82,7 +82,8 @@ Every example is runnable (`cargo run --example <name>`); the ones marked
 - `subscore` *(release)* — fixed-shot NFT vs SubsCoRe-Bound vs SubsCoRe-Center under one shot budget
 - `subscore_entropy` *(release)* — the entropy-production stopping rule on the canonical campaign
 - `noise_thermo_probe` — entropy production of the built-in channels, collisional thermalisation, and the `ThermalDamping` Gibbs fixed point
-- `thermal_gate_noise` - apply a T1/T2 and temperature-derived noise model to a circuit before density-matrix simulation
+- `thermal_gate_noise` — apply a T1/T2 and temperature-derived noise model to a circuit before density-matrix simulation
+- `scheduled_thermal_noise` — apply schedule-aware gate and idle noise using explicit operation timings
 - `qec_threshold` *(release)* — Pauli/readout noise, the exact minimum-weight decoder, and a threshold crossing on the repetition family
 - `thermal_states` *(release)* — exact Gibbs states, free energy, and Gibbs sampling
 - `langevin_double_well` — annealed Langevin versus plain gradient descent on a barrier-limited objective

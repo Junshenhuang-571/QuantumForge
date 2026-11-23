@@ -78,10 +78,33 @@ For an operation duration `dt`, the total energy-relaxation probability is
 detailed balance, so the stationary excited-state ratio is `exp(-beta*Delta)`.
 An additional phase-damping channel matches the configured `T2` after
 relaxation. The constructor enforces `T2 <= 2*T1`, the Markovian two-level
-bound. This is a local Markovian model: it does not schedule idle noise, model
-correlated errors or leakage, or add readout error. Use the separate readout
-model for measurement noise. It is a reproducible simulation assumption, not a
-calibration report for any real device.
+bound. `apply` adds gate noise using the configured single- and two-qubit
+durations. When a caller already has operation timings, `apply_scheduled` also
+adds thermal noise during each qubit's idle intervals and uses the supplied
+duration for each gate. `OperationTiming` values are indexed in the same order
+as circuit operations and use the same time unit as `T1`/`T2`:
+
+```rust
+use quantumforge::noise_model::{OperationTiming, ThermalGateNoiseModel};
+use quantumforge::{Circuit, Gate};
+
+let mut ideal = Circuit::new();
+ideal.push(Gate::H, 0);
+ideal.cnot(0, 1);
+let model = ThermalGateNoiseModel::for_schedule(30.0, 20.0, 1.0)?;
+let noisy = model.apply_scheduled(&ideal, &[
+    OperationTiming { start: 0.0, duration: 0.02 },
+    OperationTiming { start: 0.10, duration: 0.20 },
+])?;
+assert!(noisy.summary.idle_thermal_channels > 0);
+```
+
+The model checks operation order on shared qubits and classical bits, but does
+not choose a schedule or enforce hardware pulse alignment. It remains an
+independent, Markovian single-qubit bath model: it does not represent correlated
+errors, leakage, gate-specific coherent errors, drift, or readout error. Use the
+separate readout model for measurement noise. It is a reproducible simulation
+assumption, not a calibration report for any real device.
 
 The collisional model is the same physics from the bath side: a partial swap
 `V = cos(phi) I - i sin(phi) S` against a bath in `tau` gives
@@ -147,6 +170,7 @@ so the production is exactly `ln 2` nats and the heat at `300 K` is
 | Want | Go to |
 |---|---|
 | the probe with every number above | `cargo run --example noise_thermo_probe` |
+| add schedule-aware idle noise to a circuit | `cargo run --example scheduled_thermal_noise` |
 | the stopping-rule campaign | `cargo run --release --example subscore_entropy` |
 | the threshold study | `cargo run --release --example qec_threshold` |
 | exact Gibbs states and sampling | `cargo run --release --example thermal_states` |
