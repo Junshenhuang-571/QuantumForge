@@ -4,10 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>QuantumForge — Reproducible quantum circuit research</title>
-<meta name="description" content="A local-first Rust toolkit for quantum circuit simulation, optimization experiments, and explicit noise modeling.">
+<meta name="description" content="A local-first Rust toolkit for quantum simulation across state-vector, stabilizer, and tensor-network methods, with reproducible optimization and explicit noise models.">
 <meta name="theme-color" content="#08111d">
 <meta property="og:title" content="QuantumForge — Reproducible quantum circuit research">
-<meta property="og:description" content="Build and simulate circuits, explore transformations, and study explicit noise assumptions in a local-first Rust toolkit.">
+<meta property="og:description" content="Choose simulation methods that fit circuit structure, compare optimizer variants, and keep noise assumptions visible in a local-first Rust toolkit.">
 <style>
   :root {
     --bg: #08111d;
@@ -291,6 +291,10 @@ legend: ─ wire  • control  ⊕ target(X)  │ span  x swap  M measure</span>
     <div class="feature-card">
       <h3>Density Matrices</h3>
       <p>Density-matrix simulation with explicit channels and a T1/T2-based thermal model. Schedule-aware idle noise uses timings supplied by the caller; the model is not a hardware calibration feed.</p>
+    </div>
+    <div class="feature-card">
+      <h3>Scale by Circuit Structure</h3>
+      <p>QuantumForge includes state-vector, stabilizer, and MPS tools. Each trades scope, memory, or approximation differently; there is no universal exact simulator for arbitrary circuit size. Read the <a href="scaling-and-product-strategy.md">scaling guide</a> before selecting a method.</p>
     </div>
     <div class="feature-card">
       <h3>Variational / QML</h3>

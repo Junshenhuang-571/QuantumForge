@@ -35,12 +35,17 @@ has lints nightly lacks (and vice versa), so verify with the same one CI uses:
       -- -D warnings` for `llvm`, `python`, `rayon`, `ibm`, `ionq`, `rigetti`
       (the CI `feature-compile` jobs run these; `cuda`/`gpu` need a GPU host)
 - [ ] `cargo package` and check the reported file count/size is sane
-      (~144 files, ~380 KiB compressed at 0.2.9)
+      (197 files, ~549 KiB compressed from the current working tree; recheck
+      after release-only files or large fixtures change)
 - [ ] `cargo publish --dry-run` — verifies the tarball compiles from a clean
       package directory. Note: it refuses on a dirty working tree; commit first.
 
 ### Clippy portability notes
 
+- Windows `cargo package` currently warns that the `quantumforge` CLI and
+  library produce the same `.pdb` filename. Packaging succeeds today, but Cargo
+  warns this may become a hard error; resolve or verify this before a future
+  toolchain upgrade.
 - Avoid `#[allow(clippy::<lint>)]` for lints that may not exist on the
   toolchain CI resolves (an unknown lint fails under `-D warnings`). Prefer
   writing code that needs no allow.

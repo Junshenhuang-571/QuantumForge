@@ -10,6 +10,7 @@ Start here. Everything is either rendered from the source (rustdoc, on
 | install and run my first circuit | [Getting started](getting-started.md) · [README](../../README.md) |
 | understand the optimizer's current scope and next steps | [Optimizer assessment and roadmap](optimizer-roadmap.md) |
 | run a verified optimizer comparison and inspect its self-contained report | [Reproducible optimizer experiment](optimizer-experiment-workflow.md) |
+| choose a simulation approach for larger circuits | [Scaling strategy and product roadmap](scaling-and-product-strategy.md) |
 | compare QuantumForge with established quantum platforms | [Product positioning and market comparison](product-positioning.md) |
 | browse the API with examples | <https://docs.rs/quantumforge> (every public item is documented) |
 | learn a subsystem in depth | the guides listed below |

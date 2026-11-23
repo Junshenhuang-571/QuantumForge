@@ -3,6 +3,8 @@
 ## [Unreleased]
 
 ### Added
+- **Circuit-scale MPS contractions.** Single- and adjacent two-site expectations and DMRG step normalization contract the MPS directly rather than expanding a `2^n` state vector. This removes an exponential memory/time detour from these operations; bond growth can still make MPS simulation expensive.
+- **Scaling strategy for large circuits.** Documents the distinct regimes for state vectors, stabilizer simulation, MPS, trajectories, tensor contraction, and circuit cutting, plus an evidence-based roadmap toward a budget-aware simulator router. It explicitly rules out a promise of exact simulation for arbitrary unbounded circuits.
 - **Batch circuit optimization CLI.** `quantumforge optimize QUBITS all|conservative` reads circuit expressions or OpenQASM 2.0, writes reusable JSON or QASM to stdout, and reports gate counts, two-qubit operations, depth, and rewrites to stderr. `--line` applies local nearest-neighbor routing on a linear coupling map.
 - **Optimization provenance report.** `--report FILE` writes a versioned JSON record of input format, selected passes, target, rewrite counts, before/after resource metrics, and equivalence-check status.
 - **Custom topology routing.** `--topology FILE` accepts a validated JSON undirected coupling map for the batch optimizer; `--line` remains a shorthand for a linear map. Both use checked shortest-path routing and preserve the input logical-qubit indexing.

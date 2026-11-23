@@ -24,6 +24,7 @@ error.
 | Mixer layer | `Rx(2β)` per qubit |
 | Bond control | two-sweep SVD compression (`MPS::compress_range`), `max_bond` + `truncation_tol` |
 | Cost expectation | transfer contraction (`MPS::expectation_two_site_product`), no state expansion |
+| Local observables and DMRG normalization | MPS transfer contractions, no state expansion |
 | Problem | `MaxCutProblem::random_3_regular(n, seed)` (configuration model), `exact_maxcut()` for `n ≤ 24` |
 | Angle finding | parameter-shift gradient ascent with random restarts (`find_angles_mps`) |
 
@@ -90,3 +91,9 @@ The cost is dominated by the `O(E · n · χ³)` expectation sweeps and the SVD
 compression. Publishing a 512-qubit result as in the paper would need a
 GPU/parallel implementation; this module is the correct, validated foundation
 and is honest about where it stands.
+
+`MPS::to_state_vector` intentionally materializes an exponentially large
+vector. Use the transfer-contraction observable APIs for large systems, and
+inspect each workflow before assuming it remains tensor-network scalable. See
+the [scaling strategy](../scaling-and-product-strategy.md) for the limits and
+next product milestones.

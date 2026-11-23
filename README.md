@@ -8,6 +8,8 @@ It is a **classical simulator**, not a connection to quantum hardware. The proje
 
 QuantumForge is not yet a replacement for mature hardware compilers such as Qiskit or TKET. Its product direction is a reproducible local workbench for comparing circuit transformations and noise assumptions. See the [sourced platform comparison and commercial product hypotheses](docs/product-positioning.md) for the current scope, gaps, and evidence needed to validate that direction.
 
+There is no universal exact simulator for arbitrarily large quantum circuits. QuantumForge combines state vectors, stabilizer methods, tensor networks, and selected noisy trajectories; each has a different structure and accuracy envelope. See the [scaling strategy and product roadmap](docs/scaling-and-product-strategy.md) before choosing a method for a large workload.
+
 ## Start in a minute
 
 Install the command-line REPL with Rust and Cargo:

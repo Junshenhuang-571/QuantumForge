@@ -6,7 +6,7 @@
 
 QuantumForge is an open-source Rust quantum simulation and research toolkit. Today it is strongest as a local laboratory for circuit simulation, algorithm experiments, explicit thermal-noise studies, and small-circuit optimizer validation. It is not yet a hardware execution platform or a mature device compiler.
 
-**Credible product direction:** become a reproducible experiment workbench where a quantum algorithm team can compare circuit variants under explicit device constraints and noise assumptions, then export the evidence with the circuit.
+**Credible product direction:** become a reproducible experiment workbench where a quantum algorithm team can select an appropriate simulation method, compare circuit variants under explicit device constraints and noise assumptions, and export the evidence with the circuit.
 
 That direction still needs customer discovery. There is no user or revenue evidence in this repository, so the proposed buyer and paid product below are hypotheses to validate rather than traction claims.
 
@@ -32,7 +32,7 @@ Qiskit documents its target-aware compilation stages and describes routing as a 
 - An `optimize --thermal` CLI path that puts optimization metrics and an exact small-system thermal simulation into one JSON report.
 - An optional Qiskit comparison script wired into CI. A passing CI result is evidence for its tested subset only, not broad compiler parity.
 
-The current optimizer does **not** perform general initial layout search, native-basis decomposition, calibration-aware scheduling, or cloud hardware submission. The provider modules in `src/hardware.rs` are scaffolds. Do not present them as working integrations.
+The current optimizer does **not** perform general initial layout search, native-basis decomposition, calibration-aware scheduling, or cloud hardware submission. QuantumForge also lacks one automatic router that dispatches general circuits among exact, stabilizer, MPS, and trajectory simulators. The provider modules in `src/hardware.rs` are scaffolds. Do not present them as working integrations.
 
 ## Proposed initial customer and job
 
