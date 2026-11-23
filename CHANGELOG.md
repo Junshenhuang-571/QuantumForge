@@ -9,6 +9,7 @@
 - **Bounded unitary equivalence checking.** `--verify` compares all computational-basis inputs for circuits up to 10 qubits, allows a single global phase, reports the maximum amplitude error, and refuses non-unitary operations. This uses the local simulator and is not an independent cross-tool check.
 - **Optional Qiskit cross-check.** `tools/validate_optimizer_qiskit.py` compares a small QASM circuit corpus before and after optimization using Qiskit's operator equivalence; Qiskit remains an optional validation dependency.
 - **Thermal gate-noise model.** `noise_model::ThermalGateNoiseModel` derives per-gate thermal relaxation and pure dephasing from `T1`, `T2`, `beta*Delta`, and one-/two-qubit gate durations, then inserts explicit channels into a circuit copy.
+- **Optimizer cross-check in CI.** A dedicated job installs the pinned optional Qiskit dependency and compares an optimizer corpus by unitary equivalence. The docs.rs feature list no longer enables `gpu`, which requires CUDA toolkit headers unavailable to docs.rs builders.
 - **Finite-temperature thermalising noise channel.** `NoiseChannel::ThermalDamping { gamma_down, beta_delta }`
   has the Gibbs fixed point `p1/p0 = exp(-beta*Delta)`; the ordinary
   `AmplitudeDamping` is its `T = 0` limit. Implemented for the dense

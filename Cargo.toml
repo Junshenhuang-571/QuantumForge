@@ -78,10 +78,10 @@ harness = false
 
 # Python package config
 [package.metadata.docs.rs]
-# `cuda` is excluded on purpose: its build script requires a CUDA toolkit
-# (CUDA_PATH) to link, which docs.rs runners do not provide. The dynamic
-# `gpu` feature covers the documented GPU API surface.
-features = ["rayon", "llvm", "gpu", "python", "ibm", "ionq", "rigetti"]
+# CUDA and GPU are excluded because cudarc probes for CUDA toolkit headers at
+# build time; docs.rs runners do not provide a CUDA toolkit. GPU APIs remain
+# documented in source and are compile-checked on configured developer hosts.
+features = ["rayon", "llvm", "python", "ibm", "ionq", "rigetti"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [package.metadata.maturin]

@@ -1,2 +1,2 @@
 # Optional independent circuit-equivalence validation; not a runtime dependency.
-qiskit>=2.0,<3.0
+qiskit==2.6.2
