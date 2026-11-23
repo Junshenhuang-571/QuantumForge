@@ -30,9 +30,11 @@ same target.
 ## Read the report
 
 - `experiment_artifacts` stores the normalized input and selected output.
-- `circuit_fingerprints` identifies normalized circuit JSON with an explicitly
-  non-cryptographic FNV-1a fingerprint. It is useful for matching artifacts,
-  not for tamper detection or security.
+- `circuit_fingerprints` retains the legacy non-cryptographic FNV-1a values for
+  quick matching. `artifact_digests` adds SHA-256 over the canonical JSON for
+  the normalized input and selected output; use these digests to detect
+  accidental artifact changes. Candidate-comparison entries also carry a digest
+  for each candidate circuit. A digest does not prove who produced a report.
 - `candidate_comparison.selected` and `.alternate` contain each candidate's
   circuit, equivalence result, rewrite counts, resource counts, and optional
   thermal analysis.
@@ -44,8 +46,10 @@ same target.
   uses the parameters in the report; it does not include readout noise,
   correlated noise, or parameter uncertainty.
 
-The schema is versioned. Consumers should check `schema_version` and tolerate
-new fields before using reports in a long-lived pipeline.
+The report uses schema version 3. Consumers should check `schema_version` and
+tolerate new fields before using reports in a long-lived pipeline. The report
+also records the operating system and architecture; performance comparisons
+should include the host CPU, compiler build, and run conditions separately.
 
 ## Move from a model to hardware evidence
 

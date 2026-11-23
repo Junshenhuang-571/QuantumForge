@@ -10,10 +10,12 @@ use quantumforge::optimizer::{
 use quantumforge::parser::parse_circuit;
 use quantumforge::parser::parse_scalar_expr;
 use quantumforge::quantum::{HilbertSpace, Ket, Observable, Operator};
+use quantumforge::simulation_plan::estimate_dense_memory;
 use quantumforge::{
     Circuit, DensityMatrix, Gate, NoiseChannel, ParameterizedCircuit, QmlTrainingConfig,
     RotationAxis, SmallRng, StateVector, VariationalQnn,
 };
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 #[cfg(feature = "llvm")]
 use std::collections::{BTreeMap, BTreeSet};
@@ -25,6 +27,7 @@ fn main() {
         "eval" => run_eval(&args[1..].join(" ")),
         "simplify" => run_simplify(&args[1..].join(" ")),
         "shots" => run_shots(&args[1..]),
+        "estimate" => run_estimate(&args[1..]),
         "optimize" => run_optimize(&args[1..]),
         #[cfg(feature = "llvm")]
         "llvm-ir" => run_llvm_ir(&args[1..].join(" ")),
@@ -316,6 +319,7 @@ fn run_optimize(args: &[String]) {
                     "cnot_direction_corrections": direction_corrections,
                     "equivalent": equivalence.as_ref().is_some_and(|result| result.equivalent),
                     "fingerprint": circuit_fingerprint(&optimized, qubits)?,
+                    "artifact_digest": circuit_sha256(&optimized, qubits)?,
                     "thermal_noise_analysis": thermal_analysis,
                     "rewrites": {
                         "inverse_pairs_cancelled": result.cancellations,
@@ -338,6 +342,7 @@ fn run_optimize(args: &[String]) {
                         "max_amplitude_error": alternate_equivalence.max_amplitude_error,
                     },
                     "fingerprint": circuit_fingerprint(&alternate, qubits)?,
+                    "artifact_digest": circuit_sha256(&alternate, qubits)?,
                     "thermal_noise_analysis": alternate_thermal,
                     "rewrites": {
                         "inverse_pairs_cancelled": alternate_rewrites.cancellations,
@@ -390,7 +395,7 @@ fn run_optimize(args: &[String]) {
                 })
             };
             let report = serde_json::json!({
-                "schema_version": 2,
+                "schema_version": 3,
                 "tool": "quantumforge",
                 "tool_version": env!("CARGO_PKG_VERSION"),
                 "experiment_artifacts": {
@@ -403,6 +408,15 @@ fn run_optimize(args: &[String]) {
                     "algorithm": "fnv1a64_noncryptographic",
                     "normalized_input": circuit_fingerprint(&original, qubits)?,
                     "optimized_output": circuit_fingerprint(&optimized, qubits)?,
+                },
+                "artifact_digests": {
+                    "algorithm": "sha256",
+                    "normalized_input": circuit_sha256(&original, qubits)?,
+                    "optimized_output": circuit_sha256(&optimized, qubits)?,
+                },
+                "runtime_environment": {
+                    "operating_system": std::env::consts::OS,
+                    "architecture": std::env::consts::ARCH,
                 },
                 "input_format": if circuit_source.contains("OPENQASM") { "openqasm2" } else { "quantumforge_expression" },
                 "declared_qubits": qubits,
@@ -585,24 +599,62 @@ fn run_shots(args: &[String]) {
         let result = circuit
             .run_shots(&initial, shots, seed)
             .map_err(|error| error.to_string())?;
-        Ok::<_, String>(result)
+        Ok::<_, String>((result, seed))
     })();
     match result {
-        Ok(result) => {
-            println!("shots: {}", result.shots);
-            for (bits, count) in result.counts {
+        Ok((result, seed)) => {
+            println!("shots: {} (seed {seed})", result.shots);
+            for (bits, count) in &result.counts {
                 let bit_string: String = bits
                     .iter()
                     .rev()
                     .map(|bit| char::from(b'0' + *bit))
                     .collect();
-                println!("{bit_string}: {count}");
+                let (probability, (lower, upper)) = result.probability_with_ci(bits);
+                println!(
+                    "{bit_string}: {count} (p={probability:.6}, 95% Wilson CI [{lower:.6}, {upper:.6}])"
+                );
             }
         }
         Err(error) => {
             eprintln!("{error}");
             std::process::exit(2);
         }
+    }
+}
+
+fn run_estimate(args: &[String]) {
+    let result = (|| {
+        if !(1..=2).contains(&args.len()) {
+            return Err("usage: quantumforge estimate QUBITS [MEMORY_BUDGET_MIB]".to_owned());
+        }
+        let qubits = args[0]
+            .parse::<usize>()
+            .map_err(|_| "QUBITS must be a positive integer".to_owned())?;
+        let memory_budget_bytes = if let Some(value) = args.get(1) {
+            let mib = value
+                .parse::<u128>()
+                .map_err(|_| "MEMORY_BUDGET_MIB must be a positive integer".to_owned())?;
+            if mib == 0 {
+                return Err("MEMORY_BUDGET_MIB must be a positive integer".to_owned());
+            }
+            Some(
+                mib.checked_mul(1024 * 1024)
+                    .ok_or_else(|| "memory budget is too large".to_owned())?,
+            )
+        } else {
+            None
+        };
+        let estimate = estimate_dense_memory(qubits, memory_budget_bytes)
+            .map_err(|error| error.to_string())?;
+        let json = serde_json::to_string_pretty(&estimate)
+            .map_err(|error| format!("could not serialize memory estimate: {error}"))?;
+        println!("{json}");
+        Ok(())
+    })();
+    if let Err(error) = result {
+        eprintln!("error: {error}");
+        std::process::exit(2);
     }
 }
 
@@ -1086,6 +1138,14 @@ fn circuit_fingerprint(circuit: &Circuit, qubits: usize) -> Result<String, Strin
     Ok(format!("fnv1a64:{hash:016x}"))
 }
 
+fn circuit_sha256(circuit: &Circuit, qubits: usize) -> Result<String, String> {
+    let normalized = canonical_circuit(circuit, qubits)?;
+    let bytes = serde_json::to_vec(&normalized)
+        .map_err(|error| format!("could not encode circuit digest input: {error}"))?;
+    let digest = Sha256::digest(bytes);
+    Ok(format!("sha256:{digest:x}"))
+}
+
 fn canonical_circuit(circuit: &Circuit, qubits: usize) -> Result<serde_json::Value, String> {
     let serialized = circuit
         .to_json()
@@ -1486,6 +1546,7 @@ fn print_help() {
     println!("QuantumForge — local quantum simulation and symbolic tools");
     println!("\nUsage: quantumforge [demo|eval EXPR|simplify EXPR|optimize ...|help]");
     println!("       quantumforge shots QUBITS SHOTS SEED 'Circuit[...]'");
+    println!("       quantumforge estimate QUBITS [MEMORY_BUDGET_MIB]");
     println!(
         "       quantumforge optimize QUBITS all|conservative [--line | --topology FILE] [--verify [--compare]] [--thermal T1 T2 BETA_DELTA ONE_QUBIT_TIME TWO_QUBIT_TIME] [--input FILE] [--format json|qasm] [--report FILE] [Circuit[...]]"
     );
@@ -1519,4 +1580,21 @@ fn print_help() {
          optimize writes reusable JSON to stdout by default; use --format qasm for OpenQASM 2.0, and --report FILE for a separate JSON provenance and metrics report.\n\
          The resource summary is written to stderr."
     );
+}
+
+#[cfg(test)]
+mod report_digest_tests {
+    use super::circuit_sha256;
+    use quantumforge::{Circuit, Gate};
+
+    #[test]
+    fn canonical_circuit_sha256_is_stable_and_register_sensitive() {
+        let mut circuit = Circuit::new();
+        circuit.push(Gate::H, 0);
+        let first = circuit_sha256(&circuit, 2).unwrap();
+        assert_eq!(first, circuit_sha256(&circuit, 2).unwrap());
+        assert!(first.starts_with("sha256:"));
+        assert_eq!(first.len(), "sha256:".len() + 64);
+        assert_ne!(first, circuit_sha256(&circuit, 3).unwrap());
+    }
 }

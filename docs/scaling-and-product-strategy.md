@@ -41,10 +41,17 @@ blanket “noise makes simulation easy” rule. See the primary references below
   transfer contractions instead of expanding the full `2^n` state vector.
 
 This is not yet a general circuit-to-MPS compiler or an automatic simulator
-router. The library still has MPS convenience methods that deliberately expand
-to a state vector, and not every gate, measurement, and noise channel is wired
-through one scalable interface. Users should check which API path their
-workload invokes.
+router. `quantumforge estimate QUBITS [MEMORY_BUDGET_MIB]` reports lower-bound
+payload sizes for dense state vectors and density matrices and whether those
+payloads fit a caller-supplied budget. It deliberately does not claim that
+another method can handle the same circuit. Estimates exclude temporary
+workspaces and process overhead. `StateVector::zero_with_memory_budget` and
+`DensityMatrix::maximally_mixed_with_memory_budget` can reject initial dense
+allocations that exceed an explicit payload budget; they do not budget later
+workspaces. The library still has MPS convenience methods
+that deliberately expand to a state vector, and not every gate, measurement,
+and noise channel is wired through one scalable interface. Users should check
+which API path their workload invokes.
 
 ## The product step that makes this a platform
 
@@ -64,10 +71,12 @@ accuracy target, seed, and requested result (state, samples, or observable):
 6. Cross-check small instances against the exact backend and publish the
    benchmark circuits, machine details, and tolerances.
 
-The next concrete milestones are MPS measurement sampling, truncation-weight
-accounting, a nearest-neighbor unitary circuit runner, and cross-validation
-against the existing state-vector path. Only after those are solid should a
-trajectory backend and an automatic router expose a stable public API.
+The next concrete milestones are budget enforcement across dense conversions
+and workspaces, MPS measurement sampling, truncation-weight accounting, a
+nearest-neighbor unitary circuit runner, and cross-validation against the
+existing state-vector path.
+Only after method coverage and error accounting are explicit should a
+trajectory backend and automatic router expose a stable public API.
 
 ## Product and revenue hypothesis
 

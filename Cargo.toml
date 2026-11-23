@@ -64,6 +64,7 @@ pyo3 = { version = "0.23", optional = true, features = ["extension-module", "abi
 reqwest = { version = "0.12", optional = true, features = ["json", "rustls-tls"] }
 cudarc = { version = "0.12", optional = true, features = ["std", "cublas", "driver", "nvrtc", "dynamic-linking"] }
 rayon = { version = "1.10", optional = true }
+sha2 = "0.10"
 
 [[bench]]
 name = "cuda_batch"

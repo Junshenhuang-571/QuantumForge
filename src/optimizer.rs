@@ -829,26 +829,37 @@ fn normalize_angle(angle: f64) -> f64 {
 /// Single-qubit gates commute through CNOT if they act on the other qubit.
 fn commute_for_cancellation(circuit: &mut Circuit) {
     let ops = circuit.operations_mut();
-    let mut changed = true;
     let max_passes = 5;
 
-    for _ in 0..max_passes {
+    // Each pass is one full sweep, alternating direction, and only ever swaps
+    // commuting neighbours. The sweep must make progress: stepping backwards
+    // after a swap let two gates that merely commute exchange places and then
+    // swap back on the very next iteration, spinning forever inside a single
+    // pass (`max_passes` bounds only the outer loop). A circuit such as
+    // `cz(1,0); t(1); h(0)` hung the optimizer that way.
+    for pass in 0..max_passes {
+        let mut changed = false;
+        if pass % 2 == 0 {
+            let mut i = 0;
+            while i + 1 < ops.len() {
+                if can_commute(&ops[i], &ops[i + 1]) {
+                    ops.swap(i, i + 1);
+                    changed = true;
+                }
+                i += 1;
+            }
+        } else {
+            let mut i = ops.len();
+            while i >= 2 {
+                if can_commute(&ops[i - 2], &ops[i - 1]) {
+                    ops.swap(i - 2, i - 1);
+                    changed = true;
+                }
+                i -= 1;
+            }
+        }
         if !changed {
             break;
-        }
-        changed = false;
-        let mut i = 0;
-        while i + 1 < ops.len() {
-            if can_commute(&ops[i], &ops[i + 1]) {
-                ops.swap(i, i + 1);
-                changed = true;
-                // After swap, check if we can cancel with the previous gate
-                if i > 0 {
-                    i -= 1;
-                    continue;
-                }
-            }
-            i += 1;
         }
     }
 }

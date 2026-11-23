@@ -35,6 +35,8 @@ shots 8 42
 
 `probs` shows the ideal distribution. Add the two measurement operations before sampling; each shot is `|00>` or `|11>`. The seed (`42`) makes the counts repeatable. Type `help` for the REPL commands or `quit` to exit.
 
+The batch `shots` command prints the seed and a 95% Wilson interval for each observed outcome, so finite-shot estimates are not mistaken for exact probabilities.
+
 For scripts and CI, sample a circuit directly from the shell. The `shots` CLI measures every qubit automatically when the circuit has no explicit `Measure` operations:
 
 ```sh
@@ -58,6 +60,18 @@ quantumforge optimize 3 all --verify 'Circuit[H[0], H[0]]'
 `all` enables rotation fusion, inverse cancellation, identity removal, and safe commutation rewrites; `conservative` limits changes to identity removal and inverse pairs. `--input` reads a circuit expression or OpenQASM 2.0 file; use `--input -` to read from standard input. `--line` routes over a linear topology; `--topology FILE` accepts a JSON target such as `{"num_qubits":5,"edges":[[0,1],[1,2],[1,3],[3,4]],"native_gates":["rz","x","h","cx","measure"],"directed_cx_edges":[[0,1],[1,2],[1,3],[3,4]]}`. `edges` are undirected connectivity used for routing; optional `directed_cx_edges` restrict CNOT orientation, and optional `native_gates` turns on strict gate-set validation. Supported names are `id`, `x`, `y`, `z`, `h`, `s`, `sdg`, `t`, `tdg`, `rx`, `ry`, `rz`, `cx`, `cz`, `swap`, `measure`, and `conditional`. The map's qubit count must match `QUBITS`. The optimizer routes and then checks the result against these constraints; when the reverse CNOT direction is available and `h` is explicitly native, it corrects direction using Hadamard conjugation. It reports unsupported gates and couplings instead of implying that basis translation occurred. Other non-native gates are not decomposed automatically. `--verify` exhaustively compares all computational-basis inputs for unitary circuits up to 10 qubits, allowing one global phase; it refuses measurements and noise channels and does not replace independent cross-tool validation. The resource summary goes to the terminal; optimized JSON is the default output and can be loaded with `Circuit::from_json`, while `--format qasm` emits OpenQASM 2.0. `--report FILE` saves a separate machine-readable JSON record with the run settings, rewrite counts, before/after resource metrics, and verification status. QASM output rejects noise-channel operations instead of silently dropping them. When simulating JSON output, initialize the state with the same qubit count passed to the command. Device constraints are validation only: there is no global qubit placement, general gate decomposition, calibration-aware selection, or schedule generation.
 
 See the [optimizer product assessment and roadmap](docs/optimizer-roadmap.md) for a research-backed comparison and prioritized path toward device-targeted compilation.
+
+## Check dense simulation memory before running
+
+Get the minimum complex-amplitude payload for a state vector and density matrix. Add a memory budget in MiB to see which dense representation exceeds it:
+
+```sh
+quantumforge estimate 30 4096
+```
+
+This is a lower-bound preflight: it excludes temporary workspaces and process overhead. It does not select a tensor-network, stabilizer, or trajectory method, and a favorable estimate does not guarantee that a simulation will complete. See the [scaling strategy](docs/scaling-and-product-strategy.md).
+
+Library callers that want a pre-allocation check can use `StateVector::zero_with_memory_budget` or `DensityMatrix::maximally_mixed_with_memory_budget`. These constructors enforce the budget for the dense payload they allocate; later simulator workspaces still need additional headroom.
 
 ### Compare an optimized circuit under a thermal model
 
