@@ -2,12 +2,14 @@
 
 ## The honest answer to “infinite size”
 
-No classical method can exactly simulate every arbitrary quantum circuit at
-unbounded size and depth. A general pure-state vector needs `2^n` amplitudes;
-entanglement, non-Clifford content, connectivity, noise, and the requested
-output all affect the cost. A useful product should select among methods that
-fit a circuit's structure, report approximation and sampling error, and stop
-with a useful explanation when the requested accuracy exceeds the budget.
+No known classical method efficiently and exactly simulates every arbitrary
+quantum circuit as size and depth grow without bound. A general pure-state
+vector needs `2^n` amplitudes, and no structure-independent method is known to
+avoid exponential worst-case cost. Entanglement, non-Clifford content,
+connectivity, noise, and the requested output all affect the cost. A useful
+product should select among methods that fit a circuit's structure, report
+approximation and sampling error, and stop with a useful explanation when the
+requested accuracy exceeds the budget.
 
 ## A portfolio of simulation methods
 
