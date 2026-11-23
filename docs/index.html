@@ -3,66 +3,95 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>QuantumForge — Quantum Computation in Rust</title>
+<title>QuantumForge — Reproducible quantum circuit research</title>
+<meta name="description" content="A local-first Rust toolkit for quantum circuit simulation, optimization experiments, and explicit noise modeling.">
+<meta name="theme-color" content="#08111d">
+<meta property="og:title" content="QuantumForge — Reproducible quantum circuit research">
+<meta property="og:description" content="Build and simulate circuits, explore transformations, and study explicit noise assumptions in a local-first Rust toolkit.">
 <style>
   :root {
-    --bg: #0d1117;
-    --fg: #c9d1d9;
-    --accent: #58a6ff;
-    --accent2: #a371f7;
-    --border: #30363d;
-    --code-bg: #161b22;
+    --bg: #08111d;
+    --panel: #101d2c;
+    --fg: #edf4f7;
+    --muted: #9aabba;
+    --accent: #64e3c1;
+    --accent2: #8fa8ff;
+    --border: #26394a;
+    --code-bg: #0b1724;
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
   body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
     background: var(--bg);
     color: var(--fg);
     line-height: 1.6;
+    background-image: radial-gradient(ellipse at 80% 0%, rgba(56, 116, 158, 0.19), transparent 34rem), radial-gradient(ellipse at 8% 14%, rgba(39, 134, 120, 0.12), transparent 28rem);
   }
-  .container { max-width: 960px; margin: 0 auto; padding: 2rem 1.5rem; }
-  header { text-align: center; padding: 3rem 0 2rem; }
+  .container { max-width: 1120px; margin: 0 auto; padding: 1.25rem 1.5rem 3rem; }
+  .skip-link { position:absolute;left:-9999px;top:auto; }
+  .skip-link:focus { left:1rem;top:1rem;z-index:10;background:var(--fg);color:var(--bg);padding:.6rem 1rem;border-radius:8px; }
+  .nav { display:flex; align-items:center; justify-content:space-between; gap:1rem; padding:.5rem 0 1rem; }
+  .brand { color:var(--fg); font-weight:750; letter-spacing:-.03em; text-decoration:none; font-size:1.1rem; }
+  .nav-links { display:flex; align-items:center; gap:1.2rem; }
+  .nav-links a { color:var(--muted); text-decoration:none; font-size:.9rem; }
+  .nav-links a:hover { color:var(--accent); }
+  header { display:grid; grid-template-columns:1.05fr .95fr; align-items:center; gap:3rem; padding:5rem 0 4rem; }
+  .eyebrow { color:var(--accent); font-size:.78rem; font-weight:700; letter-spacing:.14em; text-transform:uppercase; margin-bottom:1rem; }
   h1 {
-    font-size: 2.5rem;
+    font-size: clamp(2.7rem, 6vw, 4.7rem);
+    line-height:1.03;
+    letter-spacing:-.055em;
     background: linear-gradient(135deg, var(--accent), var(--accent2));
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
-    margin-bottom: 0.5rem;
+    margin-bottom: 1.25rem;
   }
-  .tagline { color: #8b949e; font-size: 1.1rem; max-width: 600px; margin: 0 auto; }
+  .tagline { color:var(--muted); font-size:1.08rem; max-width:600px; margin:0 0 1.5rem; }
   .badge-row { margin-top: 1rem; }
   .badge {
     display: inline-block;
-    background: var(--code-bg);
+    background: rgba(16,29,44,.8);
     border: 1px solid var(--border);
     border-radius: 6px;
     padding: 0.25rem 0.75rem;
     margin: 0.25rem;
     font-size: 0.85rem;
-    color: var(--accent);
+    color: #bcefe3;
   }
+  .hero-visual { position:relative; background:linear-gradient(155deg, rgba(16,29,44,.98), rgba(10,23,36,.96)); border:1px solid #31495c; border-radius:20px; padding:1.35rem; box-shadow:0 25px 90px rgba(0,0,0,.28); }
+  .window-bar { display:flex; align-items:center; gap:.45rem; padding-bottom:1rem; border-bottom:1px solid var(--border); color:var(--muted); font: .75rem ui-monospace,monospace; }
+  .dot { width:8px;height:8px;border-radius:50%;background:#547085; }
+  .pipeline { display:grid; gap:.65rem; padding:1.1rem 0 .2rem; }
+  .pipeline-step { display:grid; grid-template-columns:2rem 1fr auto; align-items:center; gap:.7rem; border:1px solid var(--border); border-radius:11px; padding:.7rem .8rem; background:rgba(8,17,29,.66); }
+  .step-num { display:grid;place-items:center;width:1.75rem;height:1.75rem;border-radius:8px;background:rgba(100,227,193,.12);color:var(--accent);font:700 .75rem ui-monospace,monospace; }
+  .pipeline-step strong { font-size:.88rem; }
+  .pipeline-step small { display:block;color:var(--muted);font-size:.73rem; }
+  .step-status { color:var(--accent);font-size:.7rem;letter-spacing:.04em; }
+  .visual-note { color:var(--muted);font-size:.74rem;padding-top:.85rem; }
   section { margin: 2.5rem 0; }
   h2 {
     font-size: 1.5rem;
-    color: var(--accent);
-    border-bottom: 1px solid var(--border);
-    padding-bottom: 0.5rem;
+    color: var(--fg);
+    letter-spacing:-.03em;
     margin-bottom: 1rem;
   }
+  .section-intro { color:var(--muted);max-width:760px;margin:-.45rem 0 1.25rem; }
   .features { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; }
   .feature-card {
-    background: var(--code-bg);
+    background: linear-gradient(160deg, rgba(16,29,44,.95), rgba(11,23,36,.92));
     border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 1.25rem;
+    border-radius: 14px;
+    padding: 1.35rem;
   }
-  .feature-card h3 { color: var(--accent2); margin-bottom: 0.5rem; font-size: 1.1rem; }
-  .feature-card p { color: #8b949e; font-size: 0.9rem; }
+  .feature-card h3 { color: var(--accent); margin-bottom: 0.5rem; font-size: 1.05rem; }
+  .feature-card p { color: var(--muted); font-size: 0.9rem; }
+  .feature-card .icon { font-size:1.15rem;color:var(--accent2);margin-bottom:.5rem; }
   pre {
-    background: var(--code-bg);
+    background: rgba(11,23,36,.9);
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: 14px;
     padding: 1.25rem;
     overflow-x: auto;
     font-size: 0.85rem;
@@ -73,9 +102,9 @@
     color: var(--fg);
   }
   .prompt { color: var(--accent); }
-  .output { color: #8b949e; }
+  .output { color: var(--muted); }
   .install-cmd {
-    background: var(--code-bg);
+    background: rgba(11,23,36,.9);
     border: 1px solid var(--border);
     border-radius: 8px;
     padding: 1rem 1.25rem;
@@ -83,11 +112,11 @@
     font-family: monospace;
     font-size: 0.9rem;
   }
-  .install-cmd .comment { color: #8b949e; }
+  .install-cmd .comment { color: var(--muted); }
   .btn {
     display: inline-block;
     background: linear-gradient(135deg, var(--accent), var(--accent2));
-    color: #fff;
+    color: #08111d;
     text-decoration: none;
     padding: 0.6rem 1.5rem;
     border-radius: 6px;
@@ -95,47 +124,81 @@
     margin: 0.5rem 0.5rem 0.5rem 0;
   }
   .btn:hover { opacity: 0.9; }
+  .btn:focus-visible,.nav a:focus-visible { outline:3px solid var(--accent2);outline-offset:3px; }
   .btn-outline {
     background: transparent;
-    border: 1px solid var(--accent);
-    color: var(--accent);
+    border: 1px solid #547085;
+    color: var(--fg);
   }
   footer {
     text-align: center;
     padding: 2rem 0;
-    color: #8b949e;
+    color: var(--muted);
     font-size: 0.85rem;
     border-top: 1px solid var(--border);
     margin-top: 3rem;
   }
-  .paradigm-table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
-  .paradigm-table th, .paradigm-table td {
-    text-align: left;
-    padding: 0.6rem 1rem;
-    border-bottom: 1px solid var(--border);
+  .truth-panel { display:grid;grid-template-columns:1fr 1fr;gap:1rem; }
+  .truth-panel > div { border:1px solid var(--border);border-radius:14px;padding:1.25rem;background:rgba(16,29,44,.72); }
+  .truth-panel h3 { font-size:1rem;margin-bottom:.5rem; }
+  .truth-panel p,.truth-panel li { color:var(--muted);font-size:.9rem; }
+  .truth-panel ul { padding-left:1.1rem; }
+  a { color:var(--accent); }
+  footer a { color:var(--accent); }
+  @media (max-width:760px) {
+    .container { padding:1rem 1rem 2rem; }
+    .nav { align-items:flex-start; }
+    .nav-links { gap:.7rem;flex-wrap:wrap;justify-content:flex-end; }
+    .nav-links a { font-size:.78rem; }
+    header { grid-template-columns:1fr;gap:1.5rem;padding:3rem 0 2.5rem; }
+    .truth-panel { grid-template-columns:1fr; }
   }
-  .paradigm-table th { color: var(--accent); }
-  .paradigm-table td { color: #8b949e; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior:auto; } }
 </style>
 </head>
 <body>
 <div class="container">
 
-<header>
-  <h1>QuantumForge</h1>
-  <p class="tagline">A quantum-computation kernel in Rust — exact-rational analytic core, CPU simulator, interactive REPL, and optional CUDA / LLVM backends, all sharing one set of semantics.</p>
-  <div class="badge-row">
-    <span class="badge">Rust</span>
-    <span class="badge">Exact-Rational</span>
-    <span class="badge">CUDA</span>
-    <span class="badge">LLVM JIT</span>
-    <span class="badge">Python</span>
-    <span class="badge">Rigorously Tested</span>
-    <span class="badge">Apache-2.0</span>
+<a class="skip-link" href="#main">Skip to content</a>
+<nav class="nav" aria-label="Main navigation">
+  <a class="brand" href="#top">QuantumForge</a>
+  <div class="nav-links">
+    <a href="#workflow">Workflow</a>
+    <a href="#research">Research tools</a>
+    <a href="product-positioning.md">Platform comparison</a>
+    <a href="https://github.com/Junshenhuang-571/QuantumForge">GitHub ↗</a>
   </div>
+</nav>
+
+<header id="top">
+  <div class="hero-copy">
+  <p class="eyebrow">Local-first quantum research toolkit</p>
+  <h1>Make circuit experiments easier to trust.</h1>
+  <p class="tagline">Build and simulate circuits, explore optimization passes, and study explicit noise assumptions in one open-source Rust toolkit with a Python interface.</p>
+  <p class="tagline">QuantumForge is a classical simulator and research library. It does not submit jobs to quantum hardware.</p>
+  <a class="btn" href="#start">Try the local workflow</a>
+  <a class="btn btn-outline" href="product-positioning.md">See how it compares</a>
+  <div class="badge-row">
+    <span class="badge">Apache-2.0</span>
+    <span class="badge">Rust library + CLI</span>
+    <span class="badge">Python bindings</span>
+    <span class="badge">Runs locally</span>
+    <span class="badge">Pre-1.0</span>
+  </div>
+  </div>
+  <aside class="hero-visual">
+    <div class="window-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span style="margin-left:.5rem">experiment workflow</span></div>
+    <div class="pipeline">
+      <div class="pipeline-step"><span class="step-num">01</span><div><strong>Build a circuit</strong><small>Rust API · Python · OpenQASM 2</small></div><span class="step-status">LOCAL</span></div>
+      <div class="pipeline-step"><span class="step-num">02</span><div><strong>Inspect a rewrite</strong><small>Resource counts · optional equivalence check</small></div><span class="step-status">TRACEABLE</span></div>
+      <div class="pipeline-step"><span class="step-num">03</span><div><strong>Model noise assumptions</strong><small>T1/T2 · thermal bath · scheduled idle time</small></div><span class="step-status">EXPLICIT</span></div>
+    </div>
+    <p class="visual-note">A research workflow preview—not a live device connection or a claim of calibrated hardware fidelity.</p>
+  </aside>
 </header>
 
-<section>
+<main id="main">
+<section id="start">
   <h2>Install &amp; Run</h2>
   <div class="install-cmd">
     <span class="comment"># Install from crates.io</span><br>
@@ -152,9 +215,9 @@
   <a class="btn btn-outline" href="python/README.md">Build the Python bindings</a>
 </section>
 
-<section>
+<section id="workflow">
   <h2>Try It — Interactive REPL</h2>
-  <p>The <code>qf</code> REPL lets you build circuits incrementally, draw them as ASCII diagrams, run and measure them, and run variational algorithms (VQE, QML training).</p>
+  <p>The <code>qf</code> REPL lets you build circuits incrementally, draw them as ASCII diagrams, run and measure them, and explore variational algorithms locally.</p>
   <pre><span class="prompt">qf&gt;</span> qubits 3
 <span class="prompt">qf&gt;</span> add H[0]
 <span class="prompt">qf&gt;</span> add CNOT[0,1]
@@ -169,19 +232,18 @@ legend: ─ wire  • control  ⊕ target(X)  │ span  x swap  M measure</span>
 </section>
 
 <section>
-  <h2>Five Models of Quantum Computation</h2>
-  <table class="paradigm-table">
-    <tr><th>Paradigm</th><th>What it is</th><th><code>qf</code> command</th></tr>
-    <tr><td>Circuit / gate model</td><td>Standard qubits-and-gates</td><td><code>add</code>, <code>run</code>, <code>draw</code>, <code>shots</code></td></tr>
-    <tr><td>Variational (VQE / QML)</td><td>Parameterized circuits optimized classically</td><td><code>vqe</code>, <code>train</code>, <code>qnn</code>, <code>gradient</code></td></tr>
-    <tr><td>Measurement-based (MBQC)</td><td>One-way model — cluster states measured adaptively</td><td><code>mbqc</code></td></tr>
-    <tr><td>Adiabatic (AQC)</td><td>Evolve ground state from driver to problem Hamiltonian</td><td><code>anneal</code></td></tr>
-    <tr><td>Quantum Turing machine</td><td>Reversible transition unitaries on configuration superpositions</td><td><code>qtm</code></td></tr>
-  </table>
+  <h2>A repeatable path through a local experiment</h2>
+  <p class="section-intro">Keep the circuit, transformation choices, and noise assumptions visible. Use the outputs to understand a run and reproduce it—not as a substitute for hardware calibration.</p>
+  <div class="features">
+    <div class="feature-card"><div class="icon">01 / Design</div><h3>Start from a circuit</h3><p>Build with the Rust or Python API, use the interactive REPL, or import supported OpenQASM 2 circuits.</p></div>
+    <div class="feature-card"><div class="icon">02 / Compare</div><h3>Inspect transformations</h3><p>Apply rewrite passes, route against a topology, check supported target constraints, and save resource and run details.</p></div>
+    <div class="feature-card"><div class="icon">03 / Study</div><h3>Make noise explicit</h3><p>Simulate density matrices with T1/T2-derived thermal noise, including idle periods when operation timings are supplied.</p></div>
+  </div>
 </section>
 
-<section>
-  <h2>Features</h2>
+<section id="research">
+  <h2>Tools for quantum research</h2>
+  <p class="section-intro">A broad research library, not a single-purpose compiler. Pick the parts that fit your experiment and work locally.</p>
   <div class="features">
     <div class="feature-card">
       <h3>Symbolic Algebra</h3>
@@ -193,23 +255,23 @@ legend: ─ wire  • control  ⊕ target(X)  │ span  x swap  M measure</span>
     </div>
     <div class="feature-card">
       <h3>Circuit Optimization</h3>
-      <p>Run conservative or full rewrite passes, route against a line or custom undirected coupling map, verify unitary action on small circuits, and save a JSON run report. Read and write OpenQASM 2.0. See the <a href="optimizer-roadmap.md">compiler roadmap</a>.</p>
+      <p>Apply rewrite passes, route against a topology, check declared native-gate and directed-CNOT constraints, and save a JSON report. General basis translation, global layout search, and hardware submission are not implemented. See the <a href="optimizer-roadmap.md">compiler roadmap</a>.</p>
     </div>
     <div class="feature-card">
       <h3>Density Matrices</h3>
-      <p>Noise channels (depolarizing / thermal relaxation / phase damping), a T1/T2-based thermal gate and schedule-aware idle-noise model, partial trace, and entropy tracking.</p>
+      <p>Density-matrix simulation with explicit channels and a T1/T2-based thermal model. Schedule-aware idle noise uses timings supplied by the caller; the model is not a hardware calibration feed.</p>
     </div>
     <div class="feature-card">
       <h3>Variational / QML</h3>
-      <p><code>ParameterizedCircuit</code> with data encoding, four gradient strategies (parameter shift, adjoint, backprop, finite-difference) with automatic selection, Adam trainers for regression and classification.</p>
+      <p><code>ParameterizedCircuit</code> with data encoding, parameter-shift, adjoint, backpropagation, and finite-difference gradient methods, plus Adam trainers for regression and classification.</p>
     </div>
     <div class="feature-card">
       <h3>Shot-Aware VQE</h3>
-      <p>SubsCoRe (arXiv:2502.01704) spends the measurement budget where it matters: a GP surrogate tracks the confident region and the shot count adapts to it, under a total shot budget.</p>
+      <p>A research implementation of SubsCoRe-style adaptive shot allocation for variational optimization, with a reproducible total-shot-budget workflow.</p>
     </div>
     <div class="feature-card">
       <h3>CUDA Backend</h3>
-      <p>NVRTC device-resident state vectors, density matrices, batched shots — validated against the Rust reference.</p>
+      <p>Optional acceleration for selected simulation paths. CUDA/GPU features require a compatible NVIDIA toolkit and are not part of the default CPU install.</p>
     </div>
     <div class="feature-card">
       <h3>Python Bindings</h3>
@@ -217,9 +279,19 @@ legend: ─ wire  • control  ⊕ target(X)  │ span  x swap  M measure</span>
     </div>
     <div class="feature-card">
       <h3>LLVM JIT</h3>
-      <p>Lower scalar expressions to LLVM IR and runtime-JIT for fast exact evaluation.</p>
+      <p>Lower supported scalar numeric expressions to LLVM IR and JIT-compile them. This is not a quantum-circuit compiler.</p>
     </div>
   </div>
+</section>
+
+<section id="fit">
+  <h2>Clear scope builds trust</h2>
+  <p class="section-intro">QuantumForge is early-stage software. The platform comparison and proposed product direction are documented openly.</p>
+  <div class="truth-panel">
+    <div><h3>What works today</h3><ul><li>Local circuit simulation, measurement, and research algorithms</li><li>Rust library and CLI, plus a Python binding surface</li><li>Small-circuit optimization checks and explicit model-based noise</li><li>Open-source Apache-2.0 project</li></ul></div>
+    <div><h3>What is still missing</h3><ul><li>General device layout and native-gate translation</li><li>Calibration-aware optimization and schedule generation</li><li>Working provider discovery, job submission, and result retrieval</li><li>External usage and customer evidence for a paid product</li></ul></div>
+  </div>
+  <p class="section-intro" style="margin-top:1rem">Read the <a href="product-positioning.md">sourced platform comparison and commercial hypotheses</a> before treating the roadmap as a product claim.</p>
 </section>
 
 <section>
@@ -247,8 +319,9 @@ print(circuit.run(StateVector.zero(2)).probabilities())
 
 <section>
   <h2>CI</h2>
-  <p>Every push and PR runs GitHub Actions across Ubuntu, Windows and macOS: <code>cargo fmt --check</code>, <code>cargo clippy --all-targets -- -D warnings</code>, <code>cargo test</code>, the declared MSRV, a feature-compile matrix (<code>llvm</code>, <code>python</code>, the provider backends), <code>cargo audit</code>, a <code>cargo bench --no-run</code> check, <code>cargo fuzz build</code>, and a job that builds a wheel, installs it into a clean venv and runs the Python test scripts.</p>
+  <p>Pushes to <code>main</code> and pull requests targeting <code>main</code> run formatting, lint, build, and test checks on Ubuntu, Windows, and macOS, plus separate MSRV, optional-feature, and security jobs. A Qiskit comparison job checks a defined optimizer subset on Ubuntu. These checks do not establish broad compiler parity or hardware performance.</p>
 </section>
+</main>
 
 <footer>
   <p>QuantumForge &middot; Apache-2.0 &middot; <a href="https://github.com/Junshenhuang-571/QuantumForge" style="color:var(--accent)">GitHub</a> &middot; <a href="https://crates.io/crates/quantumforge" style="color:var(--accent)">crates.io</a> &middot; <a href="https://docs.rs/quantumforge" style="color:var(--accent)">docs.rs</a></p>

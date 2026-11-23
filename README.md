@@ -2,9 +2,11 @@
 
 [![CI](https://github.com/Junshenhuang-571/QuantumForge/actions/workflows/ci.yml/badge.svg)](https://github.com/Junshenhuang-571/QuantumForge/actions/workflows/ci.yml) [![Crates.io](https://img.shields.io/crates/v/quantumforge)](https://crates.io/crates/quantumforge) [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 
-QuantumForge is a local quantum-circuit simulator and research toolkit written in Rust. Use it to build circuits, simulate states and noise, sample measurements, and experiment with algorithms such as VQE and QAOA. It works on a regular CPU and can be embedded as a Rust library; Python bindings are also available.
+QuantumForge is an open-source, local-first quantum simulation and research toolkit written in Rust. Use it to build circuits, simulate states and explicit noise models, sample measurements, and explore algorithms such as VQE and QAOA. It runs on a regular CPU and can be embedded as a Rust library; Python bindings are also available.
 
 It is a **classical simulator**, not a connection to quantum hardware. The project is pre-1.0, so APIs may change. State-vector memory grows exponentially with qubit count; density matrices are for smaller systems. IBM Quantum, IonQ, and Rigetti modules are interface scaffolds, without device discovery or job submission.
+
+QuantumForge is not yet a replacement for mature hardware compilers such as Qiskit or TKET. Its product direction is a reproducible local workbench for comparing circuit transformations and noise assumptions. See the [sourced platform comparison and commercial product hypotheses](docs/product-positioning.md) for the current scope, gaps, and evidence needed to validate that direction.
 
 ## Start in a minute
 
