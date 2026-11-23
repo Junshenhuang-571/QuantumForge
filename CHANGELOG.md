@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Fixed
+- **Asymmetric readout-matrix validation.** `ConfusionMatrix::new` now validates column sums according to its documented `P(observed | prepared)` convention, allowing valid asymmetric channels used by mitigation workflows.
+
 ### Added
 - **Circuit-scale MPS contractions.** Single- and adjacent two-site expectations and DMRG step normalization contract the MPS directly rather than expanding a `2^n` state vector. This removes an exponential memory/time detour from these operations; bond growth can still make MPS simulation expensive.
 - **Scaling strategy for large circuits.** Documents the distinct regimes for state vectors, stabilizer simulation, MPS, trajectories, tensor contraction, and circuit cutting, plus an evidence-based roadmap toward a budget-aware simulator router. It explicitly rules out a promise of exact simulation for arbitrary unbounded circuits.

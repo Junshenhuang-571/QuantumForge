@@ -83,8 +83,8 @@ impl ConfusionMatrix {
                 return Err(ReadoutError::InvalidEntry(entry));
             }
         }
-        for (column, entries) in matrix.iter().enumerate() {
-            let sum = entries[0] + entries[1];
+        for (column, (top, bottom)) in matrix[0].iter().zip(matrix[1].iter()).enumerate() {
+            let sum = top + bottom;
             if (sum - 1.0).abs() > 1e-6 {
                 return Err(ReadoutError::ColumnSum { column, sum });
             }
