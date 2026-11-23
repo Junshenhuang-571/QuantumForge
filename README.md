@@ -57,6 +57,18 @@ quantumforge optimize 3 all --verify 'Circuit[H[0], H[0]]'
 
 See the [optimizer product assessment and roadmap](docs/optimizer-roadmap.md) for a research-backed comparison and prioritized path toward device-targeted compilation.
 
+### Compare an optimized circuit under a thermal model
+
+The optimizer can optionally run the optimized circuit through an exact density-matrix simulation with a declared `T1`, `T2`, bath gap, and one-/two-qubit gate duration. The report records reference and noisy probabilities, per-qubit Z expectations, purity, probability total-variation distance, and inserted channel counts:
+
+```sh
+quantumforge optimize 3 all --input circuit.qasm \
+  --thermal 30 20 1 0.02 0.2 --verify --report experiment.json \
+  > optimized.json
+```
+
+This analysis starts in the all-zero state, is limited to eight qubits, and rejects measurements and classical feed-forward. It is an exact calculation for the stated model, not a hardware result: readout, correlated errors, calibration drift, and parameter uncertainty are not included. `--thermal` requires `--report FILE` so simulation metadata stays separate from the circuit JSON on standard output. For caller-provided schedule timings and idle noise, use the library API described in the [noise guide](docs/wiki/Noise-and-Statistical-Mechanics.md).
+
 ## Use QuantumForge from Rust
 
 Add the crate to your project:

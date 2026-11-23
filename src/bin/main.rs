@@ -2,6 +2,7 @@ use quantumforge::analytic::{
     Assumptions, ExactComplex, ExprPattern, Pauli, PauliSum, PauliWord, Rational, RewriteRule,
     ScalarExpr, Simplifier, SymbolicPauliSum,
 };
+use quantumforge::noise_model::ThermalGateNoiseModel;
 use quantumforge::optimizer::{
     CircuitCostProfile, CouplingMap, OptimizeConfig, optimize_circuit, try_route_to_hardware,
     verify_unitary_equivalent,
@@ -50,7 +51,7 @@ fn run_optimize(args: &[String]) {
     let result = (|| {
         if args.len() < 3 {
             return Err(
-                "usage: quantumforge optimize QUBITS all|conservative [--line | --topology FILE] [--verify] [--input FILE] [--format json|qasm] [--report FILE] [Circuit[...]]"
+                "usage: quantumforge optimize QUBITS all|conservative [--line | --topology FILE] [--verify] [--thermal T1 T2 BETA_DELTA ONE_QUBIT_TIME TWO_QUBIT_TIME] [--input FILE] [--format json|qasm] [--report FILE] [Circuit[...]]"
                     .to_owned(),
             );
         }
@@ -71,6 +72,7 @@ fn run_optimize(args: &[String]) {
         let mut topology_path = None;
         let mut input_path = None;
         let mut report_path = None;
+        let mut thermal_parameters = None;
         let mut output_format = "json";
         let mut circuit_parts = Vec::new();
         let mut index = 2;
@@ -100,6 +102,23 @@ fn run_optimize(args: &[String]) {
                             .ok_or_else(|| "--report requires a file path".to_owned())?
                             .as_str(),
                     );
+                }
+                "--thermal" => {
+                    let mut parameters = [0.0; 5];
+                    for (offset, parameter) in parameters.iter_mut().enumerate() {
+                        index += 1;
+                        *parameter = args
+                            .get(index)
+                            .ok_or_else(|| {
+                                "--thermal requires T1 T2 BETA_DELTA ONE_QUBIT_TIME TWO_QUBIT_TIME"
+                                    .to_owned()
+                            })?
+                            .parse::<f64>()
+                            .map_err(|_| {
+                                format!("--thermal parameter {} must be a number", offset + 1)
+                            })?;
+                    }
+                    thermal_parameters = Some(parameters);
                 }
                 "--format" => {
                     index += 1;
@@ -134,6 +153,9 @@ fn run_optimize(args: &[String]) {
         };
         if circuit_source.is_empty() {
             return Err("provide --input FILE or a Circuit[...] expression to optimize".to_owned());
+        }
+        if thermal_parameters.is_some() && report_path.is_none() {
+            return Err("--thermal requires --report FILE so the simulation results are recorded separately from the circuit output".to_owned());
         }
 
         let original = if circuit_source.contains("OPENQASM") {
@@ -199,6 +221,18 @@ fn run_optimize(args: &[String]) {
             None
         };
         let optimized_profile = CircuitCostProfile::from_circuit(&optimized);
+        let thermal_analysis = if let Some([t1, t2, beta_delta, one_qubit_time, two_qubit_time]) =
+            thermal_parameters
+        {
+            Some(analyze_thermal_effect(
+                &optimized,
+                qubits,
+                ThermalGateNoiseModel::new(t1, t2, beta_delta, one_qubit_time, two_qubit_time)
+                    .map_err(|error| error.to_string())?,
+            )?)
+        } else {
+            None
+        };
         let equivalence = if verify {
             Some(
                 verify_unitary_equivalent(&original, &optimized, qubits, 1e-9)
@@ -283,6 +317,7 @@ fn run_optimize(args: &[String]) {
                 },
                 "routing_swaps_inserted": routing_swaps,
                 "cnot_direction_corrections": direction_corrections,
+                "thermal_noise_analysis": thermal_analysis,
                 "output_format": output_format,
                 "equivalence": match &equivalence {
                     Some(result) => serde_json::json!({
@@ -350,6 +385,17 @@ fn run_optimize(args: &[String]) {
                 result.basis_states_checked,
                 result.max_amplitude_error,
             );
+        }
+        if let Some(analysis) = &thermal_analysis {
+            eprintln!(
+                "Thermal analysis: exact density-matrix simulation; see report for model assumptions and noise impact"
+            );
+            if let Some(channels) = analysis
+                .get("inserted_channels")
+                .and_then(serde_json::Value::as_u64)
+            {
+                eprintln!("Thermal model channels inserted: {channels}");
+            }
         }
         if equivalence
             .as_ref()
@@ -909,6 +955,94 @@ fn run_demo() {
     );
 }
 
+fn analyze_thermal_effect(
+    circuit: &Circuit,
+    qubits: usize,
+    model: ThermalGateNoiseModel,
+) -> Result<serde_json::Value, String> {
+    if qubits > 8 {
+        return Err(
+            "thermal CLI analysis is limited to 8 qubits because density-matrix simulation scales exponentially; use a suitable tensor-network or trajectory workflow for larger circuits".to_owned(),
+        );
+    }
+    if circuit.operations().iter().any(|operation| {
+        matches!(
+            operation,
+            quantumforge::CircuitOp::Measure { .. }
+                | quantumforge::CircuitOp::ConditionalSingleQubit { .. }
+        )
+    }) {
+        return Err(
+            "thermal CLI analysis currently requires a circuit without measurements or classical feed-forward".to_owned(),
+        );
+    }
+
+    let noisy = model.apply(circuit);
+    let initial_state = StateVector::zero(qubits).map_err(|error| error.to_string())?;
+    let reference = circuit
+        .run_density(DensityMatrix::from_state(&initial_state))
+        .map_err(|error| format!("reference density-matrix simulation failed: {error}"))?;
+    let simulated = noisy
+        .circuit
+        .run_density(DensityMatrix::from_state(&initial_state))
+        .map_err(|error| format!("thermal density-matrix simulation failed: {error}"))?;
+
+    let diagonal_probabilities = |state: &DensityMatrix| {
+        let dimension = state.dimension();
+        (0..dimension)
+            .map(|index| state.entries()[index * dimension + index].re)
+            .collect::<Vec<_>>()
+    };
+    let reference_probabilities = diagonal_probabilities(&reference);
+    let noisy_probabilities = diagonal_probabilities(&simulated);
+    let total_variation_distance = reference_probabilities
+        .iter()
+        .zip(&noisy_probabilities)
+        .map(|(a, b)| (a - b).abs())
+        .sum::<f64>()
+        * 0.5;
+    let z_expectations = (0..qubits)
+        .map(|qubit| {
+            Ok(serde_json::json!({
+                "qubit": qubit,
+                "reference": reference.expectation_z(qubit).map_err(|error| error.to_string())?,
+                "with_thermal_model": simulated.expectation_z(qubit).map_err(|error| error.to_string())?,
+            }))
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    let summary = noisy.summary;
+    Ok(serde_json::json!({
+        "status": "simulated",
+        "method": "exact_density_matrix",
+        "initial_state": "all_zero",
+        "model": {
+            "kind": "independent_markovian_thermal_relaxation_and_pure_dephasing",
+            "t1": model.t1(),
+            "t2": model.t2(),
+            "beta_delta": model.beta_delta(),
+            "single_qubit_gate_duration": model.single_qubit_gate_time(),
+            "two_qubit_gate_duration": model.two_qubit_gate_time(),
+            "readout_noise": "not modeled",
+            "correlated_noise": "not modeled",
+            "parameter_uncertainty": "not included",
+        },
+        "explicit_input_channels": "preserved in both reference and noisy circuit",
+        "inserted_channels": summary.thermal_channels + summary.dephasing_channels,
+        "thermal_channels": summary.thermal_channels,
+        "dephasing_channels": summary.dephasing_channels,
+        "reference_probabilities": reference_probabilities,
+        "with_thermal_model_probabilities": noisy_probabilities,
+        "probability_total_variation_distance": total_variation_distance,
+        "z_expectations": z_expectations,
+        "reference_purity": reference.purity(),
+        "with_thermal_model_purity": simulated.purity(),
+        "reference_trace": [reference.trace().re, reference.trace().im],
+        "with_thermal_model_trace": [simulated.trace().re, simulated.trace().im],
+        "shots": 0,
+        "shot_uncertainty": "not applicable; exact finite-dimensional density-matrix calculation",
+    }))
+}
+
 fn read_coupling_map(path: &str, expected_qubits: usize) -> Result<DeviceTarget, String> {
     let source = std::fs::read_to_string(path)
         .map_err(|error| format!("could not read topology {path}: {error}"))?;
@@ -1212,7 +1346,7 @@ fn print_help() {
     println!("\nUsage: quantumforge [demo|eval EXPR|simplify EXPR|optimize ...|help]");
     println!("       quantumforge shots QUBITS SHOTS SEED 'Circuit[...]'");
     println!(
-        "       quantumforge optimize QUBITS all|conservative [--line | --topology FILE] [--verify] [--input FILE] [--format json|qasm] [--report FILE] [Circuit[...]]"
+        "       quantumforge optimize QUBITS all|conservative [--line | --topology FILE] [--verify] [--thermal T1 T2 BETA_DELTA ONE_QUBIT_TIME TWO_QUBIT_TIME] [--input FILE] [--format json|qasm] [--report FILE] [Circuit[...]]"
     );
     #[cfg(feature = "llvm")]
     println!("       quantumforge llvm-ir EXPR");
@@ -1224,11 +1358,15 @@ fn print_help() {
         "\nThe demo runs a one-qubit CPU simulation, seeded measurement, and a tiny variational QNN training loop."
     );
     println!(
+        "\nThe optimize --thermal option adds a T1/T2 model-based density-matrix comparison to --report FILE (unitary circuits, up to 8 qubits). Results are simulations, not hardware measurements."
+    );
+    println!(
         "\nExamples:\n\
          quantumforge shots 2 1000 42 'Circuit[H[0], CNOT[0,1]]'\n\
          quantumforge optimize 3 all --line 'Circuit[H[0], H[0], CNOT[0,2]]'\n\
          quantumforge optimize 3 all --input bell.qasm --line --format qasm\n\
          quantumforge optimize 3 all --input bell.qasm --report compile-report.json\n\
+         quantumforge optimize 3 all --input bell.qasm --thermal 30 20 1 0.02 0.2 --report experiment.json\n\
          quantumforge optimize 5 all --topology device-map.json --input circuit.qasm\n\
          quantumforge optimize 3 all --verify 'Circuit[H[0], H[0]]'\n\
          quantumforge eval '2 + 3*Pi'\n\

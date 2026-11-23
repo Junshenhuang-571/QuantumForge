@@ -4,7 +4,7 @@ This note compares QuantumForge's current circuit-optimization workflow with the
 
 ## Current workflow
 
-The `quantumforge optimize` command accepts a QuantumForge circuit expression or an OpenQASM 2 circuit, runs the existing conservative or full rewrite passes, optionally routes to a line topology, and writes JSON or OpenQASM 2. It reports gate and depth changes and routing SWAP overhead. The library also exposes weighted logical cost estimates and checked routing for an explicitly supplied coupling map.
+The `quantumforge optimize` command accepts a QuantumForge circuit expression or an OpenQASM 2 circuit, runs the existing conservative or full rewrite passes, optionally routes to a line or custom target, and writes JSON or OpenQASM 2. It reports gate and depth changes and routing SWAP overhead. Optional `--thermal` analysis simulates the optimized circuit with a declared gate-noise model and includes observable/resource comparisons in the JSON report. The library also exposes weighted logical cost estimates and checked routing for an explicitly supplied coupling map.
 
 | Workflow capability | Current state |
 | --- | --- |
@@ -16,8 +16,9 @@ The `quantumforge optimize` command accepts a QuantumForge circuit expression or
 | Device layout search | Not exposed in the batch optimizer; current routing preserves logical indices |
 | Device-native gate translation | Not exposed in the batch optimizer |
 | Directed couplings and native-gate checks | Custom target JSON validates supported gates and directed CNOT edges after routing; it can reverse CNOTs with Hadamard conjugation when H is explicitly native |
-| Calibration and scheduling | Not modeled by the batch optimizer |
-| Independent equivalence verification | Not part of the CLI workflow |
+| Noise-aware analysis | Optional exact density-matrix comparison under a declared T1/T2 gate model, limited to 8 qubits; schedule-aware idle noise remains a library API |
+| Calibration and schedule generation | Not modeled by the batch optimizer |
+| Circuit equivalence checks | CLI exhaustive basis-state unitary check up to 10 qubits; Qiskit comparison is a separate CI subset |
 | OpenQASM 3 workflow | Not supported by this batch path |
 
 ## What established compiler workflows include
@@ -32,12 +33,12 @@ These references suggest that the key product boundary is a target-aware, inspec
 
 ### P0 — Make results trustworthy and easy to reproduce
 
-1. The first `--report FILE` artifact now records tool version, input format, selected mode and passes, target choice, rewrite counts, before/after resources, and the fact that equivalence was not independently checked. Next, add normalized input/output digests and richer warning details while keeping circuit output independently consumable by scripts.
+1. The `--report FILE` artifact records tool version, input format, selected mode and passes, target choice, rewrite counts, before/after resources, equivalence status, and optional thermal simulation assumptions/results. Next, add normalized input/output digests and richer warning details while keeping circuit output independently consumable by scripts.
 2. The `--verify` option exhaustively checks unitary action on all computational-basis states up to ten qubits. `tools/validate_optimizer_qiskit.py` adds a separate Qiskit operator comparison suite, and a dedicated CI job now installs pinned Qiskit and runs it without making Qiskit a runtime dependency. Confirm the job passes on the next pull request.
    To run it locally, install `tools/requirements-validation.txt`, build `quantumforge`, then pass the executable path to the script.
 3. Publish stable CLI examples and ensure the generated API documentation builds for each release. The [docs.rs page for 0.2.9](https://docs.rs/crate/quantumforge/0.2.9) currently reports a failed build; its docs.rs feature list included `gpu`, while the repository CI notes that cudarc's build requires CUDA toolkit headers. The docs.rs feature list now excludes `gpu`; confirm the next published release builds and inspect its logs if it still fails.
 4. Add benchmark fixtures with reproducible seeds and report compile time alongside two-qubit count, depth, and routing overhead. Never present a logical cost estimate as hardware fidelity or runtime.
-5. `noise_model::ThermalGateNoiseModel` converts `T1`, `T2`, `beta*Delta`, and gate durations into per-gate and scheduled idle thermal/dephasing channels. Next add per-qubit/per-gate calibration data, readout integration, and schedule provenance before treating it as a backend model.
+5. `noise_model::ThermalGateNoiseModel` converts `T1`, `T2`, `beta*Delta`, and gate durations into per-gate and scheduled idle thermal/dephasing channels. The optimizer report can compare a small optimized circuit with and without the declared gate model. Next add per-qubit/per-gate calibration data, readout integration, and schedule provenance before treating it as a backend model.
 
 ### P1 — Compile to an explicit device target
 

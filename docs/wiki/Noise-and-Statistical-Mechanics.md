@@ -106,6 +106,13 @@ errors, leakage, gate-specific coherent errors, drift, or readout error. Use the
 separate readout model for measurement noise. It is a reproducible simulation
 assumption, not a calibration report for any real device.
 
+For an end-to-end optimizer report on a small unitary circuit, the CLI accepts
+`--thermal T1 T2 BETA_DELTA ONE_QUBIT_TIME TWO_QUBIT_TIME`. The report compares
+the optimized circuit with and without these added channels using an exact
+density-matrix simulation from the all-zero state. This CLI path is limited to
+8 qubits and does not use caller-supplied schedules; use `apply_scheduled` from
+the library for schedule-aware idle noise.
+
 The collisional model is the same physics from the bath side: a partial swap
 `V = cos(phi) I - i sin(phi) S` against a bath in `tau` gives
 

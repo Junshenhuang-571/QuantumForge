@@ -220,6 +220,16 @@ impl ThermalGateNoiseModel {
         self.beta_delta
     }
 
+    /// Return the configured single-qubit gate duration.
+    pub fn single_qubit_gate_time(&self) -> f64 {
+        self.single_qubit_gate_time
+    }
+
+    /// Return the configured two-qubit gate duration.
+    pub fn two_qubit_gate_time(&self) -> f64 {
+        self.two_qubit_gate_time
+    }
+
     /// Return a new circuit with local thermal and dephasing channels after each gate.
     ///
     /// Single-qubit gates use `single_qubit_gate_time`; CNOT, CZ, and SWAP use
