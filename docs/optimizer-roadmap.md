@@ -15,7 +15,7 @@ The `quantumforge optimize` command accepts a QuantumForge circuit expression or
 | Explicit weighted logical cost | Library-level cost profile and cost model |
 | Device layout search | Not exposed in the batch optimizer; current routing preserves logical indices |
 | Device-native gate translation | Not exposed in the batch optimizer |
-| Directed couplings and native-gate checks | Custom target JSON can optionally validate supported gates and directed CNOT edges after routing; it does not translate gates |
+| Directed couplings and native-gate checks | Custom target JSON validates supported gates and directed CNOT edges after routing; it can reverse CNOTs with Hadamard conjugation when H is explicitly native |
 | Calibration and scheduling | Not modeled by the batch optimizer |
 | Independent equivalence verification | Not part of the CLI workflow |
 | OpenQASM 3 workflow | Not supported by this batch path |
@@ -43,7 +43,7 @@ These references suggest that the key product boundary is a target-aware, inspec
 
 1. The custom target JSON now accepts an optional native gate set and directed CNOT edges; validation runs on the routed output. Expand this into a public serializable target API with per-operation error/duration metadata and versioned schema.
 2. Separate layout, routing, basis translation, and post-routing optimization into named passes. Preserve an explicit logical-to-physical mapping and include it in reports.
-3. Add native-gate translation and direction correction before claiming a circuit is executable on a target. The current target validator reports unsupported output operations but does not repair them.
+3. Extend basis translation beyond the current direction correction. The optimizer can repair reversed CNOTs with Hadamard conjugation when H is explicitly native, but other non-native gates still fail validation instead of being decomposed.
 4. Offer optimization objectives such as lexicographic two-qubit count then depth, or user-supplied weighted logical cost; expose the objective and its units in the report.
 
 ### P2 — Support professional interchange and integration

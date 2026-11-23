@@ -191,9 +191,13 @@ fn run_optimize(args: &[String]) {
         } else {
             None
         };
-        if let Some((_, target)) = &coupling_map {
+        let direction_corrections = if let Some((_, target)) = &coupling_map {
+            let corrections = correct_cnot_directions(&mut optimized, target)?;
             validate_device_target(&optimized, target)?;
-        }
+            Some(corrections)
+        } else {
+            None
+        };
         let optimized_profile = CircuitCostProfile::from_circuit(&optimized);
         let equivalence = if verify {
             Some(
@@ -278,6 +282,7 @@ fn run_optimize(args: &[String]) {
                     None => serde_json::Value::Null,
                 },
                 "routing_swaps_inserted": routing_swaps,
+                "cnot_direction_corrections": direction_corrections,
                 "output_format": output_format,
                 "equivalence": match &equivalence {
                     Some(result) => serde_json::json!({
@@ -328,6 +333,11 @@ fn run_optimize(args: &[String]) {
                 .unwrap_or("unknown");
             eprintln!("{topology} topology: {swaps} routing SWAPs inserted");
             eprintln!("Device target validation: passed");
+        }
+        if let Some(corrections) = direction_corrections {
+            if corrections > 0 {
+                eprintln!("Directed CNOTs corrected: {corrections} using native Hadamards");
+            }
         }
         if let Some(result) = &equivalence {
             eprintln!(
@@ -1122,6 +1132,62 @@ fn validate_device_target(circuit: &Circuit, target: &DeviceTarget) -> Result<()
         }
     }
     Ok(())
+}
+
+fn correct_cnot_directions(circuit: &mut Circuit, target: &DeviceTarget) -> Result<usize, String> {
+    let Some(directed_edges) = &target.directed_cx_edges else {
+        return Ok(0);
+    };
+    let mut corrected = Vec::with_capacity(circuit.operations().len());
+    let mut corrections = 0;
+    for (index, operation) in circuit.operations().iter().copied().enumerate() {
+        match operation {
+            quantumforge::CircuitOp::Cnot {
+                control,
+                target: target_qubit,
+            } if !directed_edges.contains(&(control, target_qubit)) => {
+                if !directed_edges.contains(&(target_qubit, control)) {
+                    return Err(format!(
+                        "device target operation {index}: neither CNOT direction is supported for qubits {control} and {target_qubit}"
+                    ));
+                }
+                if !target
+                    .native_gates
+                    .as_ref()
+                    .is_some_and(|gates| gates.contains("h"))
+                {
+                    return Err(format!(
+                        "device target operation {index}: reversing CNOT {control}->{target_qubit} requires native 'h' in the target's native_gates list"
+                    ));
+                }
+                // CX(a,b) = H(a) H(b) CX(b,a) H(a) H(b).
+                corrected.push(quantumforge::CircuitOp::SingleQubit {
+                    gate: Gate::H,
+                    target: control,
+                });
+                corrected.push(quantumforge::CircuitOp::SingleQubit {
+                    gate: Gate::H,
+                    target: target_qubit,
+                });
+                corrected.push(quantumforge::CircuitOp::Cnot {
+                    control: target_qubit,
+                    target: control,
+                });
+                corrected.push(quantumforge::CircuitOp::SingleQubit {
+                    gate: Gate::H,
+                    target: control,
+                });
+                corrected.push(quantumforge::CircuitOp::SingleQubit {
+                    gate: Gate::H,
+                    target: target_qubit,
+                });
+                corrections += 1;
+            }
+            _ => corrected.push(operation),
+        }
+    }
+    *circuit.operations_mut() = corrected;
+    Ok(corrections)
 }
 
 fn gate_name(gate: Gate) -> &'static str {
