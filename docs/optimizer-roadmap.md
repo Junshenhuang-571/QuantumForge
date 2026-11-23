@@ -15,7 +15,8 @@ The `quantumforge optimize` command accepts a QuantumForge circuit expression or
 | Explicit weighted logical cost | Library-level cost profile and cost model |
 | Device layout search | Not exposed in the batch optimizer; current routing preserves logical indices |
 | Device-native gate translation | Not exposed in the batch optimizer |
-| Directed couplings, calibration, and scheduling | Not modeled by the batch optimizer; custom CLI maps are undirected |
+| Directed couplings and native-gate checks | Custom target JSON can optionally validate supported gates and directed CNOT edges after routing; it does not translate gates |
+| Calibration and scheduling | Not modeled by the batch optimizer |
 | Independent equivalence verification | Not part of the CLI workflow |
 | OpenQASM 3 workflow | Not supported by this batch path |
 
@@ -40,9 +41,9 @@ These references suggest that the key product boundary is a target-aware, inspec
 
 ### P1 — Compile to an explicit device target
 
-1. Define a serializable target description: physical qubit count, directed couplings, native gate set, and optional per-operation error/duration metadata.
+1. The custom target JSON now accepts an optional native gate set and directed CNOT edges; validation runs on the routed output. Expand this into a public serializable target API with per-operation error/duration metadata and versioned schema.
 2. Separate layout, routing, basis translation, and post-routing optimization into named passes. Preserve an explicit logical-to-physical mapping and include it in reports.
-3. Add native-gate translation and direction correction before claiming a circuit is executable on a target. Validate every output operation against the target description.
+3. Add native-gate translation and direction correction before claiming a circuit is executable on a target. The current target validator reports unsupported output operations but does not repair them.
 4. Offer optimization objectives such as lexicographic two-qubit count then depth, or user-supplied weighted logical cost; expose the objective and its units in the report.
 
 ### P2 — Support professional interchange and integration

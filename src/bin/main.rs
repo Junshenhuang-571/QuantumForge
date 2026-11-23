@@ -40,6 +40,12 @@ fn main() {
     }
 }
 
+struct DeviceTarget {
+    coupling: CouplingMap,
+    native_gates: Option<std::collections::HashSet<String>>,
+    directed_cx_edges: Option<std::collections::HashSet<(usize, usize)>>,
+}
+
 fn run_optimize(args: &[String]) {
     let result = (|| {
         if args.len() < 3 {
@@ -161,7 +167,14 @@ fn run_optimize(args: &[String]) {
             return Err("choose either --line or --topology, not both".to_owned());
         }
         let coupling_map = if use_line_topology {
-            Some(("linear", CouplingMap::linear(qubits)))
+            Some((
+                "linear",
+                DeviceTarget {
+                    coupling: CouplingMap::linear(qubits),
+                    native_gates: None,
+                    directed_cx_edges: None,
+                },
+            ))
         } else if let Some(path) = topology_path {
             Some(("custom", read_coupling_map(path, qubits)?))
         } else {
@@ -170,14 +183,17 @@ fn run_optimize(args: &[String]) {
         let original_profile = CircuitCostProfile::from_circuit(&original);
         let mut optimized = original.clone();
         let result = optimize_circuit(&mut optimized, &config);
-        let routing_swaps = if let Some((_, coupling)) = &coupling_map {
+        let routing_swaps = if let Some((_, target)) = &coupling_map {
             Some(
-                try_route_to_hardware(&mut optimized, coupling)
+                try_route_to_hardware(&mut optimized, &target.coupling)
                     .map_err(|error| error.to_string())?,
             )
         } else {
             None
         };
+        if let Some((_, target)) = &coupling_map {
+            validate_device_target(&optimized, target)?;
+        }
         let optimized_profile = CircuitCostProfile::from_circuit(&optimized);
         let equivalence = if verify {
             Some(
@@ -243,10 +259,21 @@ fn run_optimize(args: &[String]) {
                 },
                 "target": match &coupling_map {
                     Some(("linear", _)) => serde_json::json!({ "kind": "linear", "qubits": qubits }),
-                    Some((_, coupling)) => serde_json::json!({
-                        "kind": "custom_undirected_coupling_map",
-                        "qubits": coupling.num_qubits,
-                        "edges": coupling.edges,
+                    Some((_, target)) => serde_json::json!({
+                        "kind": "custom_device_target",
+                        "qubits": target.coupling.num_qubits,
+                        "edges": target.coupling.edges,
+                        "native_gates": target.native_gates.as_ref().map(|gates| {
+                            let mut names: Vec<_> = gates.iter().cloned().collect();
+                            names.sort();
+                            names
+                        }),
+                        "directed_cx_edges": target.directed_cx_edges.as_ref().map(|edges| {
+                            let mut pairs: Vec<_> = edges.iter().copied().collect();
+                            pairs.sort();
+                            pairs
+                        }),
+                        "validation": "connectivity, native gate set when specified, and directed CNOT constraints",
                     }),
                     None => serde_json::Value::Null,
                 },
@@ -300,6 +327,7 @@ fn run_optimize(args: &[String]) {
                 .map(|(kind, _)| *kind)
                 .unwrap_or("unknown");
             eprintln!("{topology} topology: {swaps} routing SWAPs inserted");
+            eprintln!("Device target validation: passed");
         }
         if let Some(result) = &equivalence {
             eprintln!(
@@ -871,7 +899,7 @@ fn run_demo() {
     );
 }
 
-fn read_coupling_map(path: &str, expected_qubits: usize) -> Result<CouplingMap, String> {
+fn read_coupling_map(path: &str, expected_qubits: usize) -> Result<DeviceTarget, String> {
     let source = std::fs::read_to_string(path)
         .map_err(|error| format!("could not read topology {path}: {error}"))?;
     let document: serde_json::Value = serde_json::from_str(&source)
@@ -926,7 +954,191 @@ fn read_coupling_map(path: &str, expected_qubits: usize) -> Result<CouplingMap, 
         }
         edges.push((first, second));
     }
-    Ok(CouplingMap { num_qubits, edges })
+    let native_gates = document
+        .get("native_gates")
+        .map(|value| {
+            let gates = value
+                .as_array()
+                .ok_or_else(|| "target 'native_gates' must be an array of gate names".to_owned())?;
+            let mut normalized = std::collections::HashSet::new();
+            for (index, gate) in gates.iter().enumerate() {
+                let gate = gate
+                    .as_str()
+                    .ok_or_else(|| format!("target native_gates entry {index} must be a string"))?;
+                let gate = normalize_native_gate(gate)
+                    .ok_or_else(|| format!("unsupported native gate name '{gate}' in target"))?;
+                if !normalized.insert(gate.to_owned()) {
+                    return Err(format!("target contains duplicate native gate '{gate}'"));
+                }
+            }
+            Ok(normalized)
+        })
+        .transpose()?;
+    let directed_cx_edges = document
+        .get("directed_cx_edges")
+        .map(|value| {
+            let edge_values = value.as_array().ok_or_else(|| {
+                "target 'directed_cx_edges' must be an array of [control, target] pairs".to_owned()
+            })?;
+            let mut directed = std::collections::HashSet::new();
+            for (index, edge) in edge_values.iter().enumerate() {
+                let pair = edge
+                    .as_array()
+                    .filter(|pair| pair.len() == 2)
+                    .ok_or_else(|| format!("directed CNOT edge {index} must be a two-item array"))?;
+                let control = pair[0].as_u64().and_then(|v| usize::try_from(v).ok())
+                    .ok_or_else(|| format!("directed CNOT edge {index} has an invalid control qubit"))?;
+                let target = pair[1].as_u64().and_then(|v| usize::try_from(v).ok())
+                    .ok_or_else(|| format!("directed CNOT edge {index} has an invalid target qubit"))?;
+                if control >= num_qubits || target >= num_qubits || control == target {
+                    return Err(format!("directed CNOT edge ({control}, {target}) is invalid for a {num_qubits}-qubit target"));
+                }
+                let edge = (control, target);
+                if !unique_edges.contains(&(control.min(target), control.max(target))) {
+                    return Err(format!("directed CNOT edge ({control}, {target}) is absent from 'edges'"));
+                }
+                if !directed.insert(edge) {
+                    return Err(format!("target contains duplicate directed CNOT edge ({control}, {target})"));
+                }
+            }
+            Ok(directed)
+        })
+        .transpose()?;
+    if directed_cx_edges.is_some()
+        && native_gates
+            .as_ref()
+            .is_some_and(|gates| !gates.contains("cx"))
+    {
+        return Err(
+            "target declares 'directed_cx_edges' but omits 'cx' from 'native_gates'".to_owned(),
+        );
+    }
+    Ok(DeviceTarget {
+        coupling: CouplingMap { num_qubits, edges },
+        native_gates,
+        directed_cx_edges,
+    })
+}
+
+fn normalize_native_gate(gate: &str) -> Option<&'static str> {
+    match gate.to_ascii_lowercase().as_str() {
+        "i" | "id" | "idgate" => Some("id"),
+        "x" | "y" | "z" | "h" | "s" | "sdg" | "t" | "tdg" | "rx" | "ry" | "rz" | "cx" | "cz"
+        | "swap" | "measure" | "conditional" => Some(match gate.to_ascii_lowercase().as_str() {
+            "x" => "x",
+            "y" => "y",
+            "z" => "z",
+            "h" => "h",
+            "s" => "s",
+            "sdg" => "sdg",
+            "t" => "t",
+            "tdg" => "tdg",
+            "rx" => "rx",
+            "ry" => "ry",
+            "rz" => "rz",
+            "cx" => "cx",
+            "cz" => "cz",
+            "swap" => "swap",
+            "measure" => "measure",
+            "conditional" => "conditional",
+            _ => "id",
+        }),
+        _ => None,
+    }
+}
+
+fn validate_device_target(circuit: &Circuit, target: &DeviceTarget) -> Result<(), String> {
+    let supports = |name: &str| {
+        target
+            .native_gates
+            .as_ref()
+            .map_or(true, |gates| gates.contains(name))
+    };
+    let has_edge = |a: usize, b: usize| {
+        target
+            .coupling
+            .edges
+            .iter()
+            .any(|&(x, y)| (x == a && y == b) || (x == b && y == a))
+    };
+    for (index, operation) in circuit.operations().iter().enumerate() {
+        let require = |name: &str| {
+            if supports(name) {
+                Ok(())
+            } else {
+                Err(format!(
+                    "device target does not support operation {index}: native gate '{name}' is absent"
+                ))
+            }
+        };
+        match operation {
+            quantumforge::CircuitOp::SingleQubit { gate, .. } => require(gate_name(*gate))?,
+            quantumforge::CircuitOp::Cnot {
+                control,
+                target: target_qubit,
+            } => {
+                require("cx")?;
+                if !has_edge(*control, *target_qubit) {
+                    return Err(format!(
+                        "device target operation {index}: CNOT operands ({control}, {target_qubit}) are not connected"
+                    ));
+                }
+                if target
+                    .directed_cx_edges
+                    .as_ref()
+                    .is_some_and(|edges| !edges.contains(&(*control, *target_qubit)))
+                {
+                    return Err(format!(
+                        "device target operation {index}: CNOT direction {control}->{target_qubit} is unsupported"
+                    ));
+                }
+            }
+            quantumforge::CircuitOp::Cz { first, second } => {
+                require("cz")?;
+                if !has_edge(*first, *second) {
+                    return Err(format!(
+                        "device target operation {index}: CZ operands ({first}, {second}) are not connected"
+                    ));
+                }
+            }
+            quantumforge::CircuitOp::Swap { first, second } => {
+                require("swap")?;
+                if !has_edge(*first, *second) {
+                    return Err(format!(
+                        "device target operation {index}: SWAP operands ({first}, {second}) are not connected"
+                    ));
+                }
+            }
+            quantumforge::CircuitOp::Measure { .. } => require("measure")?,
+            quantumforge::CircuitOp::ConditionalSingleQubit { gate, .. } => {
+                require("conditional")?;
+                require(gate_name(*gate))?;
+            }
+            quantumforge::CircuitOp::Channel { .. } => {
+                return Err(format!(
+                    "device target operation {index}: noise channels are simulator annotations and cannot be submitted as device gates"
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn gate_name(gate: Gate) -> &'static str {
+    match gate {
+        Gate::I => "id",
+        Gate::X => "x",
+        Gate::Y => "y",
+        Gate::Z => "z",
+        Gate::H => "h",
+        Gate::S => "s",
+        Gate::Sdg => "sdg",
+        Gate::T => "t",
+        Gate::Tdg => "tdg",
+        Gate::Rx(_) => "rx",
+        Gate::Ry(_) => "ry",
+        Gate::Rz(_) => "rz",
+    }
 }
 
 fn print_help() {
