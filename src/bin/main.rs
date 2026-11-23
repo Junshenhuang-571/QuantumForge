@@ -363,15 +363,14 @@ fn run_optimize(args: &[String]) {
         }
 
         if let Some(path) = report_path {
-            if let Some(input_file) = input_path.filter(|input| *input != "-") {
-                if std::path::Path::new(path).exists()
-                    && std::fs::canonicalize(path).ok() == std::fs::canonicalize(input_file).ok()
-                {
-                    return Err(
-                        "report path resolves to the input file; choose a different report path"
-                            .to_owned(),
-                    );
-                }
+            if let Some(input_file) = input_path.filter(|input| *input != "-")
+                && std::path::Path::new(path).exists()
+                && std::fs::canonicalize(path).ok() == std::fs::canonicalize(input_file).ok()
+            {
+                return Err(
+                    "report path resolves to the input file; choose a different report path"
+                        .to_owned(),
+                );
             }
             let resource_summary = |profile: &CircuitCostProfile, operations: usize| {
                 serde_json::json!({
@@ -489,10 +488,10 @@ fn run_optimize(args: &[String]) {
             eprintln!("{topology} topology: {swaps} routing SWAPs inserted");
             eprintln!("Device target validation: passed");
         }
-        if let Some(corrections) = direction_corrections {
-            if corrections > 0 {
-                eprintln!("Directed CNOTs corrected: {corrections} using native Hadamards");
-            }
+        if let Some(corrections) = direction_corrections
+            && corrections > 0
+        {
+            eprintln!("Directed CNOTs corrected: {corrections} using native Hadamards");
         }
         if let Some(result) = &equivalence {
             eprintln!(
@@ -544,7 +543,9 @@ fn run_optimize(args: &[String]) {
                 println!();
             }
             "qasm" => {
-                println!("{}", quantumforge::qasm_export::export_qasm(&optimized));
+                let qasm = quantumforge::qasm_export::export_qasm_with_qubits(&optimized, qubits)
+                    .map_err(str::to_owned)?;
+                println!("{qasm}");
             }
             _ => unreachable!(),
         }
@@ -1336,7 +1337,7 @@ fn validate_device_target(circuit: &Circuit, target: &DeviceTarget) -> Result<()
         target
             .native_gates
             .as_ref()
-            .map_or(true, |gates| gates.contains(name))
+            .is_none_or(|gates| gates.contains(name))
     };
     let has_edge = |a: usize, b: usize| {
         target

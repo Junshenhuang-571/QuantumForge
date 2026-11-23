@@ -323,14 +323,14 @@ impl ThermalGateNoiseModel {
         for (index, operation) in operations.iter().enumerate() {
             let timing = timings[index];
             for bit in operation_classical_bits(*operation) {
-                if let Some(&(previous_end, previous_index)) = last_on_classical.get(&bit) {
-                    if timing.start < previous_end {
-                        return Err(NoiseModelError::ClassicalDependencyViolation {
-                            first_operation: previous_index,
-                            second_operation: index,
-                            classical_bit: bit,
-                        });
-                    }
+                if let Some(&(previous_end, previous_index)) = last_on_classical.get(&bit)
+                    && timing.start < previous_end
+                {
+                    return Err(NoiseModelError::ClassicalDependencyViolation {
+                        first_operation: previous_index,
+                        second_operation: index,
+                        classical_bit: bit,
+                    });
                 }
                 last_on_classical.insert(bit, (timing.start + timing.duration, index));
             }
@@ -343,14 +343,14 @@ impl ThermalGateNoiseModel {
         for (index, operation) in operations.iter().enumerate() {
             let timing = timings[index];
             for qubit in operation_qubits(*operation) {
-                if let Some(&(previous_end, previous_index)) = last_on_qubit.get(&qubit) {
-                    if timing.start < previous_end {
-                        return Err(NoiseModelError::QubitScheduleOrderViolation {
-                            qubit,
-                            first_operation: previous_index,
-                            second_operation: index,
-                        });
-                    }
+                if let Some(&(previous_end, previous_index)) = last_on_qubit.get(&qubit)
+                    && timing.start < previous_end
+                {
+                    return Err(NoiseModelError::QubitScheduleOrderViolation {
+                        qubit,
+                        first_operation: previous_index,
+                        second_operation: index,
+                    });
                 }
                 let end = timing.start + timing.duration;
                 last_on_qubit.insert(qubit, (end, index));

@@ -120,6 +120,8 @@
     0.8; mitigation recovers the exact value (`examples/readout_vqe.rs`).
 
 ### Fixed
+- **OpenQASM output preserves optimized-away idle qubits.** The batch optimizer now exports with the original declared register width, so independent simulators compare operators in the same Hilbert space. SWAP gates export as equivalent three-CNOT sequences for broader OpenQASM 2 parser compatibility.
+- **CI lint compatibility.** Collapsed nested condition checks and iterator simplifications keep the current Clippy toolchain clean across targets.
 - **Hardware routing preserves circuit semantics.** Non-local CNOT/CZ gates now move an endpoint to an adjacent site, apply the gate, then restore the temporary placement; non-local SWAPs are decomposed into adjacent SWAPs. A new fallible `try_route_to_hardware` reports invalid and disconnected topologies without partially mutating the circuit. The legacy `route_to_hardware` API remains as a deprecated compatibility wrapper.
 - **`PauliString::commutes` returned the opposite boolean** (it reported
   anticommutation). The method was unused elsewhere, so no existing behaviour
