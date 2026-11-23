@@ -69,6 +69,14 @@ quantumforge optimize 3 all --input circuit.qasm \
 
 This analysis starts in the all-zero state, is limited to eight qubits, and rejects measurements and classical feed-forward. It is an exact calculation for the stated model, not a hardware result: readout, correlated errors, calibration drift, and parameter uncertainty are not included. `--thermal` requires `--report FILE` so simulation metadata stays separate from the circuit JSON on standard output. For caller-provided schedule timings and idle noise, use the library API described in the [noise guide](docs/wiki/Noise-and-Statistical-Mechanics.md).
 
+Add `--compare --verify` to run both `all` and `conservative` optimization on the same input and target. The mode named in the command still determines the circuit written to standard output; the report includes both candidates' resource counts, equivalence results, and normalized circuit fingerprints. When `--thermal` is also present, both candidates use the same noise parameters. Comparison requires a report and unitary circuits within the equivalence check's 10-qubit limit. Fingerprints use a deterministic, non-cryptographic FNV-1a identifier for matching artifacts; they are not integrity or security hashes.
+
+```sh
+quantumforge optimize 3 all --input unitary.qasm \
+  --compare --verify --thermal 30 20 1 0.02 0.2 \
+  --report comparison.json > optimized.json
+```
+
 ## Use QuantumForge from Rust
 
 Add the crate to your project:

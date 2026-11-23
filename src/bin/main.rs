@@ -51,7 +51,7 @@ fn run_optimize(args: &[String]) {
     let result = (|| {
         if args.len() < 3 {
             return Err(
-                "usage: quantumforge optimize QUBITS all|conservative [--line | --topology FILE] [--verify] [--thermal T1 T2 BETA_DELTA ONE_QUBIT_TIME TWO_QUBIT_TIME] [--input FILE] [--format json|qasm] [--report FILE] [Circuit[...]]"
+                "usage: quantumforge optimize QUBITS all|conservative [--line | --topology FILE] [--verify [--compare]] [--thermal T1 T2 BETA_DELTA ONE_QUBIT_TIME TWO_QUBIT_TIME] [--input FILE] [--format json|qasm] [--report FILE] [Circuit[...]]"
                     .to_owned(),
             );
         }
@@ -73,6 +73,7 @@ fn run_optimize(args: &[String]) {
         let mut input_path = None;
         let mut report_path = None;
         let mut thermal_parameters = None;
+        let mut compare_modes = false;
         let mut output_format = "json";
         let mut circuit_parts = Vec::new();
         let mut index = 2;
@@ -80,6 +81,7 @@ fn run_optimize(args: &[String]) {
             match args[index].as_str() {
                 "--line" => use_line_topology = true,
                 "--verify" => verify = true,
+                "--compare" => compare_modes = true,
                 "--topology" => {
                     index += 1;
                     topology_path = Some(
@@ -156,6 +158,14 @@ fn run_optimize(args: &[String]) {
         }
         if thermal_parameters.is_some() && report_path.is_none() {
             return Err("--thermal requires --report FILE so the simulation results are recorded separately from the circuit output".to_owned());
+        }
+        if compare_modes && report_path.is_none() {
+            return Err(
+                "--compare requires --report FILE to record both optimizer candidates".to_owned(),
+            );
+        }
+        if compare_modes && !verify {
+            return Err("--compare requires --verify so both optimizer candidates are checked for equivalence".to_owned());
         }
 
         let original = if circuit_source.contains("OPENQASM") {
@@ -241,6 +251,102 @@ fn run_optimize(args: &[String]) {
         } else {
             None
         };
+        let candidate_comparison = if compare_modes {
+            let alternate_mode = if mode == "all" { "conservative" } else { "all" };
+            let alternate_config = if alternate_mode == "all" {
+                OptimizeConfig::all()
+            } else {
+                OptimizeConfig::conservative()
+            };
+            let mut alternate = original.clone();
+            let alternate_rewrites = optimize_circuit(&mut alternate, &alternate_config);
+            let alternate_routing_swaps = if let Some((_, target)) = &coupling_map {
+                Some(
+                    try_route_to_hardware(&mut alternate, &target.coupling)
+                        .map_err(|error| error.to_string())?,
+                )
+            } else {
+                None
+            };
+            let alternate_direction_corrections = if let Some((_, target)) = &coupling_map {
+                let corrections = correct_cnot_directions(&mut alternate, target)?;
+                validate_device_target(&alternate, target)?;
+                Some(corrections)
+            } else {
+                None
+            };
+            let alternate_equivalence =
+                verify_unitary_equivalent(&original, &alternate, qubits, 1e-9)
+                    .map_err(|error| error.to_string())?;
+            if !alternate_equivalence.equivalent {
+                return Err(format!(
+                    "the {alternate_mode} comparison candidate failed the requested equivalence check; no comparison report was written"
+                ));
+            }
+            let alternate_profile = CircuitCostProfile::from_circuit(&alternate);
+            let alternate_thermal =
+                if let Some([t1, t2, beta_delta, one_qubit_time, two_qubit_time]) =
+                    thermal_parameters
+                {
+                    Some(analyze_thermal_effect(
+                        &alternate,
+                        qubits,
+                        ThermalGateNoiseModel::new(
+                            t1,
+                            t2,
+                            beta_delta,
+                            one_qubit_time,
+                            two_qubit_time,
+                        )
+                        .map_err(|error| error.to_string())?,
+                    )?)
+                } else {
+                    None
+                };
+            Some(serde_json::json!({
+                "method": "same_input_same_target_internal_unitary_equivalence_check",
+                "selected_mode": mode,
+                "selected": {
+                    "mode": mode,
+                    "operations": optimized.operations().len(),
+                    "two_qubit_gates": optimized_profile.cnot_gates + optimized_profile.cz_gates + optimized_profile.swap_gates,
+                    "logical_depth": optimized_profile.depth,
+                    "routing_swaps_inserted": routing_swaps,
+                    "cnot_direction_corrections": direction_corrections,
+                    "equivalent": equivalence.as_ref().is_some_and(|result| result.equivalent),
+                    "fingerprint": circuit_fingerprint(&optimized, qubits)?,
+                    "thermal_noise_analysis": thermal_analysis,
+                    "rewrites": {
+                        "inverse_pairs_cancelled": result.cancellations,
+                        "rotations_fused": result.fusions,
+                        "identities_removed": result.identities_removed,
+                    },
+                },
+                "alternate": {
+                    "mode": alternate_mode,
+                    "operations": alternate.operations().len(),
+                    "two_qubit_gates": alternate_profile.cnot_gates + alternate_profile.cz_gates + alternate_profile.swap_gates,
+                    "logical_depth": alternate_profile.depth,
+                    "routing_swaps_inserted": alternate_routing_swaps,
+                    "cnot_direction_corrections": alternate_direction_corrections,
+                    "equivalence": {
+                        "status": "verified_equivalent",
+                        "basis_states_checked": alternate_equivalence.basis_states_checked,
+                        "tolerance": 1e-9,
+                        "max_amplitude_error": alternate_equivalence.max_amplitude_error,
+                    },
+                    "fingerprint": circuit_fingerprint(&alternate, qubits)?,
+                    "thermal_noise_analysis": alternate_thermal,
+                    "rewrites": {
+                        "inverse_pairs_cancelled": alternate_rewrites.cancellations,
+                        "rotations_fused": alternate_rewrites.fusions,
+                        "identities_removed": alternate_rewrites.identities_removed,
+                    },
+                },
+            }))
+        } else {
+            None
+        };
 
         if output_format == "qasm"
             && optimized
@@ -286,6 +392,11 @@ fn run_optimize(args: &[String]) {
                 "schema_version": 1,
                 "tool": "quantumforge",
                 "tool_version": env!("CARGO_PKG_VERSION"),
+                "circuit_fingerprints": {
+                    "algorithm": "fnv1a64_noncryptographic",
+                    "normalized_input": circuit_fingerprint(&original, qubits)?,
+                    "optimized_output": circuit_fingerprint(&optimized, qubits)?,
+                },
                 "input_format": if circuit_source.contains("OPENQASM") { "openqasm2" } else { "quantumforge_expression" },
                 "declared_qubits": qubits,
                 "optimization_mode": mode,
@@ -318,6 +429,7 @@ fn run_optimize(args: &[String]) {
                 "routing_swaps_inserted": routing_swaps,
                 "cnot_direction_corrections": direction_corrections,
                 "thermal_noise_analysis": thermal_analysis,
+                "candidate_comparison": candidate_comparison,
                 "output_format": output_format,
                 "equivalence": match &equivalence {
                     Some(result) => serde_json::json!({
@@ -955,6 +1067,21 @@ fn run_demo() {
     );
 }
 
+fn circuit_fingerprint(circuit: &Circuit, qubits: usize) -> Result<String, String> {
+    let serialized = circuit
+        .to_json()
+        .map_err(|error| format!("could not serialize circuit for fingerprint: {error}"))?;
+    let mut normalized: serde_json::Value = serde_json::from_str(&serialized)
+        .map_err(|error| format!("could not normalize circuit for fingerprint: {error}"))?;
+    normalized["num_qubits"] = serde_json::Value::from(qubits);
+    let bytes = serde_json::to_vec(&normalized)
+        .map_err(|error| format!("could not encode circuit fingerprint input: {error}"))?;
+    let hash = bytes.iter().fold(0xcbf29ce484222325_u64, |hash, byte| {
+        (hash ^ u64::from(*byte)).wrapping_mul(0x100000001b3)
+    });
+    Ok(format!("fnv1a64:{hash:016x}"))
+}
+
 fn analyze_thermal_effect(
     circuit: &Circuit,
     qubits: usize,
@@ -1346,7 +1473,7 @@ fn print_help() {
     println!("\nUsage: quantumforge [demo|eval EXPR|simplify EXPR|optimize ...|help]");
     println!("       quantumforge shots QUBITS SHOTS SEED 'Circuit[...]'");
     println!(
-        "       quantumforge optimize QUBITS all|conservative [--line | --topology FILE] [--verify] [--thermal T1 T2 BETA_DELTA ONE_QUBIT_TIME TWO_QUBIT_TIME] [--input FILE] [--format json|qasm] [--report FILE] [Circuit[...]]"
+        "       quantumforge optimize QUBITS all|conservative [--line | --topology FILE] [--verify [--compare]] [--thermal T1 T2 BETA_DELTA ONE_QUBIT_TIME TWO_QUBIT_TIME] [--input FILE] [--format json|qasm] [--report FILE] [Circuit[...]]"
     );
     #[cfg(feature = "llvm")]
     println!("       quantumforge llvm-ir EXPR");
@@ -1367,6 +1494,7 @@ fn print_help() {
          quantumforge optimize 3 all --input bell.qasm --line --format qasm\n\
          quantumforge optimize 3 all --input bell.qasm --report compile-report.json\n\
          quantumforge optimize 3 all --input bell.qasm --thermal 30 20 1 0.02 0.2 --report experiment.json\n\
+         quantumforge optimize 3 all --input unitary.qasm --compare --verify --report comparison.json\n\
          quantumforge optimize 5 all --topology device-map.json --input circuit.qasm\n\
          quantumforge optimize 3 all --verify 'Circuit[H[0], H[0]]'\n\
          quantumforge eval '2 + 3*Pi'\n\

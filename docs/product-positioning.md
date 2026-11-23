@@ -40,7 +40,7 @@ The current optimizer does **not** perform general initial layout search, native
 
 **First workflow:** import or construct a circuit → compare a named set of compiler variants → apply a versioned device/noise profile → inspect resource and observable changes with uncertainty → save a reproducible report and source artifacts.
 
-This workflow is only partly implemented. The optimizer can now run one declared T1/T2 thermal model on its optimized circuit and add probability, per-qubit Z, purity, and total-variation results to its report for circuits up to eight qubits. It still lacks versioned calibration profiles, arbitrary scheduled noise in the CLI, parameter/shot uncertainty, and comparison of multiple compiler candidates in one run. A full experiment bundle with those features would be a product step, not just a documentation change.
+This workflow is only partly implemented. The optimizer can run both rewrite modes against the same input/target, verify them on supported unitary circuits, and compare their resources and optional T1/T2 simulation in one report. Reports now include deterministic non-cryptographic fingerprints. It still lacks versioned calibration profiles, arbitrary scheduled noise in the CLI, parameter/shot uncertainty, and comparison of multiple randomized compiler candidates in one run. A full experiment bundle with those features would be a product step, not just a documentation change.
 
 ## Commercial model to validate
 
@@ -62,7 +62,7 @@ Do not build a hosted platform or claim demand until interviews and design partn
 
 ## Suggested next build order
 
-1. Expand the current optimization-plus-thermal report into a versioned experiment bundle with optional caller schedules, explicit input/output fingerprints, and multiple comparable compiler candidates.
+1. Expand the current optimization-plus-thermal report into a versioned experiment bundle with optional caller schedules, cryptographic artifact digests, calibration-profile identifiers, and multiple comparable compiler candidates.
 2. Add calibration-file import and versioning; start with provider-neutral data rather than promising live hardware access.
 3. Implement and benchmark general native-gate translation and layout search, then compare results against the established compilers.
 4. Add one provider adapter only after users identify a target and the end-to-end compilation contract is reliable.

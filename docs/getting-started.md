@@ -55,6 +55,8 @@ Input can be a circuit expression or an OpenQASM 2.0 file. The default output is
 
 For a small, unitary circuit, include `--thermal T1 T2 BETA_DELTA ONE_QUBIT_TIME TWO_QUBIT_TIME --report experiment.json` to compare the optimized circuit's reference distribution with an exact density-matrix simulation under the declared thermal model. The report includes probabilities, per-qubit Z expectations, purity, and probability total-variation distance. The CLI analysis starts in `|0...0>`, supports up to 8 qubits, and excludes measurements, feed-forward, readout/correlated errors, and model-parameter uncertainty. These are model results, not hardware measurements. Use the `ThermalGateNoiseModel::apply_scheduled` library API when you have operation timings and want idle-gap noise.
 
+Add `--compare --verify` to compare both `all` and `conservative` rewrite modes against the same input and target. The mode in the command selects which candidate is written to standard output; both candidates are checked for unitary equivalence, and the report includes resource counts and deterministic non-cryptographic fingerprints. Add `--thermal` to also simulate both candidates under the same thermal parameters. This comparison requires `--report FILE` and is limited to unitary circuits of at most 10 qubits; thermal simulation itself is limited to 8 qubits.
+
 ## Option 2: Add the Rust library
 
 In an existing Cargo project, add QuantumForge:
