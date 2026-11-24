@@ -3,6 +3,15 @@
 ## [Unreleased]
 
 ### Fixed
+- **The QASM parser silently dropped every statement after the first on a line.**
+  `;` terminates a statement in OpenQASM, not a physical line, but the parser
+  treated each line as one statement and discarded the rest:
+  `h q[0]; cx q[0],q[1]; x q[1];` parsed as a single H gate, and the CLI still
+  reported success. Statements sharing a line are now split and parsed in order;
+  lines containing braces (`gate` definitions) are left intact because their
+  bodies are consumed separately. Covered by four tests in
+  `tests/qasm_parse_test.rs`, including that the shared-line and one-per-line
+  forms serialize identically and that a trailing comment after `;` is ignored.
 - **`commute_for_cancellation` never returned on some circuits.** The sweep stepped its index backwards after every swap, so two gates that merely commute exchanged places and swapped straight back on the next iteration. `max_passes` bounds only the outer loop, so a three-gate circuit — `cz(1,0); t(1); h(0)` — spun forever in `quantumforge optimize ... all`. `conservative` mode skipped the pass entirely and looked healthy, which is why it survived. The sweep is now a full pass per direction with no back-stepping, and `tests/optimizer_termination.rs` covers it.
 - **The Qiskit validator's baseline check compared circuits in different qubit orders.** With a coupling map, Qiskit returns a circuit expressed in a permuted order (`TranspileLayout.final_index_layout()` is non-trivial), so `Operator(source).equiv(Operator(transpiled))` was invalid for most routed cases. The self-check now runs on an unrouted transpile, where the layout is trivial. Separately, `optimization_level=3` drops `swap` gates outright in Qiskit 2.6.x (levels 2 and 3 both do; verified against 2.6.1 and 2.6.2), so the validator uses level 1 and records that in the artifact.
 - **Asymmetric readout-matrix validation.** `ConfusionMatrix::new` now validates column sums according to its documented `P(observed | prepared)` convention, allowing valid asymmetric channels used by mitigation workflows.
