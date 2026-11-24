@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+### Changed
+- **The REPL `help` text is now a sectioned, column-aligned table.** It was one
+  undifferentiated block whose continuation lines were indented anywhere from 2
+  to 30+ spaces depending on the entry, so nothing lined up and the long
+  entries (`qaoa-transfer`, `vqe-subscore`, `gas`) were unreadable. Commands are
+  grouped into SESSION AND STATE, CIRCUIT, OBSERVABLES, VARIATIONAL AND QML,
+  ALGORITHMS, SYMBOLIC MATH and GENERAL; the command column is 26 characters and
+  every description starts at column 30, wrapping at 100 columns. Verified by
+  rendering the live output and checking all 53 entry rows and 55 continuation
+  rows start at exactly column 30 with no line over 100 columns.
+
 ### Fixed
 - **The QASM parser silently dropped every statement after the first on a line.**
   `;` terminates a statement in OpenQASM, not a physical line, but the parser
