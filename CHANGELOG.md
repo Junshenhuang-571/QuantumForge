@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+### Added
+- **`tests/noise_model.rs` (21 tests)**, taking `src/noise_model.rs` from 3/245
+  covered lines. The module is what every noisy result depends on, so the tests
+  pin both the plumbing and the physics: parameter validation (including the
+  Markovian `T2 <= 2*T1` bound), exact channel placement after each gate,
+  measurements and explicit channels copied unchanged, the `T1` relaxation
+  probability, detailed balance (`p1/p0 -> exp(-beta*Delta)` at the fixed
+  point), the documented `exp(-duration/T2)` coherence contract, and the whole
+  `apply_scheduled` surface — length/timing/qubit-order/classical-dependency
+  rejection, idle-noise placement, gate-vs-idle summary counts, and program
+  order preservation.
+
 ### Changed
 - **The REPL `help` text is now a sectioned, column-aligned table.** It was one
   undifferentiated block whose continuation lines were indented anywhere from 2

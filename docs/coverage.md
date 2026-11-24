@@ -23,28 +23,37 @@ scripts respectively (both listed explicitly in the script rather than implied).
 ## Line coverage
 
 One `cargo tarpaulin --lib --tests` run on `codex/optimizer-professional-workflow`,
-2026-11-24. Toolchain rustc 1.100.0, Windows, debug profile, default features.
-`--lib --tests` covers the library unit tests and the integration suite;
-examples and doctests are **not** included.
+2026-11-24 (after the `noise_model` test work). Toolchain rustc 1.100.0, Windows,
+debug profile, default features. `--lib --tests` covers the library unit tests
+and the integration suite; examples and doctests are **not** included.
 
-**Overall: 70.49% — 11950 of 16952 lines.**
+**Overall: 71.71% — 12157 of 16952 lines.**
 
-> An earlier revision of this page reported **72.89% (11511/15793)** measured on
-> `main`. Those two numbers are **not comparable**: this branch adds roughly 1160
-> lines of source (`noise_model`, readout validation, thermal circuit noise, MPS
-> observables), so the denominator moved while 439 more lines became covered.
+> Earlier revisions of this page reported 72.89% (11511/15793) on `main` and
+> 70.49% (11950/16952) before the `noise_model` tests. The 72.89% figure is
+> **not comparable**: this branch adds roughly 1160 lines of source
+> (`noise_model`, readout validation, thermal circuit noise, MPS observables).
 > Compare trends within one codebase, not across branches.
 
 ### Lowest coverage
 
 | file | covered/total | |
 |---|---|---|
-| `src/noise_model.rs` | 3/245 | new thermal-gate noise model; essentially untested |
-| `src/algorithms.rs` | 176/604 | HHL/Shor/QFT paths |
+| `src/algorithms.rs` | 176/604 | HHL/Shor/QFT paths; now the worst file |
 | `src/qec/mwpm.rs` | 94/243 | the heuristic decoder the docs already warn about |
 | `src/hardware.rs` | 113/234 | provider scaffolds behind feature flags |
 | `src/repl/state.rs` | 1179/2207 | 2207 lines of dispatch |
 | `src/bin/main.rs` | 527/965 | see the correction below |
+| `src/mbqc.rs` | 281/513 | measurement-based QC |
+
+### Closed: `noise_model.rs`
+
+`src/noise_model.rs` went from **3/245 (1.2%) to 214/245 (87.3%)** by adding
+`tests/noise_model.rs` (21 tests). It is the subsystem every noisy result depends
+on, so the tests pin the physics as well as the plumbing: the `T1` relaxation
+probability, detailed balance (`p1/p0 -> exp(-beta*Delta)`), the documented
+`exp(-duration/T2)` coherence contract, and the full `apply_scheduled`
+validation and idle-placement surface.
 
 ### Correction: `main.rs`
 
@@ -67,9 +76,9 @@ happen to hit.
 
 ### Reading the number
 
-`src/noise_model.rs` at 1.2% is the obvious next target — 245 lines with nothing
-behind them. `main.rs` at 54.6% is the other large gap, and unlike the earlier
-`main.rs` result it is not a small, contained fix.
+`src/algorithms.rs` at 29.1% is the next target — 604 lines of HHL/Shor/QFT paths
+with less than a third covered. `main.rs` at 54.6% is the other large gap, and
+unlike the earlier `main.rs` result it is not a small, contained fix.
 
 The `qec/mwpm.rs` figure is consistent with its documented status as a
 surface-code-oriented heuristic that should not be used as a general decoder.
