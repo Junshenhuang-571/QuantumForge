@@ -38,6 +38,35 @@
 - **`commute_for_cancellation` never returned on some circuits.** The sweep stepped its index backwards after every swap, so two gates that merely commute exchanged places and swapped straight back on the next iteration. `max_passes` bounds only the outer loop, so a three-gate circuit — `cz(1,0); t(1); h(0)` — spun forever in `quantumforge optimize ... all`. `conservative` mode skipped the pass entirely and looked healthy, which is why it survived. The sweep is now a full pass per direction with no back-stepping, and `tests/optimizer_termination.rs` covers it.
 - **The Qiskit validator's baseline check compared circuits in different qubit orders.** With a coupling map, Qiskit returns a circuit expressed in a permuted order (`TranspileLayout.final_index_layout()` is non-trivial), so `Operator(source).equiv(Operator(transpiled))` was invalid for most routed cases. The self-check now runs on an unrouted transpile, where the layout is trivial. Separately, `optimization_level=3` drops `swap` gates outright in Qiskit 2.6.x (levels 2 and 3 both do; verified against 2.6.1 and 2.6.2), so the validator uses level 1 and records that in the artifact.
 - **Asymmetric readout-matrix validation.** `ConfusionMatrix::new` now validates column sums according to its documented `P(observed | prepared)` convention, allowing valid asymmetric channels used by mitigation workflows.
+- **`tests/algorithms.rs` (15 tests)**, covering builders in `algorithms.rs`
+  that had none: Bernstein-Vazirani recovers every hidden string up to four
+  qubits (with the |-> ancilla summed over), Deutsch-Jozsa separates constant
+  from balanced, `mc_ry` rotates only when every control is set, the HEA ansatz
+  parameter count and alternating entangler direction, HHL's classical solver,
+  Shor's factorisers and `gcd`, QAOA's cost/mixer term counts, and a Grover
+  circuit that actually finds |11> with one iteration.
+- **`noise_model.rs` went 3/245 -> 214/245 lines covered**, measured by tarpaulin
+  on this branch (`71.71%`, 12157/16952).
+
+### Known issues
+
+These two were found while writing the tests above and are **not fixed**; they
+are recorded here rather than left silent, and `qft_circuit` /
+`qpe_circuit` are deliberately untested so nothing pins the broken behaviour.
+
+- **`qft_circuit` has the wrong phases.** Its controlled-phase term is a
+  CNOT-Rz-CNOT sandwich that applies `|0><0| (x) Rz(theta) + |1><1| (x)
+  Rz(-theta)` — an *anti-controlled* rotation. Probabilities come out right
+  because the magnitudes match, so `F = rev . D^dagger . rev`: it is the
+  inverse DFT under qubit reversal. Every algorithm composed from it inherits
+  the error.
+- **`qpe_circuit` never entangles the precision register with the eigenstate.**
+  Every controlled gate it emits acts only on the target register, so the
+  measurement distribution is independent of the supplied unitary. A run with
+  `U = Rz(pi)` and a |1> eigenstate returns the uniform distribution. The
+  inverse-transform tail is also `reverse . QFT . reverse` rather than the
+  inverse DFT that resolves the encoded phase state.
+
 
 ### Added
 - **Dense simulation memory preflight.** `simulation_plan::estimate_dense_memory` and `quantumforge estimate QUBITS [MEMORY_BUDGET_MIB]` report checked lower-bound state-vector and density-matrix payload sizes and budget fit. Budgeted constructors for zero state vectors and maximally mixed density matrices reject oversized payload allocations; workspaces remain outside this initial budget scope.

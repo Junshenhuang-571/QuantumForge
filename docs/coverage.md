@@ -39,12 +39,18 @@ and the integration suite; examples and doctests are **not** included.
 
 | file | covered/total | |
 |---|---|---|
-| `src/algorithms.rs` | 176/604 | HHL/Shor/QFT paths; now the worst file |
 | `src/qec/mwpm.rs` | 94/243 | the heuristic decoder the docs already warn about |
 | `src/hardware.rs` | 113/234 | provider scaffolds behind feature flags |
 | `src/repl/state.rs` | 1179/2207 | 2207 lines of dispatch |
 | `src/bin/main.rs` | 527/965 | see the correction below |
 | `src/mbqc.rs` | 281/513 | measurement-based QC |
+
+`src/algorithms.rs` is no longer in this table: it stood at 176/604 in the run
+above, which was taken **before** `tests/algorithms.rs` was written. That file
+adds 15 tests over the builders that had none. Its two worst paths —
+`qft_circuit` and `qpe_circuit` — remain uncovered **on purpose**, because both
+are broken (see the Known issues section in `CHANGELOG.md`); a test pinning
+them would lock the defect in place.
 
 ### Closed: `noise_model.rs`
 
@@ -76,9 +82,10 @@ happen to hit.
 
 ### Reading the number
 
-`src/algorithms.rs` at 29.1% is the next target — 604 lines of HHL/Shor/QFT paths
-with less than a third covered. `main.rs` at 54.6% is the other large gap, and
-unlike the earlier `main.rs` result it is not a small, contained fix.
+`src/main.rs` at 54.6% is the other large gap, and unlike the earlier `main.rs`
+result it is not a small, contained fix.
+
+Current totals: **531 tests + 14 doctests pass**, across 62 suites.
 
 The `qec/mwpm.rs` figure is consistent with its documented status as a
 surface-code-oriented heuristic that should not be used as a general decoder.
