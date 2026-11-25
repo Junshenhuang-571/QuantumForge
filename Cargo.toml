@@ -1,6 +1,6 @@
 [package]
 name = "quantumforge"
-version = "0.2.9"
+version = "0.2.10"
 edition = "2024"
 rust-version = "1.88"
 description = "A local-first Rust quantum circuit simulator and research toolkit with noise models, optimization, tensor networks, and Python bindings."
