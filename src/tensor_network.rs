@@ -728,43 +728,34 @@ impl MPS {
         state
     }
 
-    /// Compute expectation value of a local observable using full state vector.
+    /// Compute a normalized single-site expectation by MPS transfer contraction.
+    ///
+    /// This does not expand the state into its `2^n` amplitudes, so its memory
+    /// cost is governed by the retained bond dimensions. Runtime still grows
+    /// with the bond dimension and is not guaranteed to stay polynomial for
+    /// circuits whose entanglement grows rapidly.
     pub fn expectation_single_site(&self, op: &[[Complex64; 2]; 2], site: usize) -> Complex64 {
         if site >= self.n_sites {
             return Complex64::ZERO;
         }
-
-        let state = self.to_state_vector();
-        let n = self.n_sites;
-        let dim = 1 << n;
-
-        // Compute norm squared
-        let norm_sq: f64 = state.iter().map(|c| c.norm_sqr()).sum();
-
-        let mut expect = Complex64::ZERO;
-        for i in 0..dim {
-            for j in 0..dim {
-                let i_bit = (i >> site) & 1;
-                let j_bit = (j >> site) & 1;
-                let other_match = (i & !(1 << site)) == (j & !(1 << site));
-
-                if other_match {
-                    let op_val = op[i_bit][j_bit];
-                    expect = expect + state[i].conj() * op_val * state[j];
-                }
-            }
+        let identity = [
+            [Complex64::ONE, Complex64::ZERO],
+            [Complex64::ZERO, Complex64::ONE],
+        ];
+        let norm_sq = self.norm_sqr_mps();
+        if !norm_sq.is_finite() || norm_sq <= 1e-30 {
+            return Complex64::ZERO;
         }
-
-        // Normalize
-        if norm_sq > 1e-30 {
-            expect = Complex64::new(expect.re / norm_sq, expect.im / norm_sq);
-        }
-
-        expect
+        self.expectation_two_site_product(op, site, &identity, site)
+            .map(|value| value / norm_sq)
+            .unwrap_or(Complex64::ZERO)
     }
 
-    /// Compute expectation value <psi|O|psi> for a two-site operator O on sites (site, site+1).
-    /// Uses full state vector contraction for exact results.
+    /// Compute a normalized expectation of a two-site operator on adjacent sites.
+    ///
+    /// The operator is decomposed into four products of single-site operators,
+    /// then evaluated by transfer contraction. The full state vector is not
+    /// materialized.
     pub fn expectation_two_site(
         &self,
         op: &[[Complex64; 4]; 4],
@@ -774,34 +765,33 @@ impl MPS {
             return Err("Site index out of bounds for two-site expectation");
         }
 
-        let state = self.to_state_vector();
-        let n = self.n_sites;
-        let dim = 1 << n;
-
-        // Compute norm squared
-        let norm_sq: f64 = state.iter().map(|c| c.norm_sqr()).sum();
-
         let mut expect = Complex64::ZERO;
-        for i in 0..dim {
-            for j in 0..dim {
-                let mask = !((1 << site) | (1 << (site + 1)));
-                let other_match = (i & mask) == (j & mask);
-
-                if other_match {
-                    let i_bits = ((i >> site) & 1) * 2 + ((i >> (site + 1)) & 1);
-                    let j_bits = ((j >> site) & 1) * 2 + ((j >> (site + 1)) & 1);
-                    let op_val = op[i_bits][j_bits];
-                    expect = expect + state[i].conj() * op_val * state[j];
+        for out_second in 0..2 {
+            for in_second in 0..2 {
+                let mut first_site = [[Complex64::ZERO; 2]; 2];
+                for out_first in 0..2 {
+                    for in_first in 0..2 {
+                        first_site[out_first][in_first] =
+                            op[out_first * 2 + out_second][in_first * 2 + in_second];
+                    }
                 }
+                let mut second_site = [[Complex64::ZERO; 2]; 2];
+                second_site[out_second][in_second] = Complex64::ONE;
+                expect = expect
+                    + self.expectation_two_site_product(
+                        &first_site,
+                        site,
+                        &second_site,
+                        site + 1,
+                    )?;
             }
         }
 
-        // Normalize
-        if norm_sq > 1e-30 {
-            expect = Complex64::new(expect.re / norm_sq, expect.im / norm_sq);
+        let norm_sq = self.norm_sqr_mps();
+        if !norm_sq.is_finite() || norm_sq <= 1e-30 {
+            return Ok(0.0);
         }
-
-        Ok(expect.re)
+        Ok((expect / norm_sq).re)
     }
 
     /// Compress the MPS to `max_bond` with a two-sweep SVD (right-to-left then
@@ -1276,13 +1266,13 @@ impl TEBD {
             }
         }
 
-        // Normalize the state after imaginary-time step
-        let state = self.mps.to_state_vector();
-        let norm_sq: f64 = state.iter().map(|a| a.norm_sqr()).sum();
+        // Contract the MPS norm instead of expanding 2^n state amplitudes.
+        let norm_sq = self.mps.norm_sqr_mps();
         if norm_sq > 0.0 && (norm_sq - 1.0).abs() > 1e-12 {
             let scale = 1.0 / norm_sq.sqrt();
-            // Scale all tensors uniformly
-            for t in &mut self.mps.tensors {
+            // A global state scale belongs on one site tensor. Scaling every
+            // tensor would multiply the state by `scale^n_sites`.
+            if let Some(t) = self.mps.tensors.first_mut() {
                 for i in 0..t.shape[0] {
                     for j in 0..t.shape[1] {
                         for k in 0..t.shape[2] {

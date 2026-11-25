@@ -2,13 +2,20 @@ use quantumforge::analytic::{
     Assumptions, ExactComplex, ExprPattern, Pauli, PauliSum, PauliWord, Rational, RewriteRule,
     ScalarExpr, Simplifier, SymbolicPauliSum,
 };
+use quantumforge::noise_model::ThermalGateNoiseModel;
+use quantumforge::optimizer::{
+    CircuitCostProfile, CouplingMap, OptimizeConfig, optimize_circuit, try_route_to_hardware,
+    verify_unitary_equivalent,
+};
 use quantumforge::parser::parse_circuit;
 use quantumforge::parser::parse_scalar_expr;
 use quantumforge::quantum::{HilbertSpace, Ket, Observable, Operator};
+use quantumforge::simulation_plan::estimate_dense_memory;
 use quantumforge::{
     Circuit, DensityMatrix, Gate, NoiseChannel, ParameterizedCircuit, QmlTrainingConfig,
     RotationAxis, SmallRng, StateVector, VariationalQnn,
 };
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 #[cfg(feature = "llvm")]
 use std::collections::{BTreeMap, BTreeSet};
@@ -20,6 +27,8 @@ fn main() {
         "eval" => run_eval(&args[1..].join(" ")),
         "simplify" => run_simplify(&args[1..].join(" ")),
         "shots" => run_shots(&args[1..]),
+        "estimate" => run_estimate(&args[1..]),
+        "optimize" => run_optimize(&args[1..]),
         #[cfg(feature = "llvm")]
         "llvm-ir" => run_llvm_ir(&args[1..].join(" ")),
         #[cfg(feature = "llvm")]
@@ -32,6 +41,533 @@ fn main() {
             print_help();
             std::process::exit(2);
         }
+    }
+}
+
+struct DeviceTarget {
+    coupling: CouplingMap,
+    native_gates: Option<std::collections::HashSet<String>>,
+    directed_cx_edges: Option<std::collections::HashSet<(usize, usize)>>,
+}
+
+fn run_optimize(args: &[String]) {
+    let result = (|| {
+        if args.len() < 3 {
+            return Err(
+                "usage: quantumforge optimize QUBITS all|conservative [--line | --topology FILE] [--verify [--compare]] [--thermal T1 T2 BETA_DELTA ONE_QUBIT_TIME TWO_QUBIT_TIME] [--input FILE] [--format json|qasm] [--report FILE] [Circuit[...]]"
+                    .to_owned(),
+            );
+        }
+        let qubits = args[0]
+            .parse::<usize>()
+            .map_err(|_| "QUBITS must be a positive integer".to_owned())?;
+        if qubits == 0 {
+            return Err("QUBITS must be a positive integer".to_owned());
+        }
+        let mode = args[1].as_str();
+        let config = match mode {
+            "all" => OptimizeConfig::all(),
+            "conservative" => OptimizeConfig::conservative(),
+            _ => return Err("mode must be 'all' or 'conservative'".to_owned()),
+        };
+        let mut use_line_topology = false;
+        let mut verify = false;
+        let mut topology_path = None;
+        let mut input_path = None;
+        let mut report_path = None;
+        let mut thermal_parameters = None;
+        let mut compare_modes = false;
+        let mut output_format = "json";
+        let mut circuit_parts = Vec::new();
+        let mut index = 2;
+        while index < args.len() {
+            match args[index].as_str() {
+                "--line" => use_line_topology = true,
+                "--verify" => verify = true,
+                "--compare" => compare_modes = true,
+                "--topology" => {
+                    index += 1;
+                    topology_path = Some(
+                        args.get(index)
+                            .ok_or_else(|| "--topology requires a JSON file path".to_owned())?
+                            .as_str(),
+                    );
+                }
+                "--input" => {
+                    index += 1;
+                    let path = args.get(index).ok_or_else(|| {
+                        "--input requires a file path (or - for stdin)".to_owned()
+                    })?;
+                    input_path = Some(path.as_str());
+                }
+                "--report" => {
+                    index += 1;
+                    report_path = Some(
+                        args.get(index)
+                            .ok_or_else(|| "--report requires a file path".to_owned())?
+                            .as_str(),
+                    );
+                }
+                "--thermal" => {
+                    let mut parameters = [0.0; 5];
+                    for (offset, parameter) in parameters.iter_mut().enumerate() {
+                        index += 1;
+                        *parameter = args
+                            .get(index)
+                            .ok_or_else(|| {
+                                "--thermal requires T1 T2 BETA_DELTA ONE_QUBIT_TIME TWO_QUBIT_TIME"
+                                    .to_owned()
+                            })?
+                            .parse::<f64>()
+                            .map_err(|_| {
+                                format!("--thermal parameter {} must be a number", offset + 1)
+                            })?;
+                    }
+                    thermal_parameters = Some(parameters);
+                }
+                "--format" => {
+                    index += 1;
+                    output_format = args
+                        .get(index)
+                        .ok_or_else(|| "--format requires 'json' or 'qasm'".to_owned())?;
+                    if !matches!(output_format, "json" | "qasm") {
+                        return Err("output format must be 'json' or 'qasm'".to_owned());
+                    }
+                }
+                _ => circuit_parts.push(args[index].as_str()),
+            }
+            index += 1;
+        }
+        if input_path.is_some() && !circuit_parts.is_empty() {
+            return Err("provide either --input or a Circuit[...] expression, not both".to_owned());
+        }
+        let circuit_source = if let Some(path) = input_path {
+            if path == "-" {
+                use std::io::Read as _;
+                let mut source = String::new();
+                std::io::stdin()
+                    .read_to_string(&mut source)
+                    .map_err(|error| format!("could not read stdin: {error}"))?;
+                source
+            } else {
+                std::fs::read_to_string(path)
+                    .map_err(|error| format!("could not read {path}: {error}"))?
+            }
+        } else {
+            circuit_parts.join(" ")
+        };
+        if circuit_source.is_empty() {
+            return Err("provide --input FILE or a Circuit[...] expression to optimize".to_owned());
+        }
+        if thermal_parameters.is_some() && report_path.is_none() {
+            return Err("--thermal requires --report FILE so the simulation results are recorded separately from the circuit output".to_owned());
+        }
+        if compare_modes && report_path.is_none() {
+            return Err(
+                "--compare requires --report FILE to record both optimizer candidates".to_owned(),
+            );
+        }
+        if compare_modes && !verify {
+            return Err("--compare requires --verify so both optimizer candidates are checked for equivalence".to_owned());
+        }
+
+        let original = if circuit_source.contains("OPENQASM") {
+            quantumforge::qasm::parse_qasm(&circuit_source).map_err(|error| error.to_string())?
+        } else {
+            parse_circuit(&circuit_source).map_err(|error| error.to_string())?
+        };
+        for operation in original.operations() {
+            let out_of_range = match operation {
+                quantumforge::CircuitOp::SingleQubit { target, .. }
+                | quantumforge::CircuitOp::Channel { target, .. }
+                | quantumforge::CircuitOp::Measure { target, .. }
+                | quantumforge::CircuitOp::ConditionalSingleQubit { target, .. } => {
+                    (*target >= qubits).then_some(*target)
+                }
+                quantumforge::CircuitOp::Cnot { control, target } => [*control, *target]
+                    .into_iter()
+                    .find(|qubit| *qubit >= qubits),
+                quantumforge::CircuitOp::Cz { first, second }
+                | quantumforge::CircuitOp::Swap { first, second } => {
+                    [*first, *second].into_iter().find(|qubit| *qubit >= qubits)
+                }
+            };
+            if let Some(qubit) = out_of_range {
+                return Err(format!(
+                    "circuit references qubit {qubit}, outside the declared {qubits}-qubit register"
+                ));
+            }
+        }
+        if use_line_topology && topology_path.is_some() {
+            return Err("choose either --line or --topology, not both".to_owned());
+        }
+        let coupling_map = if use_line_topology {
+            Some((
+                "linear",
+                DeviceTarget {
+                    coupling: CouplingMap::linear(qubits),
+                    native_gates: None,
+                    directed_cx_edges: None,
+                },
+            ))
+        } else if let Some(path) = topology_path {
+            Some(("custom", read_coupling_map(path, qubits)?))
+        } else {
+            None
+        };
+        let original_profile = CircuitCostProfile::from_circuit(&original);
+        let mut optimized = original.clone();
+        let result = optimize_circuit(&mut optimized, &config);
+        let routing_swaps = if let Some((_, target)) = &coupling_map {
+            Some(
+                try_route_to_hardware(&mut optimized, &target.coupling)
+                    .map_err(|error| error.to_string())?,
+            )
+        } else {
+            None
+        };
+        let direction_corrections = if let Some((_, target)) = &coupling_map {
+            let corrections = correct_cnot_directions(&mut optimized, target)?;
+            validate_device_target(&optimized, target)?;
+            Some(corrections)
+        } else {
+            None
+        };
+        let optimized_profile = CircuitCostProfile::from_circuit(&optimized);
+        let thermal_analysis = if let Some([t1, t2, beta_delta, one_qubit_time, two_qubit_time]) =
+            thermal_parameters
+        {
+            Some(analyze_thermal_effect(
+                &optimized,
+                qubits,
+                ThermalGateNoiseModel::new(t1, t2, beta_delta, one_qubit_time, two_qubit_time)
+                    .map_err(|error| error.to_string())?,
+            )?)
+        } else {
+            None
+        };
+        let equivalence = if verify {
+            Some(
+                verify_unitary_equivalent(&original, &optimized, qubits, 1e-9)
+                    .map_err(|error| error.to_string())?,
+            )
+        } else {
+            None
+        };
+        let candidate_comparison = if compare_modes {
+            let alternate_mode = if mode == "all" { "conservative" } else { "all" };
+            let alternate_config = if alternate_mode == "all" {
+                OptimizeConfig::all()
+            } else {
+                OptimizeConfig::conservative()
+            };
+            let mut alternate = original.clone();
+            let alternate_rewrites = optimize_circuit(&mut alternate, &alternate_config);
+            let alternate_routing_swaps = if let Some((_, target)) = &coupling_map {
+                Some(
+                    try_route_to_hardware(&mut alternate, &target.coupling)
+                        .map_err(|error| error.to_string())?,
+                )
+            } else {
+                None
+            };
+            let alternate_direction_corrections = if let Some((_, target)) = &coupling_map {
+                let corrections = correct_cnot_directions(&mut alternate, target)?;
+                validate_device_target(&alternate, target)?;
+                Some(corrections)
+            } else {
+                None
+            };
+            let alternate_equivalence =
+                verify_unitary_equivalent(&original, &alternate, qubits, 1e-9)
+                    .map_err(|error| error.to_string())?;
+            if !alternate_equivalence.equivalent {
+                return Err(format!(
+                    "the {alternate_mode} comparison candidate failed the requested equivalence check; no comparison report was written"
+                ));
+            }
+            let alternate_profile = CircuitCostProfile::from_circuit(&alternate);
+            let alternate_thermal =
+                if let Some([t1, t2, beta_delta, one_qubit_time, two_qubit_time]) =
+                    thermal_parameters
+                {
+                    Some(analyze_thermal_effect(
+                        &alternate,
+                        qubits,
+                        ThermalGateNoiseModel::new(
+                            t1,
+                            t2,
+                            beta_delta,
+                            one_qubit_time,
+                            two_qubit_time,
+                        )
+                        .map_err(|error| error.to_string())?,
+                    )?)
+                } else {
+                    None
+                };
+            Some(serde_json::json!({
+                "method": "same_input_same_target_internal_unitary_equivalence_check",
+                "selected_mode": mode,
+                "selected": {
+                    "mode": mode,
+                    "circuit": canonical_circuit(&optimized, qubits)?,
+                    "operations": optimized.operations().len(),
+                    "two_qubit_gates": optimized_profile.cnot_gates + optimized_profile.cz_gates + optimized_profile.swap_gates,
+                    "logical_depth": optimized_profile.depth,
+                    "routing_swaps_inserted": routing_swaps,
+                    "cnot_direction_corrections": direction_corrections,
+                    "equivalent": equivalence.as_ref().is_some_and(|result| result.equivalent),
+                    "fingerprint": circuit_fingerprint(&optimized, qubits)?,
+                    "artifact_digest": circuit_sha256(&optimized, qubits)?,
+                    "thermal_noise_analysis": thermal_analysis,
+                    "rewrites": {
+                        "inverse_pairs_cancelled": result.cancellations,
+                        "rotations_fused": result.fusions,
+                        "identities_removed": result.identities_removed,
+                    },
+                },
+                "alternate": {
+                    "mode": alternate_mode,
+                    "circuit": canonical_circuit(&alternate, qubits)?,
+                    "operations": alternate.operations().len(),
+                    "two_qubit_gates": alternate_profile.cnot_gates + alternate_profile.cz_gates + alternate_profile.swap_gates,
+                    "logical_depth": alternate_profile.depth,
+                    "routing_swaps_inserted": alternate_routing_swaps,
+                    "cnot_direction_corrections": alternate_direction_corrections,
+                    "equivalence": {
+                        "status": "verified_equivalent",
+                        "basis_states_checked": alternate_equivalence.basis_states_checked,
+                        "tolerance": 1e-9,
+                        "max_amplitude_error": alternate_equivalence.max_amplitude_error,
+                    },
+                    "fingerprint": circuit_fingerprint(&alternate, qubits)?,
+                    "artifact_digest": circuit_sha256(&alternate, qubits)?,
+                    "thermal_noise_analysis": alternate_thermal,
+                    "rewrites": {
+                        "inverse_pairs_cancelled": alternate_rewrites.cancellations,
+                        "rotations_fused": alternate_rewrites.fusions,
+                        "identities_removed": alternate_rewrites.identities_removed,
+                    },
+                },
+            }))
+        } else {
+            None
+        };
+
+        if output_format == "qasm"
+            && optimized
+                .operations()
+                .iter()
+                .any(|op| matches!(op, quantumforge::CircuitOp::Channel { .. }))
+        {
+            return Err(
+                "OpenQASM 2.0 cannot represent noise-channel operations; use --format json"
+                    .to_owned(),
+            );
+        }
+
+        if let Some(path) = report_path {
+            if let Some(input_file) = input_path.filter(|input| *input != "-")
+                && std::path::Path::new(path).exists()
+                && std::fs::canonicalize(path).ok() == std::fs::canonicalize(input_file).ok()
+            {
+                return Err(
+                    "report path resolves to the input file; choose a different report path"
+                        .to_owned(),
+                );
+            }
+            let resource_summary = |profile: &CircuitCostProfile, operations: usize| {
+                serde_json::json!({
+                    "operations": operations,
+                    "single_qubit_gates": profile.single_qubit_gates,
+                    "cnot_gates": profile.cnot_gates,
+                    "cz_gates": profile.cz_gates,
+                    "swap_gates": profile.swap_gates,
+                    "t_gates": profile.t_gates,
+                    "tdg_gates": profile.tdg_gates,
+                    "two_qubit_gates": profile.cnot_gates + profile.cz_gates + profile.swap_gates,
+                    "measurements": profile.measurements,
+                    "conditional_gates": profile.conditional_gates,
+                    "noise_channels": profile.channels,
+                    "logical_depth": profile.depth,
+                    "qubits": qubits,
+                })
+            };
+            let report = serde_json::json!({
+                "schema_version": 3,
+                "tool": "quantumforge",
+                "tool_version": env!("CARGO_PKG_VERSION"),
+                "experiment_artifacts": {
+                    "format": "quantumforge_optimizer_experiment",
+                    "canonicalization": "Circuit JSON with the declared register size; deterministic serde JSON encoding",
+                    "input_circuit": canonical_circuit(&original, qubits)?,
+                    "selected_output_circuit": canonical_circuit(&optimized, qubits)?,
+                },
+                "circuit_fingerprints": {
+                    "algorithm": "fnv1a64_noncryptographic",
+                    "normalized_input": circuit_fingerprint(&original, qubits)?,
+                    "optimized_output": circuit_fingerprint(&optimized, qubits)?,
+                },
+                "artifact_digests": {
+                    "algorithm": "sha256",
+                    "normalized_input": circuit_sha256(&original, qubits)?,
+                    "optimized_output": circuit_sha256(&optimized, qubits)?,
+                },
+                "runtime_environment": {
+                    "operating_system": std::env::consts::OS,
+                    "architecture": std::env::consts::ARCH,
+                },
+                "input_format": if circuit_source.contains("OPENQASM") { "openqasm2" } else { "quantumforge_expression" },
+                "declared_qubits": qubits,
+                "optimization_mode": mode,
+                "passes": {
+                    "remove_identity": config.remove_identity,
+                    "cancel_inverses": config.cancel_inverses,
+                    "fuse_rotations": config.fuse_rotations,
+                    "commute_gates": config.commute_gates,
+                },
+                "target": match &coupling_map {
+                    Some(("linear", _)) => serde_json::json!({ "kind": "linear", "qubits": qubits }),
+                    Some((_, target)) => serde_json::json!({
+                        "kind": "custom_device_target",
+                        "qubits": target.coupling.num_qubits,
+                        "edges": target.coupling.edges,
+                        "native_gates": target.native_gates.as_ref().map(|gates| {
+                            let mut names: Vec<_> = gates.iter().cloned().collect();
+                            names.sort();
+                            names
+                        }),
+                        "directed_cx_edges": target.directed_cx_edges.as_ref().map(|edges| {
+                            let mut pairs: Vec<_> = edges.iter().copied().collect();
+                            pairs.sort();
+                            pairs
+                        }),
+                        "validation": "connectivity, native gate set when specified, and directed CNOT constraints",
+                    }),
+                    None => serde_json::Value::Null,
+                },
+                "routing_swaps_inserted": routing_swaps,
+                "cnot_direction_corrections": direction_corrections,
+                "thermal_noise_analysis": thermal_analysis,
+                "candidate_comparison": candidate_comparison,
+                "output_format": output_format,
+                "equivalence": match &equivalence {
+                    Some(result) => serde_json::json!({
+                        "status": if result.equivalent { "verified_equivalent" } else { "mismatch" },
+                        "method": "exhaustive_computational_basis_unitary_check",
+                        "tolerance": 1e-9,
+                        "basis_states_checked": result.basis_states_checked,
+                        "global_phase": [result.global_phase.0, result.global_phase.1],
+                        "max_amplitude_error": result.max_amplitude_error,
+                    }),
+                    None => serde_json::json!({ "status": "not_requested" }),
+                },
+                "cost_model": "structural_counts_only; no hardware calibration or runtime prediction",
+                "rewrites": {
+                    "inverse_pairs_cancelled": result.cancellations,
+                    "rotations_fused": result.fusions,
+                    "identities_removed": result.identities_removed,
+                },
+                "before": resource_summary(&original_profile, original.operations().len()),
+                "after": resource_summary(&optimized_profile, optimized.operations().len()),
+            });
+            let report_json = serde_json::to_vec_pretty(&report)
+                .map_err(|error| format!("could not prepare optimization report: {error}"))?;
+            std::fs::write(path, report_json)
+                .map_err(|error| format!("could not write report to {path}: {error}"))?;
+        }
+
+        eprintln!("Optimization mode: {mode}");
+        eprintln!(
+            "Operations: {} -> {} | 2-qubit gates: {} -> {} | depth: {} -> {}",
+            original_profile.total_gates(),
+            optimized_profile.total_gates(),
+            original_profile.cnot_gates + original_profile.cz_gates + original_profile.swap_gates,
+            optimized_profile.cnot_gates
+                + optimized_profile.cz_gates
+                + optimized_profile.swap_gates,
+            original_profile.depth,
+            optimized_profile.depth,
+        );
+        eprintln!(
+            "Rewrites: {} inverse pairs cancelled, {} rotations fused, {} identities removed",
+            result.cancellations, result.fusions, result.identities_removed
+        );
+        if let Some(swaps) = routing_swaps {
+            let topology = coupling_map
+                .as_ref()
+                .map(|(kind, _)| *kind)
+                .unwrap_or("unknown");
+            eprintln!("{topology} topology: {swaps} routing SWAPs inserted");
+            eprintln!("Device target validation: passed");
+        }
+        if let Some(corrections) = direction_corrections
+            && corrections > 0
+        {
+            eprintln!("Directed CNOTs corrected: {corrections} using native Hadamards");
+        }
+        if let Some(result) = &equivalence {
+            eprintln!(
+                "Equivalence check: {} ({} basis states, max amplitude error {:.3e})",
+                if result.equivalent {
+                    "passed"
+                } else {
+                    "FAILED"
+                },
+                result.basis_states_checked,
+                result.max_amplitude_error,
+            );
+        }
+        if let Some(analysis) = &thermal_analysis {
+            eprintln!(
+                "Thermal analysis: exact density-matrix simulation; see report for model assumptions and noise impact"
+            );
+            if let Some(channels) = analysis
+                .get("inserted_channels")
+                .and_then(serde_json::Value::as_u64)
+            {
+                eprintln!("Thermal model channels inserted: {channels}");
+            }
+        }
+        if equivalence
+            .as_ref()
+            .is_some_and(|result| !result.equivalent)
+        {
+            return Err(
+                "optimized circuit failed the requested equivalence check; output was not emitted"
+                    .to_owned(),
+            );
+        }
+
+        match output_format {
+            "json" => {
+                // stdout stays machine-readable so the circuit can be saved
+                // directly and loaded with Circuit::from_json.
+                let mut serialized: serde_json::Value =
+                    serde_json::from_str(&optimized.to_json().map_err(|error| {
+                        format!("could not serialize optimized circuit: {error}")
+                    })?)
+                    .map_err(|error| {
+                        format!("could not prepare optimized circuit output: {error}")
+                    })?;
+                serialized["num_qubits"] = serde_json::Value::from(qubits);
+                serde_json::to_writer_pretty(std::io::stdout().lock(), &serialized)
+                    .map_err(|error| format!("could not write optimized circuit: {error}"))?;
+                println!();
+            }
+            "qasm" => {
+                let qasm = quantumforge::qasm_export::export_qasm_with_qubits(&optimized, qubits)
+                    .map_err(str::to_owned)?;
+                println!("{qasm}");
+            }
+            _ => unreachable!(),
+        }
+        Ok::<(), String>(())
+    })();
+    if let Err(error) = result {
+        eprintln!("optimization error: {error}");
+        std::process::exit(2);
     }
 }
 
@@ -63,24 +599,62 @@ fn run_shots(args: &[String]) {
         let result = circuit
             .run_shots(&initial, shots, seed)
             .map_err(|error| error.to_string())?;
-        Ok::<_, String>(result)
+        Ok::<_, String>((result, seed))
     })();
     match result {
-        Ok(result) => {
-            println!("shots: {}", result.shots);
-            for (bits, count) in result.counts {
+        Ok((result, seed)) => {
+            println!("shots: {} (seed {seed})", result.shots);
+            for (bits, count) in &result.counts {
                 let bit_string: String = bits
                     .iter()
                     .rev()
                     .map(|bit| char::from(b'0' + *bit))
                     .collect();
-                println!("{bit_string}: {count}");
+                let (probability, (lower, upper)) = result.probability_with_ci(bits);
+                println!(
+                    "{bit_string}: {count} (p={probability:.6}, 95% Wilson CI [{lower:.6}, {upper:.6}])"
+                );
             }
         }
         Err(error) => {
             eprintln!("{error}");
             std::process::exit(2);
         }
+    }
+}
+
+fn run_estimate(args: &[String]) {
+    let result = (|| {
+        if !(1..=2).contains(&args.len()) {
+            return Err("usage: quantumforge estimate QUBITS [MEMORY_BUDGET_MIB]".to_owned());
+        }
+        let qubits = args[0]
+            .parse::<usize>()
+            .map_err(|_| "QUBITS must be a positive integer".to_owned())?;
+        let memory_budget_bytes = if let Some(value) = args.get(1) {
+            let mib = value
+                .parse::<u128>()
+                .map_err(|_| "MEMORY_BUDGET_MIB must be a positive integer".to_owned())?;
+            if mib == 0 {
+                return Err("MEMORY_BUDGET_MIB must be a positive integer".to_owned());
+            }
+            Some(
+                mib.checked_mul(1024 * 1024)
+                    .ok_or_else(|| "memory budget is too large".to_owned())?,
+            )
+        } else {
+            None
+        };
+        let estimate = estimate_dense_memory(qubits, memory_budget_bytes)
+            .map_err(|error| error.to_string())?;
+        let json = serde_json::to_string_pretty(&estimate)
+            .map_err(|error| format!("could not serialize memory estimate: {error}"))?;
+        println!("{json}");
+        Ok(())
+    })();
+    if let Err(error) = result {
+        eprintln!("error: {error}");
+        std::process::exit(2);
     }
 }
 
@@ -554,10 +1128,428 @@ fn run_demo() {
     );
 }
 
+fn circuit_fingerprint(circuit: &Circuit, qubits: usize) -> Result<String, String> {
+    let normalized = canonical_circuit(circuit, qubits)?;
+    let bytes = serde_json::to_vec(&normalized)
+        .map_err(|error| format!("could not encode circuit fingerprint input: {error}"))?;
+    let hash = bytes.iter().fold(0xcbf29ce484222325_u64, |hash, byte| {
+        (hash ^ u64::from(*byte)).wrapping_mul(0x100000001b3)
+    });
+    Ok(format!("fnv1a64:{hash:016x}"))
+}
+
+fn circuit_sha256(circuit: &Circuit, qubits: usize) -> Result<String, String> {
+    let normalized = canonical_circuit(circuit, qubits)?;
+    let bytes = serde_json::to_vec(&normalized)
+        .map_err(|error| format!("could not encode circuit digest input: {error}"))?;
+    let digest = Sha256::digest(bytes);
+    Ok(format!("sha256:{digest:x}"))
+}
+
+fn canonical_circuit(circuit: &Circuit, qubits: usize) -> Result<serde_json::Value, String> {
+    let serialized = circuit
+        .to_json()
+        .map_err(|error| format!("could not serialize circuit artifact: {error}"))?;
+    let mut normalized: serde_json::Value = serde_json::from_str(&serialized)
+        .map_err(|error| format!("could not normalize circuit artifact: {error}"))?;
+    normalized["num_qubits"] = serde_json::Value::from(qubits);
+    Ok(normalized)
+}
+
+fn analyze_thermal_effect(
+    circuit: &Circuit,
+    qubits: usize,
+    model: ThermalGateNoiseModel,
+) -> Result<serde_json::Value, String> {
+    if qubits > 8 {
+        return Err(
+            "thermal CLI analysis is limited to 8 qubits because density-matrix simulation scales exponentially; use a suitable tensor-network or trajectory workflow for larger circuits".to_owned(),
+        );
+    }
+    if circuit.operations().iter().any(|operation| {
+        matches!(
+            operation,
+            quantumforge::CircuitOp::Measure { .. }
+                | quantumforge::CircuitOp::ConditionalSingleQubit { .. }
+        )
+    }) {
+        return Err(
+            "thermal CLI analysis currently requires a circuit without measurements or classical feed-forward".to_owned(),
+        );
+    }
+
+    let noisy = model.apply(circuit);
+    let initial_state = StateVector::zero(qubits).map_err(|error| error.to_string())?;
+    let reference = circuit
+        .run_density(DensityMatrix::from_state(&initial_state))
+        .map_err(|error| format!("reference density-matrix simulation failed: {error}"))?;
+    let simulated = noisy
+        .circuit
+        .run_density(DensityMatrix::from_state(&initial_state))
+        .map_err(|error| format!("thermal density-matrix simulation failed: {error}"))?;
+
+    let diagonal_probabilities = |state: &DensityMatrix| {
+        let dimension = state.dimension();
+        (0..dimension)
+            .map(|index| state.entries()[index * dimension + index].re)
+            .collect::<Vec<_>>()
+    };
+    let reference_probabilities = diagonal_probabilities(&reference);
+    let noisy_probabilities = diagonal_probabilities(&simulated);
+    let total_variation_distance = reference_probabilities
+        .iter()
+        .zip(&noisy_probabilities)
+        .map(|(a, b)| (a - b).abs())
+        .sum::<f64>()
+        * 0.5;
+    let z_expectations = (0..qubits)
+        .map(|qubit| {
+            Ok(serde_json::json!({
+                "qubit": qubit,
+                "reference": reference.expectation_z(qubit).map_err(|error| error.to_string())?,
+                "with_thermal_model": simulated.expectation_z(qubit).map_err(|error| error.to_string())?,
+            }))
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    let summary = noisy.summary;
+    Ok(serde_json::json!({
+        "status": "simulated",
+        "method": "exact_density_matrix",
+        "initial_state": "all_zero",
+        "model": {
+            "kind": "independent_markovian_thermal_relaxation_and_pure_dephasing",
+            "t1": model.t1(),
+            "t2": model.t2(),
+            "beta_delta": model.beta_delta(),
+            "single_qubit_gate_duration": model.single_qubit_gate_time(),
+            "two_qubit_gate_duration": model.two_qubit_gate_time(),
+            "readout_noise": "not modeled",
+            "correlated_noise": "not modeled",
+            "parameter_uncertainty": "not included",
+        },
+        "explicit_input_channels": "preserved in both reference and noisy circuit",
+        "inserted_channels": summary.thermal_channels + summary.dephasing_channels,
+        "thermal_channels": summary.thermal_channels,
+        "dephasing_channels": summary.dephasing_channels,
+        "reference_probabilities": reference_probabilities,
+        "with_thermal_model_probabilities": noisy_probabilities,
+        "probability_total_variation_distance": total_variation_distance,
+        "z_expectations": z_expectations,
+        "reference_purity": reference.purity(),
+        "with_thermal_model_purity": simulated.purity(),
+        "reference_trace": [reference.trace().re, reference.trace().im],
+        "with_thermal_model_trace": [simulated.trace().re, simulated.trace().im],
+        "shots": 0,
+        "shot_uncertainty": "not applicable; exact finite-dimensional density-matrix calculation",
+    }))
+}
+
+fn read_coupling_map(path: &str, expected_qubits: usize) -> Result<DeviceTarget, String> {
+    let source = std::fs::read_to_string(path)
+        .map_err(|error| format!("could not read topology {path}: {error}"))?;
+    let document: serde_json::Value = serde_json::from_str(&source)
+        .map_err(|error| format!("invalid topology JSON in {path}: {error}"))?;
+    let num_qubits = document
+        .get("num_qubits")
+        .and_then(serde_json::Value::as_u64)
+        .and_then(|value| usize::try_from(value).ok())
+        .ok_or_else(|| "topology must have a nonnegative integer 'num_qubits'".to_owned())?;
+    if num_qubits != expected_qubits {
+        return Err(format!(
+            "topology declares {num_qubits} qubits but the command declares {expected_qubits}"
+        ));
+    }
+    if num_qubits > 4096 {
+        return Err("routing supports at most 4096 qubits".to_owned());
+    }
+    let edge_values = document
+        .get("edges")
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(|| {
+            "topology must have an 'edges' array of [qubit_a, qubit_b] pairs".to_owned()
+        })?;
+    let mut edges = Vec::with_capacity(edge_values.len());
+    let mut unique_edges = std::collections::HashSet::new();
+    for (index, edge) in edge_values.iter().enumerate() {
+        let pair = edge
+            .as_array()
+            .filter(|pair| pair.len() == 2)
+            .ok_or_else(|| format!("topology edge {index} must be a two-item array"))?;
+        let first = pair[0]
+            .as_u64()
+            .and_then(|value| usize::try_from(value).ok())
+            .ok_or_else(|| format!("topology edge {index} has an invalid first qubit"))?;
+        let second = pair[1]
+            .as_u64()
+            .and_then(|value| usize::try_from(value).ok())
+            .ok_or_else(|| format!("topology edge {index} has an invalid second qubit"))?;
+        if first >= num_qubits || second >= num_qubits {
+            return Err(format!(
+                "topology edge ({first}, {second}) is outside the {num_qubits}-qubit map"
+            ));
+        }
+        if first == second {
+            return Err(format!("topology edge {index} connects a qubit to itself"));
+        }
+        let normalized = (first.min(second), first.max(second));
+        if !unique_edges.insert(normalized) {
+            return Err(format!(
+                "topology contains duplicate edge ({first}, {second})"
+            ));
+        }
+        edges.push((first, second));
+    }
+    let native_gates = document
+        .get("native_gates")
+        .map(|value| {
+            let gates = value
+                .as_array()
+                .ok_or_else(|| "target 'native_gates' must be an array of gate names".to_owned())?;
+            let mut normalized = std::collections::HashSet::new();
+            for (index, gate) in gates.iter().enumerate() {
+                let gate = gate
+                    .as_str()
+                    .ok_or_else(|| format!("target native_gates entry {index} must be a string"))?;
+                let gate = normalize_native_gate(gate)
+                    .ok_or_else(|| format!("unsupported native gate name '{gate}' in target"))?;
+                if !normalized.insert(gate.to_owned()) {
+                    return Err(format!("target contains duplicate native gate '{gate}'"));
+                }
+            }
+            Ok(normalized)
+        })
+        .transpose()?;
+    let directed_cx_edges = document
+        .get("directed_cx_edges")
+        .map(|value| {
+            let edge_values = value.as_array().ok_or_else(|| {
+                "target 'directed_cx_edges' must be an array of [control, target] pairs".to_owned()
+            })?;
+            let mut directed = std::collections::HashSet::new();
+            for (index, edge) in edge_values.iter().enumerate() {
+                let pair = edge
+                    .as_array()
+                    .filter(|pair| pair.len() == 2)
+                    .ok_or_else(|| format!("directed CNOT edge {index} must be a two-item array"))?;
+                let control = pair[0].as_u64().and_then(|v| usize::try_from(v).ok())
+                    .ok_or_else(|| format!("directed CNOT edge {index} has an invalid control qubit"))?;
+                let target = pair[1].as_u64().and_then(|v| usize::try_from(v).ok())
+                    .ok_or_else(|| format!("directed CNOT edge {index} has an invalid target qubit"))?;
+                if control >= num_qubits || target >= num_qubits || control == target {
+                    return Err(format!("directed CNOT edge ({control}, {target}) is invalid for a {num_qubits}-qubit target"));
+                }
+                let edge = (control, target);
+                if !unique_edges.contains(&(control.min(target), control.max(target))) {
+                    return Err(format!("directed CNOT edge ({control}, {target}) is absent from 'edges'"));
+                }
+                if !directed.insert(edge) {
+                    return Err(format!("target contains duplicate directed CNOT edge ({control}, {target})"));
+                }
+            }
+            Ok(directed)
+        })
+        .transpose()?;
+    if directed_cx_edges.is_some()
+        && native_gates
+            .as_ref()
+            .is_some_and(|gates| !gates.contains("cx"))
+    {
+        return Err(
+            "target declares 'directed_cx_edges' but omits 'cx' from 'native_gates'".to_owned(),
+        );
+    }
+    Ok(DeviceTarget {
+        coupling: CouplingMap { num_qubits, edges },
+        native_gates,
+        directed_cx_edges,
+    })
+}
+
+fn normalize_native_gate(gate: &str) -> Option<&'static str> {
+    match gate.to_ascii_lowercase().as_str() {
+        "i" | "id" | "idgate" => Some("id"),
+        "x" | "y" | "z" | "h" | "s" | "sdg" | "t" | "tdg" | "rx" | "ry" | "rz" | "cx" | "cz"
+        | "swap" | "measure" | "conditional" => Some(match gate.to_ascii_lowercase().as_str() {
+            "x" => "x",
+            "y" => "y",
+            "z" => "z",
+            "h" => "h",
+            "s" => "s",
+            "sdg" => "sdg",
+            "t" => "t",
+            "tdg" => "tdg",
+            "rx" => "rx",
+            "ry" => "ry",
+            "rz" => "rz",
+            "cx" => "cx",
+            "cz" => "cz",
+            "swap" => "swap",
+            "measure" => "measure",
+            "conditional" => "conditional",
+            _ => "id",
+        }),
+        _ => None,
+    }
+}
+
+fn validate_device_target(circuit: &Circuit, target: &DeviceTarget) -> Result<(), String> {
+    let supports = |name: &str| {
+        target
+            .native_gates
+            .as_ref()
+            .is_none_or(|gates| gates.contains(name))
+    };
+    let has_edge = |a: usize, b: usize| {
+        target
+            .coupling
+            .edges
+            .iter()
+            .any(|&(x, y)| (x == a && y == b) || (x == b && y == a))
+    };
+    for (index, operation) in circuit.operations().iter().enumerate() {
+        let require = |name: &str| {
+            if supports(name) {
+                Ok(())
+            } else {
+                Err(format!(
+                    "device target does not support operation {index}: native gate '{name}' is absent"
+                ))
+            }
+        };
+        match operation {
+            quantumforge::CircuitOp::SingleQubit { gate, .. } => require(gate_name(*gate))?,
+            quantumforge::CircuitOp::Cnot {
+                control,
+                target: target_qubit,
+            } => {
+                require("cx")?;
+                if !has_edge(*control, *target_qubit) {
+                    return Err(format!(
+                        "device target operation {index}: CNOT operands ({control}, {target_qubit}) are not connected"
+                    ));
+                }
+                if target
+                    .directed_cx_edges
+                    .as_ref()
+                    .is_some_and(|edges| !edges.contains(&(*control, *target_qubit)))
+                {
+                    return Err(format!(
+                        "device target operation {index}: CNOT direction {control}->{target_qubit} is unsupported"
+                    ));
+                }
+            }
+            quantumforge::CircuitOp::Cz { first, second } => {
+                require("cz")?;
+                if !has_edge(*first, *second) {
+                    return Err(format!(
+                        "device target operation {index}: CZ operands ({first}, {second}) are not connected"
+                    ));
+                }
+            }
+            quantumforge::CircuitOp::Swap { first, second } => {
+                require("swap")?;
+                if !has_edge(*first, *second) {
+                    return Err(format!(
+                        "device target operation {index}: SWAP operands ({first}, {second}) are not connected"
+                    ));
+                }
+            }
+            quantumforge::CircuitOp::Measure { .. } => require("measure")?,
+            quantumforge::CircuitOp::ConditionalSingleQubit { gate, .. } => {
+                require("conditional")?;
+                require(gate_name(*gate))?;
+            }
+            quantumforge::CircuitOp::Channel { .. } => {
+                return Err(format!(
+                    "device target operation {index}: noise channels are simulator annotations and cannot be submitted as device gates"
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn correct_cnot_directions(circuit: &mut Circuit, target: &DeviceTarget) -> Result<usize, String> {
+    let Some(directed_edges) = &target.directed_cx_edges else {
+        return Ok(0);
+    };
+    let mut corrected = Vec::with_capacity(circuit.operations().len());
+    let mut corrections = 0;
+    for (index, operation) in circuit.operations().iter().copied().enumerate() {
+        match operation {
+            quantumforge::CircuitOp::Cnot {
+                control,
+                target: target_qubit,
+            } if !directed_edges.contains(&(control, target_qubit)) => {
+                if !directed_edges.contains(&(target_qubit, control)) {
+                    return Err(format!(
+                        "device target operation {index}: neither CNOT direction is supported for qubits {control} and {target_qubit}"
+                    ));
+                }
+                if !target
+                    .native_gates
+                    .as_ref()
+                    .is_some_and(|gates| gates.contains("h"))
+                {
+                    return Err(format!(
+                        "device target operation {index}: reversing CNOT {control}->{target_qubit} requires native 'h' in the target's native_gates list"
+                    ));
+                }
+                // CX(a,b) = H(a) H(b) CX(b,a) H(a) H(b).
+                corrected.push(quantumforge::CircuitOp::SingleQubit {
+                    gate: Gate::H,
+                    target: control,
+                });
+                corrected.push(quantumforge::CircuitOp::SingleQubit {
+                    gate: Gate::H,
+                    target: target_qubit,
+                });
+                corrected.push(quantumforge::CircuitOp::Cnot {
+                    control: target_qubit,
+                    target: control,
+                });
+                corrected.push(quantumforge::CircuitOp::SingleQubit {
+                    gate: Gate::H,
+                    target: control,
+                });
+                corrected.push(quantumforge::CircuitOp::SingleQubit {
+                    gate: Gate::H,
+                    target: target_qubit,
+                });
+                corrections += 1;
+            }
+            _ => corrected.push(operation),
+        }
+    }
+    *circuit.operations_mut() = corrected;
+    Ok(corrections)
+}
+
+fn gate_name(gate: Gate) -> &'static str {
+    match gate {
+        Gate::I => "id",
+        Gate::X => "x",
+        Gate::Y => "y",
+        Gate::Z => "z",
+        Gate::H => "h",
+        Gate::S => "s",
+        Gate::Sdg => "sdg",
+        Gate::T => "t",
+        Gate::Tdg => "tdg",
+        Gate::Rx(_) => "rx",
+        Gate::Ry(_) => "ry",
+        Gate::Rz(_) => "rz",
+    }
+}
+
 fn print_help() {
-    println!("QuantumForge — quantum computation kernel prototype");
-    println!("\nUsage: quantumforge [demo|eval EXPR|simplify EXPR|help]");
+    println!("QuantumForge — local quantum simulation and symbolic tools");
+    println!("\nUsage: quantumforge [demo|eval EXPR|simplify EXPR|optimize ...|help]");
     println!("       quantumforge shots QUBITS SHOTS SEED 'Circuit[...]'");
+    println!("       quantumforge estimate QUBITS [MEMORY_BUDGET_MIB]");
+    println!(
+        "       quantumforge optimize QUBITS all|conservative [--line | --topology FILE] [--verify [--compare]] [--thermal T1 T2 BETA_DELTA ONE_QUBIT_TIME TWO_QUBIT_TIME] [--input FILE] [--format json|qasm] [--report FILE] [Circuit[...]]"
+    );
     #[cfg(feature = "llvm")]
     println!("       quantumforge llvm-ir EXPR");
     #[cfg(feature = "llvm")]
@@ -568,7 +1560,41 @@ fn print_help() {
         "\nThe demo runs a one-qubit CPU simulation, seeded measurement, and a tiny variational QNN training loop."
     );
     println!(
-        "\n`shots` samples every qubit when the circuit declares no Measure operations;\n\
-         otherwise it uses the circuit's own Measure[q,c] mapping."
+        "\nThe optimize --thermal option adds a T1/T2 model-based density-matrix comparison to --report FILE (unitary circuits, up to 8 qubits). Results are simulations, not hardware measurements."
     );
+    println!(
+        "\nExamples:\n\
+         quantumforge shots 2 1000 42 'Circuit[H[0], CNOT[0,1]]'\n\
+         quantumforge optimize 3 all --line 'Circuit[H[0], H[0], CNOT[0,2]]'\n\
+         quantumforge optimize 3 all --input bell.qasm --line --format qasm\n\
+         quantumforge optimize 3 all --input bell.qasm --report compile-report.json\n\
+         quantumforge optimize 3 all --input bell.qasm --thermal 30 20 1 0.02 0.2 --report experiment.json\n\
+         quantumforge optimize 3 all --input unitary.qasm --compare --verify --report comparison.json\n\
+         quantumforge optimize 5 all --topology device-map.json --input circuit.qasm\n\
+         quantumforge optimize 3 all --verify 'Circuit[H[0], H[0]]'\n\
+         quantumforge eval '2 + 3*Pi'\n\
+         qf  # interactive REPL\n\
+         \n\
+         shots samples every qubit when the circuit declares no Measure operations;\n\
+         otherwise it uses the circuit's own Measure[q,c] mapping.\n\
+         optimize writes reusable JSON to stdout by default; use --format qasm for OpenQASM 2.0, and --report FILE for a separate JSON provenance and metrics report.\n\
+         The resource summary is written to stderr."
+    );
+}
+
+#[cfg(test)]
+mod report_digest_tests {
+    use super::circuit_sha256;
+    use quantumforge::{Circuit, Gate};
+
+    #[test]
+    fn canonical_circuit_sha256_is_stable_and_register_sensitive() {
+        let mut circuit = Circuit::new();
+        circuit.push(Gate::H, 0);
+        let first = circuit_sha256(&circuit, 2).unwrap();
+        assert_eq!(first, circuit_sha256(&circuit, 2).unwrap());
+        assert!(first.starts_with("sha256:"));
+        assert_eq!(first.len(), "sha256:".len() + 64);
+        assert_ne!(first, circuit_sha256(&circuit, 3).unwrap());
+    }
 }

@@ -3,11 +3,13 @@ name = "quantumforge"
 version = "0.2.9"
 edition = "2024"
 rust-version = "1.88"
-description = "A Rust quantum simulation toolkit: exact-rational analytic core, CPU/CUDA circuit simulation, tensor networks (MPS/TEBD/DMRG), QEC codes, VQE/QML with four gradient strategies and shot-aware adaptive observation control, MPS and parameter-transfer QAOA, MBQC, adiabatic QC, and unitary Turing machines."
+description = "A local-first Rust quantum circuit simulator and research toolkit with noise models, optimization, tensor networks, and Python bindings."
 license = "Apache-2.0"
 repository = "https://github.com/Junshenhuang-571/QuantumForge"
 documentation = "https://docs.rs/quantumforge"
 readme = "README.md"
+default-run = "qf"
+autobins = false
 keywords = ["quantum", "simulation", "quantum-computing", "vqe", "cuda"]
 categories = ["science", "simulation", "hardware-support"]
 exclude = ["dist/*", "wheeltest*/", "__pycache__/", "**/*.pyc", "target/pkg/*", "fuzz/*"]
@@ -22,6 +24,20 @@ members = ["."]
 # into the published tarball.
 exclude = ["fuzz"]
 resolver = "2"
+
+[[bin]]
+name = "quantumforge"
+path = "src/bin/quantumforge.rs"
+
+# Keep the previously published target name available for scripts that invoke
+# `CARGO_BIN_EXE_main`; new users should use the descriptive `quantumforge` name.
+[[bin]]
+name = "main"
+path = "src/bin/main.rs"
+
+[[bin]]
+name = "qf"
+path = "src/bin/qf.rs"
 
 [features]
 default = ["rayon"]
@@ -48,6 +64,7 @@ pyo3 = { version = "0.23", optional = true, features = ["extension-module", "abi
 reqwest = { version = "0.12", optional = true, features = ["json", "rustls-tls"] }
 cudarc = { version = "0.12", optional = true, features = ["std", "cublas", "driver", "nvrtc", "dynamic-linking"] }
 rayon = { version = "1.10", optional = true }
+sha2 = "0.10"
 
 [[bench]]
 name = "cuda_batch"
@@ -62,10 +79,10 @@ harness = false
 
 # Python package config
 [package.metadata.docs.rs]
-# `cuda` is excluded on purpose: its build script requires a CUDA toolkit
-# (CUDA_PATH) to link, which docs.rs runners do not provide. The dynamic
-# `gpu` feature covers the documented GPU API surface.
-features = ["rayon", "llvm", "gpu", "python", "ibm", "ionq", "rigetti"]
+# CUDA and GPU are excluded because cudarc probes for CUDA toolkit headers at
+# build time; docs.rs runners do not provide a CUDA toolkit. GPU APIs remain
+# documented in source and are compile-checked on configured developer hosts.
+features = ["rayon", "llvm", "python", "ibm", "ionq", "rigetti"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [package.metadata.maturin]

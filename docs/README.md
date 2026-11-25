@@ -8,6 +8,10 @@ Start here. Everything is either rendered from the source (rustdoc, on
 | I want to... | Go to |
 |---|---|
 | install and run my first circuit | [Getting started](getting-started.md) · [README](../../README.md) |
+| understand the optimizer's current scope and next steps | [Optimizer assessment and roadmap](optimizer-roadmap.md) |
+| run a verified optimizer comparison and inspect its self-contained report | [Reproducible optimizer experiment](optimizer-experiment-workflow.md) |
+| choose a simulation approach for larger circuits | [Scaling strategy and product roadmap](scaling-and-product-strategy.md) |
+| compare QuantumForge with established quantum platforms | [Product positioning and market comparison](product-positioning.md) |
 | browse the API with examples | <https://docs.rs/quantumforge> (every public item is documented) |
 | learn a subsystem in depth | the guides listed below |
 | run QAOA on hundreds of qubits | [MPS-based QAOA](wiki/MPS-QAOA.md) |
@@ -24,7 +28,7 @@ Start here. Everything is either rendered from the source (rustdoc, on
 - [MPS-based QAOA](wiki/MPS-QAOA.md) — matrix-product-state simulation for MaxCut
 - [QAOA parameter transfer](wiki/QAOA-Parameter-Transfer.md) — TQA init, transferred angles, targeted-single-layer optimization
 - [SubsCoRe](wiki/SubsCoRe.md) — adaptive observation cost control for VQE (arXiv:2502.01704); the confident region and the paper's inverted shot search
-- [Noise and statistical mechanics](wiki/Noise-and-Statistical-Mechanics.md) — thermalising channels, entropy production, readout mitigation, QEC thresholds, and Landauer accounting
+- [Noise and statistical mechanics](wiki/Noise-and-Statistical-Mechanics.md) — T1/T2 thermal gate-noise model, thermalising channels, entropy production, readout mitigation, QEC thresholds, and Landauer accounting
 - [Gradient strategies](wiki/Gradient-Strategies.md) — parameter shift / adjoint / backprop / finite difference, automatic selection, and how they are cross-validated
 - [Contributing](wiki/Contributing.md) · [CONTRIBUTING.md](../../CONTRIBUTING.md)
 
@@ -81,6 +85,8 @@ Every example is runnable (`cargo run --example <name>`); the ones marked
 - `subscore` *(release)* — fixed-shot NFT vs SubsCoRe-Bound vs SubsCoRe-Center under one shot budget
 - `subscore_entropy` *(release)* — the entropy-production stopping rule on the canonical campaign
 - `noise_thermo_probe` — entropy production of the built-in channels, collisional thermalisation, and the `ThermalDamping` Gibbs fixed point
+- `thermal_gate_noise` — apply a T1/T2 and temperature-derived noise model to a circuit before density-matrix simulation
+- `scheduled_thermal_noise` — apply schedule-aware gate and idle noise using explicit operation timings
 - `qec_threshold` *(release)* — Pauli/readout noise, the exact minimum-weight decoder, and a threshold crossing on the repetition family
 - `thermal_states` *(release)* — exact Gibbs states, free energy, and Gibbs sampling
 - `langevin_double_well` — annealed Langevin versus plain gradient descent on a barrier-limited objective

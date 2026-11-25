@@ -77,6 +77,8 @@ pub fn parse_qasm(source: &str) -> Result<Circuit, QasmError> {
 
 struct QasmParser<'a> {
     lines: Vec<&'a str>,
+    /// Statements split off a shared physical line, processed before the rest.
+    pending: std::collections::VecDeque<String>,
     position: usize,
     circuit: Circuit,
     /// Maps qubit register name -> (start_index, size)
@@ -115,6 +117,7 @@ impl<'a> QasmParser<'a> {
     fn new(source: &'a str) -> Self {
         Self {
             lines: source.lines().collect(),
+            pending: std::collections::VecDeque::new(),
             position: 0,
             circuit: Circuit::new(),
             qregs: HashMap::new(),
@@ -128,33 +131,43 @@ impl<'a> QasmParser<'a> {
     fn parse(&mut self) -> Result<Circuit, QasmError> {
         let mut header_seen = false;
 
-        while self.position < self.lines.len() {
-            let line = self.lines[self.position].trim();
-            self.position += 1;
+        while !self.pending.is_empty() || self.position < self.lines.len() {
+            let held;
+            let raw: &str = match self.pending.pop_front() {
+                Some(next) => {
+                    held = next;
+                    held.as_str()
+                }
+                None => {
+                    let line = self.lines[self.position].trim();
+                    self.position += 1;
+                    line
+                }
+            };
 
             // Skip empty lines and comments
-            if line.is_empty() || line.starts_with("//") {
+            if raw.is_empty() || raw.starts_with("//") {
                 continue;
             }
 
             // Skip block comments (single-line)
-            if line.starts_with("/*") && line.ends_with("*/") {
+            if raw.starts_with("/*") && raw.ends_with("*/") {
                 continue;
             }
 
             // OPENQASM header
-            if line.starts_with("OPENQASM") {
+            if raw.starts_with("OPENQASM") {
                 header_seen = true;
                 continue;
             }
 
             // Include statement (skip standard library)
-            if line.starts_with("include") {
+            if raw.starts_with("include") {
                 continue;
             }
 
             // QASM 3.0 version header — reject
-            if line.starts_with("OPENQASM 3") {
+            if raw.starts_with("OPENQASM 3") {
                 return Err(QasmError::new(
                     self.position,
                     "QASM 3.0 is not supported; use QASM 2.0",
@@ -163,6 +176,32 @@ impl<'a> QasmParser<'a> {
 
             if !header_seen {
                 return Err(QasmError::new(self.position, "missing OPENQASM 2.0 header"));
+            }
+
+            // The OpenQASM grammar makes `;` a statement terminator, not a line
+            // terminator, so several statements may share a physical line. Only
+            // the first used to be parsed and the rest were silently discarded —
+            // `h q[0]; cx q[0],q[1]; x q[1];` optimized as a single H gate and
+            // still reported success. Lines containing braces belong to a `gate`
+            // definition, which consumes the following lines itself and must be
+            // left intact.
+            let line: &str = if raw.contains('{') || raw.contains('}') {
+                raw
+            } else {
+                let segments: Vec<&str> = raw
+                    .split(';')
+                    .map(str::trim)
+                    .filter(|segment| !segment.is_empty())
+                    .collect();
+                if segments.len() > 1 {
+                    for segment in &segments[1..] {
+                        self.pending.push_back((*segment).to_string());
+                    }
+                }
+                segments.first().copied().unwrap_or("")
+            };
+            if line.is_empty() || line.starts_with("//") {
+                continue;
             }
 
             // Qubit register declaration

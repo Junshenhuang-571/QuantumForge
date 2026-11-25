@@ -31,13 +31,86 @@ fn run(args: &[&str]) -> (String, String, i32) {
 fn help_lists_the_subcommands() {
     let (stdout, _, code) = run(&["help"]);
     assert_eq!(code, 0);
-    for subcommand in ["demo", "eval", "simplify", "shots"] {
+    for subcommand in ["demo", "eval", "simplify", "shots", "estimate"] {
         assert!(stdout.contains(subcommand), "help omits `{subcommand}`");
     }
     assert!(
         stdout.contains("Measure"),
         "help should document the mapping"
     );
+}
+
+#[test]
+fn estimate_reports_dense_memory_lower_bounds_and_budget_fit() {
+    let (stdout, stderr, code) = run(&["estimate", "10", "1"]);
+    assert_eq!(code, 0, "{stderr}");
+    let estimate: serde_json::Value = serde_json::from_str(&stdout).expect("valid JSON output");
+    assert_eq!(estimate["qubits"], 10);
+    assert_eq!(estimate["state_vector_bytes"], 16_384);
+    assert_eq!(estimate["density_matrix_bytes"], 16_777_216);
+    assert_eq!(estimate["state_vector_fits_budget"], true);
+    assert_eq!(estimate["density_matrix_fits_budget"], false);
+    assert!(
+        estimate["estimate_scope"]
+            .as_str()
+            .unwrap()
+            .contains("lower bound")
+    );
+}
+
+#[test]
+fn estimate_rejects_zero_qubits_and_overflowing_budgets() {
+    let (_, stderr, code) = run(&["estimate", "0"]);
+    assert_eq!(code, 2);
+    assert!(stderr.contains("greater than zero"));
+
+    let (_, stderr, code) = run(&["estimate", "2", &u128::MAX.to_string()]);
+    assert_eq!(code, 2);
+    assert!(stderr.contains("too large"));
+}
+
+#[test]
+fn optimize_report_contains_reproducible_artifact_digests() {
+    let report_path = std::env::temp_dir().join(format!(
+        "quantumforge-report-digest-{}.json",
+        std::process::id()
+    ));
+    let output = Command::new(binary())
+        .args([
+            "optimize",
+            "1",
+            "all",
+            "--verify",
+            "--compare",
+            "--report",
+            report_path.to_str().unwrap(),
+            "Circuit[H[0],H[0]]",
+        ])
+        .output()
+        .expect("runs optimizer with report output");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let report: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&report_path).expect("report file exists"))
+            .expect("report is valid JSON");
+    let _ = std::fs::remove_file(&report_path);
+    assert_eq!(report["schema_version"], 3);
+    assert_eq!(report["artifact_digests"]["algorithm"], "sha256");
+    for key in ["normalized_input", "optimized_output"] {
+        let digest = report["artifact_digests"][key]
+            .as_str()
+            .expect("digest is a string");
+        assert!(digest.starts_with("sha256:"));
+        assert_eq!(digest.len(), "sha256:".len() + 64);
+    }
+    assert!(report["runtime_environment"]["operating_system"].is_string());
+    assert!(report["runtime_environment"]["architecture"].is_string());
+    assert!(report["candidate_comparison"]["selected"]["artifact_digest"].is_string());
+    assert!(report["candidate_comparison"]["alternate"]["artifact_digest"].is_string());
 }
 
 #[test]
@@ -89,6 +162,14 @@ fn shots_samples_every_qubit_when_the_circuit_measures_none() {
     let (stdout, stderr, code) = run(&["shots", "2", "200", "7", "Circuit[H[0],CNOT[0,1]]"]);
     assert_eq!(code, 0, "stderr: {stderr}");
     assert!(stdout.contains("shots: 200"), "got: {stdout}");
+    assert!(
+        stdout.contains("seed 7"),
+        "seed should be recorded: {stdout}"
+    );
+    assert!(
+        stdout.contains("95% Wilson CI"),
+        "uncertainty should be shown: {stdout}"
+    );
     // A Bell state: both qubits must appear, in both outcomes, and nothing else.
     let mut outcomes: Vec<&str> = stdout
         .lines()

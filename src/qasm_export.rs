@@ -33,6 +33,27 @@ pub fn export_qasm(circuit: &Circuit) -> String {
     exporter.export()
 }
 
+/// Export a circuit while retaining the caller's declared register width.
+///
+/// This is useful after optimization removes every operation on a trailing
+/// qubit: the serialized circuit must still have the same register size as the
+/// input circuit. Returns an error when an operation addresses a qubit outside
+/// the declared register.
+pub fn export_qasm_with_qubits(
+    circuit: &Circuit,
+    num_qubits: usize,
+) -> Result<String, &'static str> {
+    let mut exporter = QasmExporter::new(circuit);
+    if exporter.num_qubits > num_qubits {
+        return Err("circuit uses a qubit outside the declared register");
+    }
+    for qubit in exporter.num_qubits..num_qubits {
+        exporter.qubit_map.insert(qubit, ("q".to_string(), qubit));
+    }
+    exporter.num_qubits = num_qubits;
+    Ok(exporter.export())
+}
+
 struct QasmExporter<'a> {
     circuit: &'a Circuit,
     /// Map from qubit index to (qreg_name, index_in_reg)
@@ -101,7 +122,11 @@ impl<'a> QasmExporter<'a> {
             }
         }
 
-        self.num_qubits = max_qubit + 1;
+        self.num_qubits = if self.circuit.operations().is_empty() {
+            0
+        } else {
+            max_qubit + 1
+        };
         self.num_cbits = max_cbit + 1;
 
         // Simple single register for now
@@ -168,7 +193,10 @@ impl<'a> QasmExporter<'a> {
             Swap { first, second } => {
                 let f = self.format_qubit(*first)?;
                 let s = self.format_qubit(*second)?;
-                Some(format!("swap {f}, {s};"))
+                // Express SWAP using the universally available qelib CNOT
+                // primitive. Some OpenQASM 2 parsers do not load `swap` from
+                // qelib1.inc even though it is a common circuit operation.
+                Some(format!("cx {f}, {s};\ncx {s}, {f};\ncx {f}, {s};"))
             }
             Measure {
                 target,
@@ -342,7 +370,25 @@ measure q[1] -> c[1];
         assert!(exported.contains("h q[1]"));
         assert!(exported.contains("cx q[0], q[1]"));
         assert!(exported.contains("cz q[1], q[0]"));
-        assert!(exported.contains("swap q[0], q[1]"));
+        assert_eq!(exported.matches("cx ").count(), 4);
+        assert!(!exported.contains("swap "));
+        let roundtrip = parse_qasm(&exported).unwrap();
+        assert!(
+            crate::optimizer::verify_unitary_equivalent(&circuit, &roundtrip, 2, 1e-9)
+                .unwrap()
+                .equivalent
+        );
+    }
+
+    #[test]
+    fn test_export_retains_declared_idle_qubits() {
+        let mut circuit = Circuit::new();
+        circuit.push(Gate::H, 0);
+        let exported = export_qasm_with_qubits(&circuit, 4).unwrap();
+        assert!(exported.contains("qreg q[4];"));
+
+        let error = export_qasm_with_qubits(&circuit, 0).unwrap_err();
+        assert_eq!(error, "circuit uses a qubit outside the declared register");
     }
 
     #[test]

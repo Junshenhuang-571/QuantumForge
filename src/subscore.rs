@@ -222,8 +222,8 @@ fn cholesky_lower(matrix: &[Vec<f64>]) -> Vec<Vec<f64>> {
     for i in 0..n {
         for j in 0..=i {
             let mut sum = matrix[i][j];
-            for k in 0..j {
-                sum -= factor[i][k] * factor[j][k];
+            for (&left, &right) in factor[i].iter().take(j).zip(factor[j].iter().take(j)) {
+                sum -= left * right;
             }
             if i == j {
                 factor[i][j] = if sum > tolerance { sum.sqrt() } else { 0.0 };

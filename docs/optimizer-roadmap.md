@@ -1,0 +1,66 @@
+# Quantum circuit optimizer: product assessment and roadmap
+
+This note compares QuantumForge's current circuit-optimization workflow with the capabilities described in the Qiskit and pytket compiler documentation. It is intended to guide an incremental path from a useful local optimizer toward a research and professional compilation tool. It is not a claim of feature parity with either compiler.
+
+## Current workflow
+
+The `quantumforge optimize` command accepts a QuantumForge circuit expression or an OpenQASM 2 circuit, runs the existing conservative or full rewrite passes, optionally routes to a line or custom target, and writes JSON or OpenQASM 2. It reports gate and depth changes and routing SWAP overhead. Optional `--thermal` analysis simulates the optimized circuit with a declared gate-noise model and includes observable/resource comparisons in the JSON report. The library also exposes weighted logical cost estimates and checked routing for an explicitly supplied coupling map.
+
+| Workflow capability | Current state |
+| --- | --- |
+| Batch circuit input and output | QuantumForge expression / OpenQASM 2 input; JSON / OpenQASM 2 output |
+| Local logical rewrites | Existing identity removal, inverse cancellation, rotation fusion, and commutation-assisted cancellation |
+| Basic connectivity routing | Checked shortest-path routing; CLI supports a line or user-supplied undirected JSON coupling map |
+| Resource summary | Gate count, two-qubit count, logical depth, rewrite counts, and routing SWAP overhead |
+| Explicit weighted logical cost | Library-level cost profile and cost model |
+| Device layout search | Not exposed in the batch optimizer; current routing preserves logical indices |
+| Device-native gate translation | Not exposed in the batch optimizer |
+| Directed couplings and native-gate checks | Custom target JSON validates supported gates and directed CNOT edges after routing; it can reverse CNOTs with Hadamard conjugation when H is explicitly native |
+| Noise-aware analysis | Optional exact density-matrix comparison under a declared T1/T2 gate model, limited to 8 qubits; schedule-aware idle noise remains a library API |
+| Calibration and schedule generation | Not modeled by the batch optimizer |
+| Circuit equivalence checks | CLI exhaustive basis-state unitary check up to 10 qubits; Qiskit comparison is a separate CI subset |
+| OpenQASM 3 workflow | Not supported by this batch path |
+
+## What established compiler workflows include
+
+Qiskit's documented staged transpiler separates initialization, layout, routing, translation, physical optimization, and scheduling. Its target can supply operation and connectivity constraints; its preset levels balance runtime against optimization effort. Qiskit also documents that choosing a good initial layout can avoid routing and that translation and scheduling are distinct from routing. See the [transpiler stages guide](https://qiskit.qotlabs.org/docs/guides/transpiler-stages), [preset pass managers](https://qiskit.qotlabs.org/docs/api/qiskit/transpiler_preset), and [`generate_preset_pass_manager`](https://qiskit.qotlabs.org/docs/api/qiskit/qiskit.transpiler.generate_preset_pass_manager).
+
+pytket describes compilation as transforming an equivalent circuit to satisfy architecture connectivity and user constraints such as a restricted gate set while minimizing an objective such as CX count. It also has predicates for checking that compiled circuits satisfy target requirements. See [Compilation passes](https://docs.quantinuum.com/tket/user-guide/examples/circuit_compilation/compilation_example.html) and the [TKET overview](https://docs.quantinuum.com/tket/).
+
+These references suggest that the key product boundary is a target-aware, inspectable compilation workflow, rather than simply adding more rewrite rules.
+
+## Prioritized product roadmap
+
+### P0 — Make results trustworthy and easy to reproduce
+
+1. The version 3 `--report FILE` artifact records tool version, input format, input and candidate circuit artifacts, selected mode and passes, target choice, rewrite counts, before/after resources, equivalence status, optional thermal simulation assumptions/results, operating system and architecture, legacy fingerprints, and SHA-256 digests of canonical input/output circuits. Next, add calibration-profile identifiers, richer warning details, and explicit uncertainty when sampled analyses are added. See the [reproducible experiment workflow](optimizer-experiment-workflow.md).
+2. The `--verify` option exhaustively checks unitary action on all computational-basis states up to ten qubits. `tools/validate_optimizer_qiskit.py` adds a separate Qiskit operator comparison suite, and a dedicated CI job now installs pinned Qiskit and runs it without making Qiskit a runtime dependency. Confirm the job passes on the next pull request.
+   To run it locally, install `tools/requirements-validation.txt`, build `quantumforge`, then pass the executable path to the script.
+3. Publish stable CLI examples and ensure the generated API documentation builds for each release. The [docs.rs page for 0.2.9](https://docs.rs/crate/quantumforge/0.2.9) currently reports a failed build; its docs.rs feature list included `gpu`, while the repository CI notes that cudarc's build requires CUDA toolkit headers. The docs.rs feature list now excludes `gpu`; confirm the next published release builds and inspect its logs if it still fails.
+4. The optional Qiskit CI validator now runs a fixed synthetic random corpus against Qiskit, checking both outputs for unitary equivalence and recording compile time, two-qubit count, and depth in a JSON artifact. These fixtures are regression evidence, not a public benchmark suite; next add named MQT Bench cases, repeated timing trials, machine details, and objective-specific quality metrics. Never present a logical cost estimate as hardware fidelity or runtime.
+5. `noise_model::ThermalGateNoiseModel` converts `T1`, `T2`, `beta*Delta`, and gate durations into per-gate and scheduled idle thermal/dephasing channels. The optimizer report can compare a small optimized circuit with and without the declared gate model. Next add per-qubit/per-gate calibration data, readout integration, and schedule provenance before treating it as a backend model.
+
+### P1 — Compile to an explicit device target
+
+1. The custom target JSON now accepts an optional native gate set and directed CNOT edges; validation runs on the routed output. Expand this into a public serializable target API with per-operation error/duration metadata and versioned schema.
+2. Separate layout, routing, basis translation, and post-routing optimization into named passes. Preserve an explicit logical-to-physical mapping and include it in reports.
+3. Extend basis translation beyond the current direction correction. The optimizer can repair reversed CNOTs with Hadamard conjugation when H is explicitly native, but other non-native gates still fail validation instead of being decomposed.
+4. Offer optimization objectives such as lexicographic two-qubit count then depth, or user-supplied weighted logical cost; expose the objective and its units in the report.
+
+### P2 — Support professional interchange and integration
+
+1. Add OpenQASM 3 import/export with explicit handling for measurements, control flow, timing, and unsupported constructs. OpenQASM 2 output should continue to fail clearly when the circuit contains operations it cannot represent.
+2. Provide a stable Rust library API and a Python-facing batch interface so teams can compose optimization with existing experiment workflows.
+3. Add backend adapters only after the target model and validation contracts are stable. Device submission, account management, and calibration fetching should remain separate integrations.
+
+## Acceptance criteria for a device-targeted compile
+
+- Every emitted gate is in the selected target's native set and every two-qubit operation respects its directed connectivity.
+- The returned mapping explains where each logical qubit lives, including the final mapping after routing.
+- The output is semantically checked for the supported circuit subset, or the report names why checking was skipped.
+- The report is machine-readable, deterministic when seeded, and includes input/output resource counts and compiler version.
+- Benchmarks compare quality and compilation time against a named baseline on public circuits; claims include the tested subset and hardware assumptions.
+
+## Scope and limitations
+
+QuantumForge's checked line routing and library cost model are useful foundations, but they do not by themselves establish hardware executability or predict device performance. A generic coupling graph also does not capture directionality, native gate decompositions, calibration drift, pulse-level duration, or measurement constraints. Those require an explicit target model and validation before the tool should describe its output as device-ready.

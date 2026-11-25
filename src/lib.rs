@@ -347,6 +347,7 @@ pub mod dissipative;
 pub mod llvm_backend;
 pub mod mbqc;
 pub mod mps_qaoa;
+pub mod noise_model;
 pub mod noisy_optimizer;
 pub mod numeric_ir;
 pub mod parser;
@@ -367,6 +368,7 @@ pub mod quantum;
 pub mod readout;
 pub mod repl;
 pub mod serialize;
+pub mod simulation_plan;
 pub mod stabilizer;
 pub mod subscore;
 pub mod tensor_network;
@@ -453,6 +455,17 @@ impl std::ops::Div<f64> for Complex64 {
 pub enum QuantumError {
     /// The state contains no qubits.
     ZeroQubits,
+    /// A dense state representation would exceed the supplied memory budget.
+    MemoryBudgetExceeded {
+        /// Minimum complex-number payload bytes required by the representation.
+        required_bytes: u128,
+        /// Caller supplied memory budget in bytes.
+        budget_bytes: u128,
+    },
+    /// The requested dense representation size cannot be represented safely.
+    SimulationSizeOverflow,
+    /// The allocator could not reserve the requested dense state storage.
+    MemoryAllocationFailed,
     /// The state-vector length is not a power of two; carries the offending length.
     StateSizeNotPowerOfTwo(usize),
     /// A qubit index is outside the valid range.
@@ -518,6 +531,22 @@ impl fmt::Display for QuantumError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::ZeroQubits => write!(f, "a state vector must contain at least one qubit"),
+            Self::MemoryBudgetExceeded {
+                required_bytes,
+                budget_bytes,
+            } => write!(
+                f,
+                "dense state needs at least {required_bytes} bytes, exceeding the {budget_bytes}-byte memory budget"
+            ),
+            Self::SimulationSizeOverflow => {
+                write!(
+                    f,
+                    "dense simulation size exceeds the supported addressable range"
+                )
+            }
+            Self::MemoryAllocationFailed => {
+                write!(f, "could not reserve memory for the dense quantum state")
+            }
             Self::StateSizeNotPowerOfTwo(n) => {
                 write!(f, "state vector length {n} is not a power of two")
             }
@@ -845,10 +874,39 @@ impl ExactStateVector {
 impl StateVector {
     /// Returns the all-zero state on `qubits` qubits.
     pub fn zero(qubits: usize) -> Result<Self, QuantumError> {
+        Self::zero_with_memory_budget(qubits, u128::MAX)
+    }
+
+    /// Returns the all-zero state only when its amplitude payload fits a
+    /// caller-supplied memory budget.
+    ///
+    /// The budget covers the complex amplitude array, not simulator workspaces
+    /// or other process memory. Use [`crate::simulation_plan::estimate_dense_memory`]
+    /// to see the corresponding density-matrix estimate as well.
+    pub fn zero_with_memory_budget(
+        qubits: usize,
+        memory_budget_bytes: u128,
+    ) -> Result<Self, QuantumError> {
         if qubits == 0 {
             return Err(QuantumError::ZeroQubits);
         }
-        let mut amplitudes = vec![Complex64::ZERO; 1usize << qubits];
+        let dimension = 1usize
+            .checked_shl(u32::try_from(qubits).map_err(|_| QuantumError::SimulationSizeOverflow)?)
+            .ok_or(QuantumError::SimulationSizeOverflow)?;
+        let required_bytes = (dimension as u128)
+            .checked_mul(std::mem::size_of::<Complex64>() as u128)
+            .ok_or(QuantumError::SimulationSizeOverflow)?;
+        if required_bytes > memory_budget_bytes {
+            return Err(QuantumError::MemoryBudgetExceeded {
+                required_bytes,
+                budget_bytes: memory_budget_bytes,
+            });
+        }
+        let mut amplitudes = Vec::new();
+        amplitudes
+            .try_reserve_exact(dimension)
+            .map_err(|_| QuantumError::MemoryAllocationFailed)?;
+        amplitudes.resize(dimension, Complex64::ZERO);
         amplitudes[0] = Complex64::ONE;
         Ok(Self { amplitudes, qubits })
     }
@@ -1545,11 +1603,41 @@ impl DensityMatrix {
 
     /// Returns the maximally mixed state `I / 2^n`.
     pub fn maximally_mixed(qubits: usize) -> Result<Self, QuantumError> {
+        Self::maximally_mixed_with_memory_budget(qubits, u128::MAX)
+    }
+
+    /// Returns the maximally mixed state only when its dense entry payload fits
+    /// a caller-supplied memory budget.
+    ///
+    /// The budget covers the density-matrix entries, not temporary workspaces
+    /// or other process memory.
+    pub fn maximally_mixed_with_memory_budget(
+        qubits: usize,
+        memory_budget_bytes: u128,
+    ) -> Result<Self, QuantumError> {
         if qubits == 0 {
             return Err(QuantumError::ZeroQubits);
         }
-        let dimension = 1usize << qubits;
-        let mut entries = vec![Complex64::ZERO; dimension * dimension];
+        let dimension = 1usize
+            .checked_shl(u32::try_from(qubits).map_err(|_| QuantumError::SimulationSizeOverflow)?)
+            .ok_or(QuantumError::SimulationSizeOverflow)?;
+        let entry_count = dimension
+            .checked_mul(dimension)
+            .ok_or(QuantumError::SimulationSizeOverflow)?;
+        let required_bytes = (entry_count as u128)
+            .checked_mul(std::mem::size_of::<Complex64>() as u128)
+            .ok_or(QuantumError::SimulationSizeOverflow)?;
+        if required_bytes > memory_budget_bytes {
+            return Err(QuantumError::MemoryBudgetExceeded {
+                required_bytes,
+                budget_bytes: memory_budget_bytes,
+            });
+        }
+        let mut entries = Vec::new();
+        entries
+            .try_reserve_exact(entry_count)
+            .map_err(|_| QuantumError::MemoryAllocationFailed)?;
+        entries.resize(entry_count, Complex64::ZERO);
         for i in 0..dimension {
             entries[i * dimension + i] = Complex64::new(1.0 / dimension as f64, 0.0);
         }

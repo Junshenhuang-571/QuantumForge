@@ -6,7 +6,7 @@
 //! - Commutation-based reordering
 //! - Redundant gate removal
 
-use crate::{Circuit, CircuitOp, Gate};
+use crate::{Circuit, CircuitOp, Complex64, Gate};
 use std::collections::HashMap;
 
 /// Optimization configuration.
@@ -226,7 +226,8 @@ impl BackendCostProfile {
         let mut routing_swaps = 0;
         if let Some(coupling) = coupling {
             let mut routed = circuit.clone();
-            routing_swaps = route_to_hardware(&mut routed, coupling);
+            routing_swaps = try_route_to_hardware(&mut routed, coupling)
+                .map_err(CircuitCostModelError::Routing)?;
         }
         if !native_gate_adjustment.is_finite() || native_gate_adjustment < 0.0 {
             return Err(CircuitCostModelError::InvalidWeight {
@@ -401,6 +402,8 @@ pub enum CircuitCostModelError {
     },
     /// The weighted estimate overflowed to a non-finite value.
     NonFiniteEstimate,
+    /// The requested circuit could not be routed on the supplied topology.
+    Routing(RoutingError),
 }
 
 impl std::fmt::Display for CircuitCostModelError {
@@ -413,6 +416,7 @@ impl std::fmt::Display for CircuitCostModelError {
                 )
             }
             Self::NonFiniteEstimate => write!(f, "circuit cost estimate is not finite"),
+            Self::Routing(error) => write!(f, "hardware routing failed: {error}"),
         }
     }
 }
@@ -504,6 +508,148 @@ pub fn optimize_circuit(circuit: &mut Circuit, config: &OptimizeConfig) -> Optim
     result.optimized_two_qubit = count_two_qubit(circuit);
     result.optimized_depth = circuit_depth(circuit);
     result
+}
+
+/// Result of comparing two small unitary circuits on every computational-basis input.
+#[derive(Clone, Debug, PartialEq)]
+pub struct EquivalenceCheckResult {
+    /// Whether all tested unitary outputs agree within the requested tolerance.
+    pub equivalent: bool,
+    /// Real and imaginary parts of the single global phase relating the circuits.
+    pub global_phase: (f64, f64),
+    /// Largest absolute amplitude difference after applying the global phase.
+    pub max_amplitude_error: f64,
+    /// Number of computational-basis input states checked.
+    pub basis_states_checked: usize,
+}
+
+/// Error from a bounded, exhaustive unitary circuit equivalence check.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum EquivalenceCheckError {
+    /// The basis-state checker requires between one and ten qubits.
+    QubitCountOutOfRange {
+        /// Requested qubit count.
+        qubits: usize,
+        /// Maximum supported qubit count.
+        maximum: usize,
+    },
+    /// The requested amplitude tolerance is not finite and positive.
+    InvalidTolerance,
+    /// A circuit contains a measurement, conditional operation, or noise channel.
+    UnsupportedOperation,
+    /// A circuit could not be simulated on a computational-basis input.
+    Simulation(String),
+}
+
+impl std::fmt::Display for EquivalenceCheckError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::QubitCountOutOfRange { qubits, maximum } => write!(
+                f,
+                "equivalence checking supports 1 to {maximum} qubits; received {qubits}"
+            ),
+            Self::InvalidTolerance => {
+                write!(f, "equivalence tolerance must be finite and positive")
+            }
+            Self::UnsupportedOperation => write!(
+                f,
+                "equivalence checking currently supports unitary gates only; measurements, conditional gates, and noise channels are unsupported"
+            ),
+            Self::Simulation(error) => write!(f, "could not simulate a basis state: {error}"),
+        }
+    }
+}
+
+impl std::error::Error for EquivalenceCheckError {}
+
+/// Exhaustively compare two unitary circuits on every computational-basis input.
+///
+/// One global phase is allowed across the full unitary matrix. The check is
+/// exact up to floating-point simulation and the caller's absolute amplitude
+/// tolerance. It is intentionally bounded to ten qubits (at most 1024 basis
+/// states) and rejects measurements, conditional operations, and noise
+/// channels rather than silently checking only part of a circuit.
+pub fn verify_unitary_equivalent(
+    reference: &Circuit,
+    candidate: &Circuit,
+    qubits: usize,
+    tolerance: f64,
+) -> Result<EquivalenceCheckResult, EquivalenceCheckError> {
+    const MAX_QUBITS: usize = 10;
+    if !(1..=MAX_QUBITS).contains(&qubits) {
+        return Err(EquivalenceCheckError::QubitCountOutOfRange {
+            qubits,
+            maximum: MAX_QUBITS,
+        });
+    }
+    if !tolerance.is_finite() || tolerance <= 0.0 {
+        return Err(EquivalenceCheckError::InvalidTolerance);
+    }
+    let is_unitary = |circuit: &Circuit| {
+        circuit.operations().iter().all(|operation| {
+            matches!(
+                operation,
+                CircuitOp::SingleQubit { .. }
+                    | CircuitOp::Cnot { .. }
+                    | CircuitOp::Cz { .. }
+                    | CircuitOp::Swap { .. }
+            )
+        })
+    };
+    if !is_unitary(reference) || !is_unitary(candidate) {
+        return Err(EquivalenceCheckError::UnsupportedOperation);
+    }
+
+    let dimension = 1usize << qubits;
+    let run_basis_state = |circuit: &Circuit, basis_index: usize| {
+        let mut amplitudes = vec![Complex64::ZERO; dimension];
+        amplitudes[basis_index] = Complex64::ONE;
+        let initial = crate::StateVector::from_amplitudes(amplitudes)
+            .map_err(|error| EquivalenceCheckError::Simulation(error.to_string()))?;
+        circuit
+            .run(initial)
+            .map(|state| state.amplitudes)
+            .map_err(|error| EquivalenceCheckError::Simulation(error.to_string()))
+    };
+
+    let reference_zero = run_basis_state(reference, 0)?;
+    let candidate_zero = run_basis_state(candidate, 0)?;
+    let overlap = candidate_zero
+        .iter()
+        .zip(&reference_zero)
+        .map(|(candidate_amp, reference_amp)| candidate_amp.conj() * *reference_amp)
+        .fold(Complex64::ZERO, |sum, value| sum + value);
+    let overlap_norm = overlap.abs();
+    let phase = if overlap_norm > f64::EPSILON {
+        overlap / overlap_norm
+    } else {
+        Complex64::ONE
+    };
+
+    let mut max_amplitude_error: f64 = 0.0;
+    for basis_index in 0..dimension {
+        let reference_state = if basis_index == 0 {
+            reference_zero.clone()
+        } else {
+            run_basis_state(reference, basis_index)?
+        };
+        let candidate_state = if basis_index == 0 {
+            candidate_zero.clone()
+        } else {
+            run_basis_state(candidate, basis_index)?
+        };
+        for (reference_amp, candidate_amp) in reference_state.iter().zip(candidate_state) {
+            max_amplitude_error =
+                max_amplitude_error.max((*reference_amp - phase * candidate_amp).abs());
+        }
+    }
+
+    Ok(EquivalenceCheckResult {
+        equivalent: max_amplitude_error <= tolerance,
+        global_phase: (phase.re, phase.im),
+        max_amplitude_error,
+        basis_states_checked: dimension,
+    })
 }
 
 /// Remove identity gates (I, Rx(0), Ry(0), Rz(0), Rz(2π), etc.).
@@ -683,26 +829,37 @@ fn normalize_angle(angle: f64) -> f64 {
 /// Single-qubit gates commute through CNOT if they act on the other qubit.
 fn commute_for_cancellation(circuit: &mut Circuit) {
     let ops = circuit.operations_mut();
-    let mut changed = true;
     let max_passes = 5;
 
-    for _ in 0..max_passes {
+    // Each pass is one full sweep, alternating direction, and only ever swaps
+    // commuting neighbours. The sweep must make progress: stepping backwards
+    // after a swap let two gates that merely commute exchange places and then
+    // swap back on the very next iteration, spinning forever inside a single
+    // pass (`max_passes` bounds only the outer loop). A circuit such as
+    // `cz(1,0); t(1); h(0)` hung the optimizer that way.
+    for pass in 0..max_passes {
+        let mut changed = false;
+        if pass % 2 == 0 {
+            let mut i = 0;
+            while i + 1 < ops.len() {
+                if can_commute(&ops[i], &ops[i + 1]) {
+                    ops.swap(i, i + 1);
+                    changed = true;
+                }
+                i += 1;
+            }
+        } else {
+            let mut i = ops.len();
+            while i >= 2 {
+                if can_commute(&ops[i - 2], &ops[i - 1]) {
+                    ops.swap(i - 2, i - 1);
+                    changed = true;
+                }
+                i -= 1;
+            }
+        }
         if !changed {
             break;
-        }
-        changed = false;
-        let mut i = 0;
-        while i + 1 < ops.len() {
-            if can_commute(&ops[i], &ops[i + 1]) {
-                ops.swap(i, i + 1);
-                changed = true;
-                // After swap, check if we can cancel with the previous gate
-                if i > 0 {
-                    i -= 1;
-                    continue;
-                }
-            }
-            i += 1;
         }
     }
 }
@@ -1335,16 +1492,114 @@ fn bfs_path(coupling: &CouplingMap, start: usize, end: usize) -> Vec<usize> {
     path
 }
 
-/// Route a circuit to a hardware topology by inserting SWAP gates along BFS
-/// paths for non-adjacent two-qubit gates.
+/// Error returned when a circuit cannot be routed onto a coupling map.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RoutingError {
+    /// A circuit operation addresses a qubit outside the topology.
+    QubitOutOfRange {
+        /// The referenced qubit index.
+        qubit: usize,
+        /// Number of physical qubits in the topology.
+        num_qubits: usize,
+    },
+    /// A coupling-map edge addresses a qubit outside the topology.
+    InvalidEdge {
+        /// First qubit index in the invalid edge.
+        first: usize,
+        /// Second qubit index in the invalid edge.
+        second: usize,
+        /// Number of physical qubits in the topology.
+        num_qubits: usize,
+    },
+    /// No path connects the two qubits used by a two-qubit operation.
+    Disconnected {
+        /// First operand qubit.
+        first: usize,
+        /// Second operand qubit.
+        second: usize,
+    },
+}
+
+impl std::fmt::Display for RoutingError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::QubitOutOfRange { qubit, num_qubits } => write!(
+                f,
+                "qubit {qubit} is outside the {num_qubits}-qubit coupling map"
+            ),
+            Self::InvalidEdge {
+                first,
+                second,
+                num_qubits,
+            } => write!(
+                f,
+                "coupling edge ({first}, {second}) is outside the {num_qubits}-qubit map"
+            ),
+            Self::Disconnected { first, second } => {
+                write!(f, "no coupling path connects qubits {first} and {second}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for RoutingError {}
+
+/// Route a circuit onto a coupling map, preserving the logical action and the
+/// original qubit indexing. Remote CNOT/CZ operations move one endpoint along
+/// a shortest path, apply the operation on an adjacent pair, then restore the
+/// temporary swaps. A remote SWAP is decomposed into adjacent SWAPs.
 ///
-/// Returns the number of SWAPs inserted. Routing is a local path insertion and
-/// does not attempt global qubit-placement optimization.
-pub fn route_to_hardware(circuit: &mut Circuit, coupling: &CouplingMap) -> usize {
+/// Returns the additional SWAP count. The function is transactional: on an
+/// invalid or disconnected map, the input circuit is left unchanged.
+/// This is a local shortest-path strategy; it does not perform global qubit
+/// placement or calibration-aware routing.
+pub fn try_route_to_hardware(
+    circuit: &mut Circuit,
+    coupling: &CouplingMap,
+) -> Result<usize, RoutingError> {
+    for &(first, second) in &coupling.edges {
+        for qubit in [first, second] {
+            if qubit >= coupling.num_qubits {
+                return Err(RoutingError::InvalidEdge {
+                    first,
+                    second,
+                    num_qubits: coupling.num_qubits,
+                });
+            }
+        }
+    }
+
+    let check_qubit = |qubit: usize| {
+        if qubit >= coupling.num_qubits {
+            Err(RoutingError::QubitOutOfRange {
+                qubit,
+                num_qubits: coupling.num_qubits,
+            })
+        } else {
+            Ok(())
+        }
+    };
+    for op in circuit.operations() {
+        match op {
+            CircuitOp::SingleQubit { target, .. }
+            | CircuitOp::Channel { target, .. }
+            | CircuitOp::Measure { target, .. }
+            | CircuitOp::ConditionalSingleQubit { target, .. } => check_qubit(*target)?,
+            CircuitOp::Cnot { control, target } => {
+                check_qubit(*control)?;
+                check_qubit(*target)?;
+            }
+            CircuitOp::Cz { first, second } | CircuitOp::Swap { first, second } => {
+                check_qubit(*first)?;
+                check_qubit(*second)?;
+            }
+        }
+    }
+
     let mut swaps = 0;
-    let ops = circuit.operations().to_vec();
+    let ops = circuit.operations();
     let mut new_ops: Vec<CircuitOp> = Vec::new();
-    for op in &ops {
+    for op in ops {
         match op {
             CircuitOp::Cnot { control, target }
             | CircuitOp::Cz {
@@ -1353,21 +1608,34 @@ pub fn route_to_hardware(circuit: &mut Circuit, coupling: &CouplingMap) -> usize
             } => {
                 if !coupling.are_connected(*control, *target) {
                     let path = bfs_path(coupling, *control, *target);
-                    // Insert SWAPs along the path to bring qubits together
-                    for i in 0..path.len().saturating_sub(1) {
+                    if path.is_empty() {
+                        return Err(RoutingError::Disconnected {
+                            first: *control,
+                            second: *target,
+                        });
+                    }
+                    // Move the first logical operand next to the second, apply
+                    // the gate, then restore the original physical mapping.
+                    let move_steps = path.len() - 2;
+                    for i in 0..move_steps {
                         new_ops.push(CircuitOp::Swap {
                             first: path[i],
                             second: path[i + 1],
                         });
                         swaps += 1;
                     }
-                }
-                new_ops.push(*op);
-            }
-            CircuitOp::Swap { first, second } => {
-                if !coupling.are_connected(*first, *second) {
-                    let path = bfs_path(coupling, *first, *second);
-                    for i in 0..path.len().saturating_sub(1) {
+                    match op {
+                        CircuitOp::Cnot { .. } => new_ops.push(CircuitOp::Cnot {
+                            control: path[path.len() - 2],
+                            target: path[path.len() - 1],
+                        }),
+                        CircuitOp::Cz { .. } => new_ops.push(CircuitOp::Cz {
+                            first: path[path.len() - 2],
+                            second: path[path.len() - 1],
+                        }),
+                        _ => unreachable!(),
+                    }
+                    for i in (0..move_steps).rev() {
                         new_ops.push(CircuitOp::Swap {
                             first: path[i],
                             second: path[i + 1],
@@ -1378,11 +1646,48 @@ pub fn route_to_hardware(circuit: &mut Circuit, coupling: &CouplingMap) -> usize
                     new_ops.push(*op);
                 }
             }
+            CircuitOp::Swap { first, second } => {
+                if !coupling.are_connected(*first, *second) {
+                    let path = bfs_path(coupling, *first, *second);
+                    if path.is_empty() {
+                        return Err(RoutingError::Disconnected {
+                            first: *first,
+                            second: *second,
+                        });
+                    }
+                    let edges = path.len() - 1;
+                    for i in 0..edges {
+                        new_ops.push(CircuitOp::Swap {
+                            first: path[i],
+                            second: path[i + 1],
+                        });
+                    }
+                    for i in (0..edges - 1).rev() {
+                        new_ops.push(CircuitOp::Swap {
+                            first: path[i],
+                            second: path[i + 1],
+                        });
+                    }
+                    swaps += edges * 2 - 2;
+                } else {
+                    new_ops.push(*op);
+                }
+            }
             _ => new_ops.push(*op),
         }
     }
     *circuit.operations_mut() = new_ops;
-    swaps
+    Ok(swaps)
+}
+
+/// Route a circuit using [`try_route_to_hardware`].
+///
+/// This compatibility wrapper leaves the circuit unchanged if the coupling
+/// map is invalid or disconnected. New callers should use the fallible API so
+/// they can report routing failures.
+#[deprecated(note = "use try_route_to_hardware to handle invalid or disconnected maps")]
+pub fn route_to_hardware(circuit: &mut Circuit, coupling: &CouplingMap) -> usize {
+    try_route_to_hardware(circuit, coupling).unwrap_or(0)
 }
 
 /// Self-optimizing circuit: repeatedly applies optimization passes until

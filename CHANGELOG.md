@@ -3,6 +3,56 @@
 ## [Unreleased]
 
 ### Added
+- **`tests/noise_model.rs` (21 tests)**, taking `src/noise_model.rs` from 3/245
+  covered lines. The module is what every noisy result depends on, so the tests
+  pin both the plumbing and the physics: parameter validation (including the
+  Markovian `T2 <= 2*T1` bound), exact channel placement after each gate,
+  measurements and explicit channels copied unchanged, the `T1` relaxation
+  probability, detailed balance (`p1/p0 -> exp(-beta*Delta)` at the fixed
+  point), the documented `exp(-duration/T2)` coherence contract, and the whole
+  `apply_scheduled` surface — length/timing/qubit-order/classical-dependency
+  rejection, idle-noise placement, gate-vs-idle summary counts, and program
+  order preservation.
+
+### Changed
+- **The REPL `help` text is now a sectioned, column-aligned table.** It was one
+  undifferentiated block whose continuation lines were indented anywhere from 2
+  to 30+ spaces depending on the entry, so nothing lined up and the long
+  entries (`qaoa-transfer`, `vqe-subscore`, `gas`) were unreadable. Commands are
+  grouped into SESSION AND STATE, CIRCUIT, OBSERVABLES, VARIATIONAL AND QML,
+  ALGORITHMS, SYMBOLIC MATH and GENERAL; the command column is 26 characters and
+  every description starts at column 30, wrapping at 100 columns. Verified by
+  rendering the live output and checking all 53 entry rows and 55 continuation
+  rows start at exactly column 30 with no line over 100 columns.
+
+### Fixed
+- **The QASM parser silently dropped every statement after the first on a line.**
+  `;` terminates a statement in OpenQASM, not a physical line, but the parser
+  treated each line as one statement and discarded the rest:
+  `h q[0]; cx q[0],q[1]; x q[1];` parsed as a single H gate, and the CLI still
+  reported success. Statements sharing a line are now split and parsed in order;
+  lines containing braces (`gate` definitions) are left intact because their
+  bodies are consumed separately. Covered by four tests in
+  `tests/qasm_parse_test.rs`, including that the shared-line and one-per-line
+  forms serialize identically and that a trailing comment after `;` is ignored.
+- **`commute_for_cancellation` never returned on some circuits.** The sweep stepped its index backwards after every swap, so two gates that merely commute exchanged places and swapped straight back on the next iteration. `max_passes` bounds only the outer loop, so a three-gate circuit — `cz(1,0); t(1); h(0)` — spun forever in `quantumforge optimize ... all`. `conservative` mode skipped the pass entirely and looked healthy, which is why it survived. The sweep is now a full pass per direction with no back-stepping, and `tests/optimizer_termination.rs` covers it.
+- **The Qiskit validator's baseline check compared circuits in different qubit orders.** With a coupling map, Qiskit returns a circuit expressed in a permuted order (`TranspileLayout.final_index_layout()` is non-trivial), so `Operator(source).equiv(Operator(transpiled))` was invalid for most routed cases. The self-check now runs on an unrouted transpile, where the layout is trivial. Separately, `optimization_level=3` drops `swap` gates outright in Qiskit 2.6.x (levels 2 and 3 both do; verified against 2.6.1 and 2.6.2), so the validator uses level 1 and records that in the artifact.
+- **Asymmetric readout-matrix validation.** `ConfusionMatrix::new` now validates column sums according to its documented `P(observed | prepared)` convention, allowing valid asymmetric channels used by mitigation workflows.
+
+### Added
+- **Dense simulation memory preflight.** `simulation_plan::estimate_dense_memory` and `quantumforge estimate QUBITS [MEMORY_BUDGET_MIB]` report checked lower-bound state-vector and density-matrix payload sizes and budget fit. Budgeted constructors for zero state vectors and maximally mixed density matrices reject oversized payload allocations; workspaces remain outside this initial budget scope.
+- **Compiler comparison evidence.** The optional Qiskit validator now exercises a fixed-seed synthetic corpus and compares equivalence, two-qubit gate count, depth, and single-run compile time; it can write a JSON artifact for review.
+- **SHA-256 experiment artifact digests.** Optimization reports use schema version 3 and include SHA-256 digests for canonical input and output circuits, while retaining legacy FNV fingerprints.
+- **Shot uncertainty in the CLI.** Batch sampling output now records its seed and prints the sample probability with a 95% Wilson confidence interval for each observed outcome.
+- **Circuit-scale MPS contractions.** Single- and adjacent two-site expectations and DMRG step normalization contract the MPS directly rather than expanding a `2^n` state vector. This removes an exponential memory/time detour from these operations; bond growth can still make MPS simulation expensive.
+- **Scaling strategy for large circuits.** Documents the distinct regimes for state vectors, stabilizer simulation, MPS, trajectories, tensor contraction, and circuit cutting, plus an evidence-based roadmap toward a budget-aware simulator router. It explicitly rules out a promise of exact simulation for arbitrary unbounded circuits.
+- **Batch circuit optimization CLI.** `quantumforge optimize QUBITS all|conservative` reads circuit expressions or OpenQASM 2.0, writes reusable JSON or QASM to stdout, and reports gate counts, two-qubit operations, depth, and rewrites to stderr. `--line` applies local nearest-neighbor routing on a linear coupling map.
+- **Optimization provenance report.** `--report FILE` writes a versioned JSON record of input format, selected passes, target, rewrite counts, before/after resource metrics, and equivalence-check status.
+- **Custom topology routing.** `--topology FILE` accepts a validated JSON undirected coupling map for the batch optimizer; `--line` remains a shorthand for a linear map. Both use checked shortest-path routing and preserve the input logical-qubit indexing.
+- **Bounded unitary equivalence checking.** `--verify` compares all computational-basis inputs for circuits up to 10 qubits, allows a single global phase, reports the maximum amplitude error, and refuses non-unitary operations. This uses the local simulator and is not an independent cross-tool check.
+- **Optional Qiskit cross-check.** `tools/validate_optimizer_qiskit.py` compares a small QASM circuit corpus before and after optimization using Qiskit's operator equivalence; Qiskit remains an optional validation dependency.
+- **Thermal gate-noise model.** `noise_model::ThermalGateNoiseModel` derives per-gate thermal relaxation and pure dephasing from `T1`, `T2`, `beta*Delta`, and one-/two-qubit gate durations, then inserts explicit channels into a circuit copy.
+- **Optimizer cross-check in CI.** A dedicated job installs the pinned optional Qiskit dependency and compares an optimizer corpus by unitary equivalence. The docs.rs feature list no longer enables `gpu`, which requires CUDA toolkit headers unavailable to docs.rs builders.
 - **Finite-temperature thermalising noise channel.** `NoiseChannel::ThermalDamping { gamma_down, beta_delta }`
   has the Gibbs fixed point `p1/p0 = exp(-beta*Delta)`; the ordinary
   `AmplitudeDamping` is its `T = 0` limit. Implemented for the dense
@@ -111,6 +161,9 @@
     0.8; mitigation recovers the exact value (`examples/readout_vqe.rs`).
 
 ### Fixed
+- **OpenQASM output preserves optimized-away idle qubits.** The batch optimizer now exports with the original declared register width, so independent simulators compare operators in the same Hilbert space. SWAP gates export as equivalent three-CNOT sequences for broader OpenQASM 2 parser compatibility.
+- **CI lint compatibility.** Collapsed nested condition checks and iterator simplifications keep the current Clippy toolchain clean across targets.
+- **Hardware routing preserves circuit semantics.** Non-local CNOT/CZ gates now move an endpoint to an adjacent site, apply the gate, then restore the temporary placement; non-local SWAPs are decomposed into adjacent SWAPs. A new fallible `try_route_to_hardware` reports invalid and disconnected topologies without partially mutating the circuit. The legacy `route_to_hardware` API remains as a deprecated compatibility wrapper.
 - **`PauliString::commutes` returned the opposite boolean** (it reported
   anticommutation). The method was unused elsewhere, so no existing behaviour
   changed, but the new QEC noise decoder depends on the corrected sense.
