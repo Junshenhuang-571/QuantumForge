@@ -3,6 +3,10 @@
 ## [Unreleased]
 
 ### Added
+- **Refreshed line-coverage record.** A tarpaulin `--lib --tests` run on `main`
+  (2026-11-26) reports 73.48% (12766/17373). `chemistry.rs` is 366/389 and
+  `algorithms.rs` is 395/636 after the chemistry and QFT/QPE suites. The page
+  now states explicitly that older percentages had different denominators.
 - **Full documentation map for GitHub, the landing page and crates.io/docs.rs.**
   `docs/README.md` now indexes the chemistry and QFT/QPE guides, the build
   spec, the coverage record and the cited research notes. New guides
