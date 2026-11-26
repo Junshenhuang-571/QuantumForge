@@ -339,6 +339,8 @@
 
 pub mod analytic;
 pub mod aqc;
+/// Quantum-chemistry integrals (currently STO-3G on hydrogen and helium).
+pub mod chemistry;
 pub mod collisional;
 #[cfg(feature = "cuda")]
 pub mod cuda;

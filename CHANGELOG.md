@@ -14,6 +14,20 @@
   rejection, idle-noise placement, gate-vs-idle summary counts, and program
   order preservation.
 
+- **`src/chemistry.rs` — a quantum-chemistry layer (first slice).**
+  `sto3g_integrals` builds contracted overlap, kinetic, nuclear-attraction and
+  electron-repulsion tensors for STO-3G on hydrogen and helium, with a
+  renormalised contraction and the classical nuclear repulsion.
+  `chemistry::mapping::molecular_hamiltonian` maps those integrals to a qubit
+  `PauliSum` with Jordan–Wigner; `chemistry::adapt_vqe::run_adapt_vqe` grows an
+  ansatz from a qubit-excitation pool using parameter-shift gradients and the
+  existing VQE optimiser. Scope is deliberately limited: H/He only, no ECPs or
+  relativistic effects, and no claim of first-principles iron. The build order
+  and test seams are recorded in `docs/quantum-chemistry-spec.md`. Covered by
+  11 tests across `tests/chemistry_integrals.rs`, `tests/chemistry_mapping.rs`
+  and `tests/chemistry_adapt_vqe.rs`, including an independent occupation-basis
+  fermionic Hamiltonian and the analytic action of `exp(-i theta P/2)`.
+
 ### Changed
 - **The REPL `help` text is now a sectioned, column-aligned table.** It was one
   undifferentiated block whose continuation lines were indented anywhere from 2
