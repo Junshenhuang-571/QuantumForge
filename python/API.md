@@ -356,6 +356,10 @@ Constructors: `repetition_code_bitflip(n)`, `repetition_code_phaseflip(n)`,
 | name | returns |
 | --- | --- |
 | `qft_circuit_py(num_qubits)` | `Circuit` |
+| `qpe_circuit_py(unitary, precision_qubits)` | `Circuit` for phase estimation |
+| `sto3g_integrals_py(elements, positions)` | `ElectronIntegrals` (STO-3G on H/He) |
+| `molecular_hamiltonian_py(integrals, mapping)` | `PauliSum`; mapping is `jordan-wigner` |
+| `run_adapt_vqe_py(hamiltonian, reference, qubits, gradient_threshold, max_operators, learning_rate, optimisation_steps)` | `AdaptVqeResult` |
 | `hhl_2x2_py(a00, a01, a10, a11, b0, b1)` | `Circuit` for the 2x2 HHL algorithm |
 | `hhl_solve_py(a00, a01, a10, a11, b0, b1)` | `(x0, x1)` |
 | `hhl_solve_general_py(rows, b)` | `list[float]` |
@@ -583,3 +587,13 @@ smaller noise, which is the identity behind SubsCoRe's thermostat.
 `parse_circuit_py(expr)` parses the circuit DSL, `parse_qasm_py(qasm)` parses
 OpenQASM, `export_qasm_py(circuit)` emits it, and `parse_gate_py(gate)` echoes a
 gate name. All raise `ValueError` on malformed input.
+
+## Quantum chemistry and phase estimation
+
+`ElectronIntegrals` exposes `overlap`, `kinetic`, `nuclear`, `repulsion` and
+`nuclear_repulsion` as nested lists. `AdaptVqeResult` exposes `circuit`
+(a `ParameterizedCircuit`), `operators`, `parameters`, `energy` and
+`gradients`. The chemistry slice is bounded to STO-3G on hydrogen and helium;
+there are no effective core potentials, relativistic corrections or
+first-principles iron. See [quantum chemistry](../docs/wiki/Quantum-Chemistry.md)
+and [QFT/QPE](../docs/wiki/QFT-and-QPE.md) for scope and conventions.

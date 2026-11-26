@@ -3,6 +3,14 @@
 ## [Unreleased]
 
 ### Added
+- **Python bindings for QPE and the chemistry slice (74 names, up from 68).**
+  `qpe_circuit_py`, `sto3g_integrals_py`, `molecular_hamiltonian_py` and
+  `run_adapt_vqe_py` expose the Rust modules verified in `tests/qft_qpe.rs`
+  and the chemistry suites. Two new classes, `ElectronIntegrals` and
+  `AdaptVqeResult`, carry the tensors and the ansatz/energy/gradient result.
+  `python/API.md` documents them and `python/test_api.py` checks the helium
+  energy against the classical value computed from the same integrals. The
+  rebuilt wheel passes `test_exports.py`, `test_api.py` and `smoke_test.py`.
 - **Refreshed line-coverage record.** A tarpaulin `--lib --tests` run on `main`
   (2026-11-26) reports 73.48% (12766/17373). `chemistry.rs` is 366/389 and
   `algorithms.rs` is 395/636 after the chemistry and QFT/QPE suites. The page

@@ -401,6 +401,26 @@ def test_thermodynamics():
     check("dissipative preparation", abs(fidelity - 1.0) < 1e-9, fidelity)
 
 
+def test_chemistry_and_qpe():
+    unitary = qf.Circuit()
+    unitary.add_rx(0.0, 0)
+    unitary.add_rz(math.pi / 2, 0)
+    qpe = qf.qpe_circuit_py(unitary, 3)
+    check("qpe binding", qpe is not None)
+
+    integrals = qf.sto3g_integrals_py(["He"], [[0.0, 0.0, 0.0]])
+    check("sto3g overlap", abs(integrals.overlap[0][0] - 1.0) < 1e-12)
+    check("sto3g repulsion", 1.0 < integrals.repulsion[0][0][0][0] < 1.1)
+    hamiltonian = qf.molecular_hamiltonian_py(integrals, "jordan-wigner")
+    check("hamiltonian qubits", hamiltonian.qubits() == 2)
+
+    result = qf.run_adapt_vqe_py(hamiltonian, 0b11, 2, 1e-4, 2, 0.1, 50)
+    h_core = integrals.kinetic[0][0] + integrals.nuclear[0][0]
+    exact = 2.0 * h_core + integrals.repulsion[0][0][0][0]
+    check("adapt-vqe energy", abs(result.energy - exact) < 1e-8, result.energy)
+    check("adapt-vqe operators", result.operators == [])
+
+
 def main():
     test_rational()
     test_exact_complex()
@@ -413,6 +433,7 @@ def main():
     test_adiabatic()
     test_qtm()
     test_thermodynamics()
+    test_chemistry_and_qpe()
     if failures:
         print(f"\n{len(failures)} FAILED: {failures}")
         return 1

@@ -968,6 +968,170 @@ pub mod python_bindings {
         }
     }
 
+    /// STO-3G electron integrals for H and He, returned as nested matrices.
+    #[pyclass]
+    #[derive(Clone)]
+    struct PyElectronIntegrals {
+        inner: crate::chemistry::ElectronIntegrals,
+    }
+
+    #[pymethods]
+    impl PyElectronIntegrals {
+        #[getter]
+        fn overlap(&self) -> Vec<Vec<f64>> {
+            self.inner.overlap.clone()
+        }
+        #[getter]
+        fn kinetic(&self) -> Vec<Vec<f64>> {
+            self.inner.kinetic.clone()
+        }
+        #[getter]
+        fn nuclear(&self) -> Vec<Vec<f64>> {
+            self.inner.nuclear.clone()
+        }
+        #[getter]
+        fn repulsion(&self) -> Vec<Vec<Vec<Vec<f64>>>> {
+            self.inner.repulsion.clone()
+        }
+        #[getter]
+        fn nuclear_repulsion(&self) -> f64 {
+            self.inner.nuclear_repulsion
+        }
+    }
+
+    /// Result of an ADAPT-VQE run.
+    #[pyclass]
+    struct PyAdaptVqeResult {
+        inner: crate::chemistry::adapt_vqe::AdaptVqeResult,
+    }
+
+    #[pymethods]
+    impl PyAdaptVqeResult {
+        #[getter]
+        fn circuit(&self) -> PyParameterizedCircuit {
+            PyParameterizedCircuit {
+                inner: self.inner.circuit.clone(),
+            }
+        }
+        #[getter]
+        fn operators(&self) -> Vec<String> {
+            self.inner
+                .operators
+                .iter()
+                .map(|word| word.to_string())
+                .collect()
+        }
+        #[getter]
+        fn parameters(&self) -> Vec<f64> {
+            self.inner.parameters.clone()
+        }
+        #[getter]
+        fn energy(&self) -> f64 {
+            self.inner.energy
+        }
+        #[getter]
+        fn gradients(&self) -> Vec<f64> {
+            self.inner.gradients.clone()
+        }
+    }
+
+    #[pyfunction]
+    fn qpe_circuit_py(unitary: &PyCircuit, precision_qubits: usize) -> PyCircuit {
+        PyCircuit {
+            inner: crate::algorithms::qpe_circuit(unitary.inner.clone(), precision_qubits),
+        }
+    }
+
+    fn chemistry_error(error: crate::chemistry::ChemistryError) -> PyErr {
+        PyErr::new::<pyo3::exceptions::PyValueError, _>(error.to_string())
+    }
+
+    #[pyfunction]
+    fn sto3g_integrals_py(
+        elements: Vec<String>,
+        positions: Vec<Vec<f64>>,
+    ) -> PyResult<PyElectronIntegrals> {
+        if elements.len() != positions.len() {
+            return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                "elements and positions must have the same length",
+            ));
+        }
+        let atoms: Vec<crate::chemistry::Atom> = elements
+            .iter()
+            .zip(positions.iter())
+            .map(|(element, position)| {
+                let element = match element.as_str() {
+                    "H" | "h" => Ok(crate::chemistry::Element::H),
+                    "He" | "he" | "HE" => Ok(crate::chemistry::Element::He),
+                    other => Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+                        "unsupported element '{other}'; STO-3G here supports H and He"
+                    ))),
+                }?;
+                let coords: [f64; 3] = position.as_slice().try_into().map_err(|_| {
+                    PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                        "each position must have exactly three coordinates",
+                    )
+                })?;
+                Ok(crate::chemistry::Atom {
+                    element,
+                    position: coords,
+                })
+            })
+            .collect::<PyResult<_>>()?;
+        crate::chemistry::sto3g_integrals(&atoms)
+            .map(|inner| PyElectronIntegrals { inner })
+            .map_err(chemistry_error)
+    }
+
+    #[pyfunction]
+    fn molecular_hamiltonian_py(
+        integrals: &PyElectronIntegrals,
+        mapping: &str,
+    ) -> PyResult<PyPauliSum> {
+        let mapping = match mapping {
+            "jordan-wigner" | "jw" | "JordanWigner" => {
+                crate::chemistry::mapping::FermionMapping::JordanWigner
+            }
+            other => {
+                return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+                    "unsupported mapping '{other}'; use 'jordan-wigner'"
+                )));
+            }
+        };
+        crate::chemistry::mapping::molecular_hamiltonian(&integrals.inner, mapping)
+            .map(|inner| PyPauliSum { inner })
+            .map_err(chemistry_error)
+    }
+
+    #[pyfunction]
+    #[allow(clippy::too_many_arguments)]
+    fn run_adapt_vqe_py(
+        hamiltonian: &PyPauliSum,
+        reference: usize,
+        qubits: usize,
+        gradient_threshold: f64,
+        max_operators: usize,
+        learning_rate: f64,
+        optimisation_steps: usize,
+    ) -> PyResult<PyAdaptVqeResult> {
+        let pool = crate::chemistry::adapt_vqe::qubit_excitation_pool(qubits);
+        let options = crate::chemistry::adapt_vqe::AdaptVqeOptions {
+            gradient_threshold,
+            max_operators,
+            learning_rate,
+            optimisation_steps,
+        };
+        crate::chemistry::adapt_vqe::run_adapt_vqe(
+            &hamiltonian.inner,
+            reference,
+            qubits,
+            &pool,
+            &options,
+        )
+        .map(|inner| PyAdaptVqeResult { inner })
+        .map_err(chemistry_error)
+    }
+
     #[pyfunction]
     fn hhl_2x2_py(a00: f64, a01: f64, a10: f64, a11: f64, b0: f64, b1: f64) -> PyCircuit {
         PyCircuit {
@@ -2506,6 +2670,8 @@ pub mod python_bindings {
         m.add_class::<PyRational>()?;
         m.add_class::<PyExactComplex>()?;
         m.add_class::<PyPauliSum>()?;
+        m.add_class::<PyElectronIntegrals>()?;
+        m.add_class::<PyAdaptVqeResult>()?;
 
         // SubsCoRe
         m.add_class::<PySubsCoReOutcome>()?;
@@ -2547,6 +2713,10 @@ pub mod python_bindings {
         m.add_function(wrap_pyfunction!(dissipative_prepare_py, m)?)?;
 
         m.add_function(wrap_pyfunction!(qft_circuit_py, m)?)?;
+        m.add_function(wrap_pyfunction!(qpe_circuit_py, m)?)?;
+        m.add_function(wrap_pyfunction!(sto3g_integrals_py, m)?)?;
+        m.add_function(wrap_pyfunction!(molecular_hamiltonian_py, m)?)?;
+        m.add_function(wrap_pyfunction!(run_adapt_vqe_py, m)?)?;
         m.add_function(wrap_pyfunction!(hhl_2x2_py, m)?)?;
         m.add_function(wrap_pyfunction!(shor_period_finding_py, m)?)?;
         m.add_function(wrap_pyfunction!(hhl_solve_py, m)?)?;
