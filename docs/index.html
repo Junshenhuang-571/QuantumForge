@@ -316,6 +316,15 @@ legend: ─ wire  • control  ⊕ target(X)  │ span  x swap  M measure</span>
       <h3>LLVM JIT</h3>
       <p>Lower supported scalar numeric expressions to LLVM IR and JIT-compile them. This is not a quantum-circuit compiler.</p>
     </div>
+    <div class="feature-card">
+      <h3>QFT &amp; Phase Estimation</h3>
+      <p>A verified forward DFT and controlled-unitary phase estimation. Conventions, decomposition details, and peak tables are in the <a href="wiki/QFT-and-QPE.md">QFT/QPE guide</a>.</p>
+    </div>
+    <div class="feature-card">
+      <h3>Quantum Chemistry</h3>
+      <p>STO-3G integrals on hydrogen and helium, Jordan-Wigner mapping, and ADAPT-VQE. Deliberately bounded: no ECPs, relativistic corrections, or first-principles iron. See the <a href="wiki/Quantum-Chemistry.md">chemistry guide</a>.</p>
+    </div>
+
   </div>
 </section>
 
@@ -350,6 +359,11 @@ circuit.add_gate("H", 0)
 circuit.add_cnot(0, 1)
 print(circuit.run(StateVector.zero(2)).probabilities())
 <span class="comment"># [0.5, 0.0, 0.0, 0.5] &mdash; float: 0.5000000000000001</span></code></pre>
+</section>
+
+<section id="docs">
+  <h2>Full documentation</h2>
+  <p>Start from the <a href="README.md" style="color:var(--accent)">documentation map</a>. It indexes every guide, the research notes under <code>docs/research/</code>, the <a href="coverage.md" style="color:var(--accent)">coverage record</a>, and the <a href="quantum-chemistry-spec.md" style="color:var(--accent)">chemistry build contract</a>. The Rust API reference is on <a href="https://docs.rs/quantumforge" style="color:var(--accent)">docs.rs</a>; the crate README and rustdoc comments are what crates.io renders at publish time.</p>
 </section>
 
 <section>

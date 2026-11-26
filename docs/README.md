@@ -17,6 +17,9 @@ Start here. Everything is either rendered from the source (rustdoc, on
 | run QAOA on hundreds of qubits | [MPS-based QAOA](wiki/MPS-QAOA.md) |
 | use the Python bindings | [python/README.md](../python/README.md) |
 | see what is and is not tested | [Test coverage](coverage.md) |
+| build a small H/He electronic-structure Hamiltonian | [Quantum chemistry](wiki/Quantum-Chemistry.md) and the [build spec](quantum-chemistry-spec.md) |
+| understand the QFT/QPE conventions and verification | [QFT and phase estimation](wiki/QFT-and-QPE.md) |
+| read the primary-source research behind PDE and chemistry feasibility | [Research notes](research/) |
 | cut a release | [Release checklist](releasing.md) |
 
 ## Guides
@@ -30,6 +33,9 @@ Start here. Everything is either rendered from the source (rustdoc, on
 - [SubsCoRe](wiki/SubsCoRe.md) — adaptive observation cost control for VQE (arXiv:2502.01704); the confident region and the paper's inverted shot search
 - [Noise and statistical mechanics](wiki/Noise-and-Statistical-Mechanics.md) — T1/T2 thermal gate-noise model, thermalising channels, entropy production, readout mitigation, QEC thresholds, and Landauer accounting
 - [Gradient strategies](wiki/Gradient-Strategies.md) — parameter shift / adjoint / backprop / finite difference, automatic selection, and how they are cross-validated
+- [Quantum chemistry](wiki/Quantum-Chemistry.md) — STO-3G integrals on H/He, Jordan–Wigner mapping, ADAPT-VQE, and the explicit limits of the slice
+- [QFT and phase estimation](wiki/QFT-and-QPE.md) — qubit ordering, the verified DFT convention, controlled-gate decompositions, and QPE peak tables
+- [Research notes](research/) — cited primary-source surveys on quantum linear algebra, variational PDE solvers, and nonlinear/hardware feasibility
 - [Contributing](wiki/Contributing.md) · [CONTRIBUTING.md](../../CONTRIBUTING.md)
 
 ## API by subsystem
@@ -40,6 +46,7 @@ Rustdoc anchors (substitute the version you depend on):
 |---|---|
 | Circuits, states, gates, simulation | [`quantumforge`](https://docs.rs/quantumforge/latest/quantumforge/) (crate root) |
 | Exact-rational algebra (scalars, Pauli sums, simplification) | [`analytic`](https://docs.rs/quantumforge/latest/quantumforge/analytic/) |
+| Quantum chemistry (STO-3G integrals, mapping, ADAPT-VQE) | [`chemistry`](https://docs.rs/quantumforge/latest/quantumforge/chemistry/) |
 | Core linear algebra (spaces, operators, kets) | [`quantum`](https://docs.rs/quantumforge/latest/quantumforge/quantum/) |
 | Circuit algorithms (QAOA, HHL, Shor, Grover) | [`algorithms`](https://docs.rs/quantumforge/latest/quantumforge/algorithms/), [`algorithms_templates`](https://docs.rs/quantumforge/latest/quantumforge/algorithms_templates/) |
 | Cost-aware circuit optimization | [`optimizer`](https://docs.rs/quantumforge/latest/quantumforge/optimizer/) |

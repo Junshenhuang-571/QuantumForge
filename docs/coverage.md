@@ -85,7 +85,10 @@ happen to hit.
 `src/main.rs` at 54.6% is the other large gap, and unlike the earlier `main.rs`
 result it is not a small, contained fix.
 
-Current totals: **531 tests + 14 doctests pass**, across 62 suites.
+Current doctest total: **16**, including worked chemistry and QPE examples in
+the crate-level rustdoc. The line-coverage figures above were measured before
+`tests/qft_qpe.rs` and the three chemistry suites; those 15 new tests are not
+reflected in the tarpaulin numbers yet.
 
 The `qec/mwpm.rs` figure is consistent with its documented status as a
 surface-code-oriented heuristic that should not be used as a general decoder.

@@ -131,6 +131,8 @@ The simulator uses floating point. Exact rational arithmetic is available in the
 | Explore tensor networks beyond small state vectors | MPS, TEBD, DMRG, and [MPS QAOA](docs/wiki/MPS-QAOA.md) |
 | Build or verify quantum error-correcting codes | `qec` module and [QEC guide](docs/wiki/QEC-Codes.md) |
 | Use the library from Python | [Python setup and examples](python/README.md) and [API reference](python/API.md) |
+| Explore QFT and phase estimation | [QFT and QPE guide](docs/wiki/QFT-and-QPE.md) and the `algorithms` API docs |
+| Build a small H/He electronic-structure model | [Quantum chemistry guide](docs/wiki/Quantum-Chemistry.md) — bounded to STO-3G on H/He, with explicit non-goals |
 
 The analytic module supports exact rational and symbolic operations where defined. Simulation, optimization, and most algorithm outputs are numerical and depend on their configuration and convergence.
 
@@ -149,6 +151,20 @@ Browse [`examples/`](examples/) for QEC, QAOA, VQE, OpenQASM, and tensor-network
 ## Optional backends
 
 The default build uses the CPU. Optional `gpu` and `cuda` features accelerate selected simulation paths on supported NVIDIA systems; `llvm` JIT-compiles scalar numeric expressions, not quantum circuits. See the [GPU guide](docs/wiki/GPU-Acceleration.md) for requirements and current support.
+
+## Documentation
+
+- Full documentation map: <https://github.com/Junshenhuang-571/QuantumForge/blob/main/docs/README.md>
+- Rendered guides and landing page: <https://junshenhuang-571.github.io/QuantumForge/>
+- Rust API reference (docs.rs): <https://docs.rs/quantumforge>
+- Test coverage: <https://github.com/Junshenhuang-571/QuantumForge/blob/main/docs/coverage.md>
+- Changelog: <https://github.com/Junshenhuang-571/QuantumForge/blob/main/CHANGELOG.md>
+- Python bindings: <https://github.com/Junshenhuang-571/QuantumForge/blob/main/python/README.md>
+
+The crate README and rustdoc comments are the sources rendered by crates.io
+and docs.rs at publish time. The guides above live in the repository and on
+GitHub Pages. Quantum chemistry is deliberately limited to H/He in STO-3G;
+see its guide for the boundary and the research notes behind it.
 
 ## Contributing
 

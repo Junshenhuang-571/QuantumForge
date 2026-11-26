@@ -3,6 +3,14 @@
 ## [Unreleased]
 
 ### Added
+- **Full documentation map for GitHub, the landing page and crates.io/docs.rs.**
+  `docs/README.md` now indexes the chemistry and QFT/QPE guides, the build
+  spec, the coverage record and the cited research notes. New guides
+  `docs/wiki/Quantum-Chemistry.md` and `docs/wiki/QFT-and-QPE.md` record the
+  implemented scope, conventions, verification and non-goals. `README.md`
+  gained absolute links to every documentation surface so it renders correctly
+  on crates.io, and the crate-level rustdoc gained worked chemistry and QPE
+  examples (both covered by doctests). No crate version was published.
 - **`tests/noise_model.rs` (21 tests)**, taking `src/noise_model.rs` from 3/245
   covered lines. The module is what every noisy result depends on, so the tests
   pin both the plumbing and the physics: parameter validation (including the

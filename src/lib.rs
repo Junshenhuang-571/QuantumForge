@@ -319,6 +319,58 @@
 //! | `python`  | PyO3 bindings; builds an abi3 wheel with maturin    |
 //! | `ibm` / `ionq` / `rigetti` | Hardware-provider scaffolds (offline)    |
 //!
+//! # Verified QFT and phase estimation
+//!
+//! [`algorithms::qft_circuit`] implements the forward DFT (up to a global
+//! phase) for `N = 2^n`, and [`algorithms::qpe_circuit`] estimates the
+//! eigenphase of a supplied unitary. Both are checked against independent
+//! references in `tests/qft_qpe.rs`.
+//!
+//! ```
+//! use quantumforge::algorithms::qpe_circuit;
+//! use quantumforge::{Circuit, Gate, StateVector};
+//!
+//! let mut unitary = Circuit::new();
+//! unitary.push(Gate::Rz(std::f64::consts::FRAC_PI_2), 0);
+//! let qpe = qpe_circuit(unitary, 3);
+//!
+//! let mut circuit = Circuit::new();
+//! circuit.push(Gate::X, 3); // target eigenstate |1>
+//! for operation in qpe.operations() {
+//!     circuit.operations_mut().push(*operation);
+//! }
+//! let state = circuit.run(StateVector::zero(4).unwrap()).unwrap();
+//! let probabilities: Vec<f64> = state
+//!     .amplitudes()
+//!     .iter()
+//!     .map(|amplitude| amplitude.norm_sqr())
+//!     .collect();
+//! let mass: f64 = (0..16)
+//!     .filter(|index| index & 0b111 == 0b001)
+//!     .map(|index| probabilities[index])
+//!     .sum();
+//! assert!(mass > 0.99, "eigenphase of Rz(pi/2) should peak at 001");
+//! ```
+//!
+//! # Quantum chemistry (bounded scope)
+//!
+//! [`chemistry`] builds STO-3G integrals on hydrogen and helium, maps the
+//! electronic Hamiltonian to qubits with Jordan-Wigner, and solves it with
+//! ADAPT-VQE. It does not implement effective core potentials, relativistic
+//! corrections or active-space selection, so it cannot produce a
+//! first-principles iron atom. The full scope and build contract are in
+//! `docs/quantum-chemistry-spec.md` in the repository.
+//!
+//! ```
+//! use quantumforge::chemistry::{sto3g_integrals, Atom, Element};
+//! use quantumforge::chemistry::mapping::{molecular_hamiltonian, FermionMapping};
+//!
+//! let atoms = [Atom { element: Element::He, position: [0.0, 0.0, 0.0] }];
+//! let integrals = sto3g_integrals(&atoms).unwrap();
+//! let hamiltonian = molecular_hamiltonian(&integrals, FermionMapping::JordanWigner).unwrap();
+//! assert_eq!(hamiltonian.qubits(), 2);
+//! ```
+//!
 //! # Scope and limitations
 //!
 //! - State-vector memory is exponential in qubit count; density matrices
