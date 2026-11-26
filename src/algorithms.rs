@@ -7,7 +7,6 @@
 //! - Variational Quantum Eigensolver (VQE) ansatz templates
 
 use crate::{Circuit, CircuitOp, Complex64, Gate};
-use std::f64::consts::PI;
 
 /// Build a Grover's search circuit for a given oracle.
 pub fn grover_circuit(num_qubits: usize, oracle: Circuit, iterations: usize) -> Circuit {
@@ -136,6 +135,74 @@ pub fn qaoa_maxcut(
     circuit
 }
 
+/// Exact controlled phase `diag(1, 1, 1, exp(i*theta))` up to a global phase.
+fn controlled_phase(circuit: &mut Circuit, control: usize, target: usize, theta: f64) {
+    circuit.push(Gate::Rz(theta / 2.0), control);
+    circuit.push(Gate::Rz(theta / 2.0), target);
+    circuit.cnot(control, target);
+    circuit.push(Gate::Rz(-theta / 2.0), target);
+    circuit.cnot(control, target);
+}
+
+/// Exact controlled `Rz(theta)`: the control branch gets `Rz`, verified
+/// against the diagonal `1, exp(-i theta/2), 1, exp(i theta/2)`.
+fn controlled_rz(circuit: &mut Circuit, control: usize, target: usize, theta: f64) {
+    // The +theta/2 rotation must sit on the higher-indexed qubit, regardless
+    // of which qubit is the logical control; otherwise the decomposition is
+    // anti-controlled and doubles the estimated eigenphase.
+    let (high, low) = if control > target {
+        (control, target)
+    } else {
+        (target, control)
+    };
+    circuit.push(Gate::Rz(theta / 2.0), high);
+    circuit.cnot(high, low);
+    circuit.push(Gate::Rz(-theta / 2.0), low);
+    circuit.cnot(high, low);
+}
+
+/// Applies a single-qubit gate controlled by `control`.
+fn controlled_single_qubit(circuit: &mut Circuit, gate: Gate, control: usize, target: usize) {
+    match gate {
+        Gate::Z => circuit.cz(control, target),
+        Gate::X => circuit.cnot(control, target),
+        Gate::Rz(theta) => controlled_rz(circuit, control, target, theta),
+        Gate::Rx(theta) => {
+            circuit.push(Gate::H, target);
+            controlled_rz(circuit, control, target, theta);
+            circuit.push(Gate::H, target);
+        }
+        Gate::Ry(theta) => {
+            circuit.push(Gate::Sdg, target);
+            circuit.push(Gate::H, target);
+            controlled_rz(circuit, control, target, theta);
+            circuit.push(Gate::H, target);
+            circuit.push(Gate::S, target);
+        }
+        _ => {}
+    }
+}
+
+/// The exact inverse of [`qft_circuit`]: reverse the operations and negate
+/// every rotation angle.
+fn inverse_qft_circuit(num_qubits: usize) -> Circuit {
+    let forward = qft_circuit(num_qubits);
+    let mut circuit = Circuit::new();
+    for operation in forward.operations().iter().rev() {
+        match *operation {
+            crate::CircuitOp::SingleQubit { gate, target } => match gate {
+                Gate::Rz(angle) => circuit.push(Gate::Rz(-angle), target),
+                other => circuit.push(other, target),
+            },
+            crate::CircuitOp::Cnot { control, target } => circuit.cnot(control, target),
+            crate::CircuitOp::Cz { first, second } => circuit.cz(first, second),
+            crate::CircuitOp::Swap { first, second } => circuit.swap(first, second),
+            _ => {}
+        }
+    }
+    circuit
+}
+
 /// Build a QPE circuit.
 pub fn qpe_circuit(unitary: Circuit, precision_qubits: usize) -> Circuit {
     let mut circuit = Circuit::new();
@@ -145,38 +212,24 @@ pub fn qpe_circuit(unitary: Circuit, precision_qubits: usize) -> Circuit {
     }
 
     for j in 0..precision_qubits {
-        let reps = 1 << j;
-        for _ in 0..reps {
+        for _ in 0..(1 << j) {
             for op in unitary.operations() {
-                match op {
-                    crate::CircuitOp::SingleQubit { gate, target } => {
-                        circuit.push(*gate, target + precision_qubits);
-                    }
-                    crate::CircuitOp::Cnot { control, target } => {
-                        circuit.cnot(control + precision_qubits, target + precision_qubits);
-                    }
-                    crate::CircuitOp::Cz { first, second } => {
-                        circuit.cz(first + precision_qubits, second + precision_qubits);
-                    }
-                    crate::CircuitOp::Swap { first, second } => {
-                        circuit.swap(first + precision_qubits, second + precision_qubits);
-                    }
-                    _ => {}
+                if let crate::CircuitOp::SingleQubit { gate, target } = *op {
+                    controlled_single_qubit(&mut circuit, gate, j, target + precision_qubits);
                 }
             }
         }
     }
 
-    for i in 0..precision_qubits {
-        for j in 0..i {
-            let angle = -PI / 2_f64.powi((i - j) as i32);
-            circuit.push(Gate::Rz(angle), j);
-            circuit.cnot(i, j);
+    let inverse = inverse_qft_circuit(precision_qubits);
+    for operation in inverse.operations() {
+        match *operation {
+            crate::CircuitOp::SingleQubit { gate, target } => circuit.push(gate, target),
+            crate::CircuitOp::Cnot { control, target } => circuit.cnot(control, target),
+            crate::CircuitOp::Cz { first, second } => circuit.cz(first, second),
+            crate::CircuitOp::Swap { first, second } => circuit.swap(first, second),
+            _ => {}
         }
-        circuit.push(Gate::H, i);
-    }
-    for i in 0..precision_qubits / 2 {
-        circuit.swap(i, precision_qubits - 1 - i);
     }
 
     circuit
@@ -216,17 +269,18 @@ pub fn hea_ansatz(num_qubits: usize, layers: usize, params: &[f64]) -> Circuit {
 /// Quantum Fourier Transform on `num_qubits` qubits.
 pub fn qft_circuit(num_qubits: usize) -> Circuit {
     let mut circuit = Circuit::new();
+    // Qubit q is bit q of the state index. Swapping the register BEFORE the
+    // H/controlled-phase stages gives the DFT in the forward bit order;
+    // swapping afterwards instead permutes the phases and is wrong.
+    for i in 0..num_qubits / 2 {
+        circuit.swap(i, num_qubits - 1 - i);
+    }
     for i in 0..num_qubits {
         circuit.push(Gate::H, i);
         for j in i + 1..num_qubits {
             let angle = std::f64::consts::PI / (1 << (j - i)) as f64;
-            circuit.cnot(j, i);
-            circuit.push(Gate::Rz(angle), i);
-            circuit.cnot(j, i);
+            controlled_phase(&mut circuit, j, i, angle);
         }
-    }
-    for i in 0..num_qubits / 2 {
-        circuit.swap(i, num_qubits - 1 - i);
     }
     circuit
 }

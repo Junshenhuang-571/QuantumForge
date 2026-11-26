@@ -62,24 +62,25 @@
 - **`noise_model.rs` went 3/245 -> 214/245 lines covered**, measured by tarpaulin
   on this branch (`71.71%`, 12157/16952).
 
-### Known issues
-
-These two were found while writing the tests above and are **not fixed**; they
-are recorded here rather than left silent, and `qft_circuit` /
-`qpe_circuit` are deliberately untested so nothing pins the broken behaviour.
-
-- **`qft_circuit` has the wrong phases.** Its controlled-phase term is a
-  CNOT-Rz-CNOT sandwich that applies `|0><0| (x) Rz(theta) + |1><1| (x)
-  Rz(-theta)` — an *anti-controlled* rotation. Probabilities come out right
-  because the magnitudes match, so `F = rev . D^dagger . rev`: it is the
-  inverse DFT under qubit reversal. Every algorithm composed from it inherits
-  the error.
-- **`qpe_circuit` never entangles the precision register with the eigenstate.**
-  Every controlled gate it emits acts only on the target register, so the
-  measurement distribution is independent of the supplied unitary. A run with
-  `U = Rz(pi)` and a |1> eigenstate returns the uniform distribution. The
-  inverse-transform tail is also `reverse . QFT . reverse` rather than the
-  inverse DFT that resolves the encoded phase state.
+### Fixed
+- **`qft_circuit` returned the inverse DFT under a qubit reversal.** Its
+  controlled phase was a CNOT-Rz-CNOT sandwich — an anti-controlled rotation:
+  the probabilities were right, so the error was invisible to amplitude-only
+  checks, but every phase was wrong. The controlled-phase term is now an exact
+  decomposition, and the register swap is applied *before* the Hadamard and
+  phase stages, which is the ordering that produces the forward DFT for this
+  crate's bit convention. `tests/qft_qpe.rs` checks all eight three-qubit basis
+  inputs against a DFT computed directly from `exp(2*pi*i*x*y/N)`, allowing
+  only a global phase (residual below 1e-20).
+- **`qpe_circuit` never entangled the precision register with the eigenstate.**
+  It applied the unitary's gates directly to the target register, so its output
+  was independent of the unitary. Each gate is now controlled by the
+  corresponding precision qubit. The controlled-Rz decomposition had to place
+  its `+theta/2` rotation on the higher-indexed qubit regardless of which qubit
+  is the logical control; the other ordering is anti-controlled and doubles the
+  estimated eigenphase. The inverse-QFT tail is now the exact reverse of the
+  corrected QFT. Four tests in `tests/qft_qpe.rs` cover representable phases,
+  half-integer phases, and dependence on the supplied unitary.
 
 
 ### Added
